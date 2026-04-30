@@ -1,0 +1,35 @@
+{
+    "name": "ayudawp/vigia",
+    "description": "VigIA - AI Visibility, Analytics & Control. Manifest of the MCP dependencies bundled under vendor/. This file is NOT used at runtime: vigia.php loads vendor/autoload.php (a hand-written PSR-4 loader) directly. It exists so the bundled versions are discoverable and so a developer can regenerate vendor/ with `composer install` if needed. See ../CLAUDE.md for the bump playbook.",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
+    "homepage": "https://servicios.ayudawp.com",
+    "authors": [
+        {
+            "name": "Fernando Tellado",
+            "homepage": "https://ayudawp.com"
+        }
+    ],
+    "require": {
+        "php": ">=7.4",
+        "wordpress/mcp-adapter": "^0.5.0",
+        "wordpress/php-mcp-schema": "^0.1.0"
+    },
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/WordPress/mcp-adapter"
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/WordPress/php-mcp-schema"
+        }
+    ],
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "config": {
+        "optimize-autoloader": true,
+        "preferred-install": "dist",
+        "sort-packages": true
+    }
+}

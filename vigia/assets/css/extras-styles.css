@@ -1,0 +1,1474 @@
+/**
+ * VigIA - Extras Page Styles
+ *
+ * @package VigIA
+ * @since 1.2.0
+ */
+
+/* Extras wrapper */
+.vigia-extras-wrap {
+    max-width: 1400px;
+}
+
+/* ============================================================================
+   Two-column layout for Extras page
+   ============================================================================ */
+.vigia-extras-layout {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 20px;
+    align-items: start;
+}
+
+.vigia-extras-main {
+    min-width: 0;
+}
+
+/* Sidebar promotional boxes */
+.vigia-extras-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    position: sticky;
+    top: 32px;
+}
+
+.vigia-promo-box {
+    background: #fff;
+    border: 1px solid #dcdcde;
+    padding: 20px;
+}
+
+.vigia-promo-box:first-child {
+    margin-top: 44px; /* Align with content box (height of tabs) */
+}
+
+.vigia-promo-icon {
+    display: block;
+    font-size: 28px;
+    width: 28px;
+    height: 28px;
+    margin-bottom: 12px;
+    color: var(--vigia-brand);
+}
+
+.vigia-promo-box-title {
+    margin: 0 0 10px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #1d2327;
+    line-height: 1.4;
+}
+
+.vigia-promo-box-description {
+    margin: 0 0 15px;
+    font-size: 13px;
+    color: #50575e;
+    line-height: 1.5;
+}
+
+.vigia-promo-box .button {
+    display: block;
+    text-align: center;
+}
+
+/* Responsive: stack layout on smaller screens */
+@media screen and (max-width: 1200px) {
+    .vigia-extras-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .vigia-extras-sidebar {
+        position: static;
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
+
+    .vigia-promo-box {
+        flex: 1 1 280px;
+        min-width: 280px;
+    }
+}
+
+/* Tabs navigation */
+.vigia-nav-tabs {
+    margin-bottom: 0;
+    border-bottom: 1px solid #c3c4c7;
+}
+
+.vigia-extras-content {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-top: none;
+    padding: 25px;
+}
+
+/* Section styling */
+.vigia-extras-section {
+    margin-bottom: 30px;
+}
+
+.vigia-extras-section:last-child {
+    margin-bottom: 0;
+}
+
+.vigia-extras-section h2 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 10px;
+    font-size: 18px;
+    color: #1d2327;
+}
+
+.vigia-extras-section h2 .dashicons {
+    color: var(--vigia-brand, #2271b1);
+}
+
+.vigia-extras-section > .description {
+    margin: 0 0 20px;
+    color: #646970;
+}
+
+.vigia-extras-section > .description a {
+    color: #2271b1;
+}
+
+/* Section divider */
+.vigia-section-divider {
+    border: none;
+    border-top: 1px solid #dcdcde;
+    margin: 30px 0;
+}
+
+/* Robots container */
+.vigia-robots-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 25px;
+    margin-bottom: 25px;
+}
+
+@media screen and (max-width: 1024px) {
+    .vigia-robots-container {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Robots preview */
+.vigia-robots-preview h3,
+.vigia-robots-rules h3 {
+    margin: 0 0 15px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.vigia-robots-preview pre {
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    padding: 15px;
+    margin: 0 0 10px;
+    font-size: 12px;
+    line-height: 1.6;
+    max-height: 300px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.vigia-robots-preview .description a {
+    color: #2271b1;
+    text-decoration: none;
+}
+
+.vigia-robots-preview .description a:hover {
+    text-decoration: underline;
+}
+
+.vigia-robots-preview .description .dashicons {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+    vertical-align: text-bottom;
+}
+
+/* Status badges */
+.vigia-status {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.vigia-status-disallow {
+    background: #fcf0f1;
+    color: #d63638;
+}
+
+.vigia-status-allow {
+    background: #edfaef;
+    color: #00a32a;
+}
+
+.vigia-status-blocked {
+    background: #fcf0f1;
+    color: #d63638;
+}
+
+/* No rules message */
+.vigia-no-rules,
+.vigia-no-blocked {
+    color: #646970;
+    font-style: italic;
+    padding: 20px;
+    text-align: center;
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+}
+
+/* Add rule form */
+.vigia-add-rule-form,
+.vigia-add-block-form {
+    margin-top: 20px;
+    padding: 15px;
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+}
+
+.vigia-add-rule-form h4,
+.vigia-add-block-form h4 {
+    margin: 0 0 12px;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.vigia-add-rule-form .vigia-form-row,
+.vigia-add-block-form .vigia-form-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+}
+
+.vigia-add-rule-form select,
+.vigia-add-block-form select {
+    min-width: 250px;
+    height: 32px;
+}
+
+/* Compliance panel */
+.vigia-compliance-panel {
+    margin-top: 25px;
+    padding: 20px;
+    background: #fcf9e8;
+    border: 1px solid #dba617;
+    border-left-width: 4px;
+}
+
+.vigia-compliance-panel h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 10px;
+    font-size: 14px;
+    color: #996800;
+}
+
+.vigia-compliance-panel h3 .dashicons {
+    color: #996800;
+}
+
+.vigia-compliance-panel > .description {
+    margin: 0 0 15px;
+    color: #996800;
+}
+
+.vigia-non-compliant {
+    background: #fff;
+}
+
+.vigia-row-warning td {
+    background: #fff8e5 !important;
+}
+
+.vigia-already-blocked {
+    color: #646970;
+    font-size: 12px;
+    font-style: italic;
+}
+
+.vigia-compliance-ok {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #00a32a;
+    margin: 0;
+}
+
+/* Notice styles */
+.vigia-notice {
+    padding: 12px 15px;
+    margin-bottom: 20px;
+    border-left-width: 4px;
+    border-left-style: solid;
+}
+
+.vigia-notice-warning {
+    background: #fcf9e8;
+    border-color: #dba617;
+}
+
+.vigia-notice-warning p {
+    margin: 0;
+    color: #996800;
+}
+
+.vigia-notice-info {
+    background: #f0f6fc;
+    border-color: #72aee6;
+}
+
+.vigia-notice-info p {
+    margin: 0;
+    color: #1d4ed8;
+}
+
+/* Soft info panel: same look as the LLMs "estimated content" summary
+   (full thin border + radius, no left accent). Use for inline status
+   messages that are informative but should not shout. */
+.vigia-info-panel {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 12px 15px;
+    background: #f0f6fc;
+    border: 1px solid #c5d9ed;
+    border-radius: 4px;
+    font-size: 13px;
+    color: #1d2327;
+    margin-bottom: 20px;
+}
+
+.vigia-info-panel p {
+    margin: 0;
+}
+
+.vigia-info-panel .dashicons {
+    color: #2271b1;
+    flex-shrink: 0;
+}
+
+/* Email settings */
+.vigia-email-settings .form-table {
+    margin-top: 0;
+}
+
+.vigia-email-settings .form-table th {
+    width: 200px;
+    padding: 15px 10px 15px 0;
+}
+
+.vigia-email-settings .form-table td {
+    padding: 15px 10px;
+}
+
+.vigia-email-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #dcdcde;
+}
+
+/* ==========================================================================
+   LLMs Generator Styles (v1.2.0)
+   ========================================================================== */
+
+/* LLMs status */
+.vigia-llms-status {
+    margin-bottom: 25px;
+}
+
+.vigia-llms-status h3 {
+    margin: 0 0 15px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.vigia-files-grid {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 15px;
+}
+
+.vigia-file-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+}
+
+.vigia-file-card .dashicons {
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+}
+
+.vigia-file-card .dashicons-yes-alt {
+    color: #00a32a;
+}
+
+.vigia-file-card .dashicons-minus {
+    color: #a7aaad;
+}
+
+.vigia-file-exists {
+    background: #edfaef;
+    border-color: #00a32a;
+}
+
+.vigia-file-size {
+    font-size: 12px;
+    color: #646970;
+}
+
+.vigia-file-link {
+    font-size: 12px;
+    color: #2271b1;
+    text-decoration: none;
+}
+
+.vigia-file-link:hover {
+    text-decoration: underline;
+}
+
+.vigia-file-missing {
+    font-size: 12px;
+    color: #a7aaad;
+    font-style: italic;
+}
+
+.vigia-last-generated {
+    font-size: 12px;
+    color: #646970;
+    margin: 0 0 10px;
+}
+
+/* Delete buttons */
+.vigia-delete-buttons {
+    display: flex;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+/* LLMs generator form */
+.vigia-llms-generator h3 {
+    margin: 0 0 20px;
+    padding-bottom: 10px;
+    font-size: 16px;
+    font-weight: 600;
+    border-bottom: 1px solid #dcdcde;
+}
+
+/* LLMs sections */
+.vigia-llms-section {
+    margin-bottom: 25px;
+    padding-bottom: 25px;
+    border-bottom: 1px solid #f0f0f1;
+}
+
+.vigia-llms-section:last-of-type {
+    border-bottom: none;
+    margin-bottom: 20px;
+    padding-bottom: 0;
+}
+
+.vigia-llms-section h4 {
+    margin: 0 0 10px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #1d2327;
+}
+
+.vigia-llms-section h5 {
+    margin: 15px 0 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #50575e;
+}
+
+.vigia-llms-section > .description {
+    margin: 0 0 12px;
+    color: #646970;
+    font-size: 13px;
+}
+
+/* Compact form table */
+.vigia-compact-table {
+    margin: 0;
+}
+
+.vigia-compact-table th {
+    width: 150px;
+    padding: 8px 10px 8px 0;
+    vertical-align: top;
+}
+
+.vigia-compact-table td {
+    padding: 8px 10px;
+}
+
+/* Post types grid */
+.vigia-post-types-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 8px;
+}
+
+.vigia-post-type-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.vigia-post-type-item:hover {
+    background: #f0f0f1;
+    border-color: #c3c4c7;
+}
+
+.vigia-post-type-item input[type="checkbox"] {
+    margin: 0;
+}
+
+.vigia-post-type-item input[type="checkbox"]:checked + .vigia-pt-label {
+    font-weight: 600;
+}
+
+.vigia-pt-label {
+    flex-grow: 1;
+    font-size: 13px;
+}
+
+.vigia-pt-count {
+    font-size: 12px;
+    color: #646970;
+}
+
+/* Taxonomy filters - Accordion style */
+.vigia-taxonomy-filters {
+    margin-top: 15px;
+    padding: 15px;
+    background: #f9f9f9;
+    border: 1px solid #e5e5e5;
+    border-radius: 4px;
+}
+
+.vigia-taxonomy-accordion {
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    margin-bottom: 8px;
+}
+
+.vigia-taxonomy-accordion:last-child {
+    margin-bottom: 0;
+}
+
+.vigia-accordion-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s ease;
+}
+
+.vigia-accordion-header:hover {
+    background: #f6f7f7;
+}
+
+.vigia-accordion-toggle {
+    color: #646970;
+    transition: transform 0.2s ease;
+}
+
+.vigia-taxonomy-accordion.is-open .vigia-accordion-toggle {
+    transform: rotate(90deg);
+}
+
+.vigia-tax-label {
+    font-size: 13px;
+    color: #1d2327;
+}
+
+.vigia-tax-term-count {
+    color: #646970;
+    font-size: 12px;
+}
+
+.vigia-tax-selection-info {
+    margin-left: auto;
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 3px;
+}
+
+.vigia-tax-selection-info.all-included {
+    color: #1e7e34;
+    background: #d4edda;
+}
+
+.vigia-tax-selection-info.has-exclusions {
+    color: #856404;
+    background: #fff3cd;
+}
+
+.vigia-accordion-content {
+    padding: 12px;
+    border-top: 1px solid #dcdcde;
+    background: #fafafa;
+}
+
+.vigia-tax-bulk-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e5e5e5;
+}
+
+.vigia-tax-bulk-actions .button {
+    min-height: 28px;
+    line-height: 26px;
+    padding: 0 10px;
+}
+
+.vigia-tax-hint {
+    margin-left: auto;
+    font-size: 12px;
+    color: #646970;
+    font-style: italic;
+}
+
+.vigia-tax-checkboxes {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 6px 12px;
+    max-height: 250px;
+    overflow-y: auto;
+    padding: 4px;
+}
+
+.vigia-tax-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 3px;
+    transition: background 0.1s ease;
+}
+
+.vigia-tax-checkbox-label:hover {
+    background: #e8f0fe;
+}
+
+.vigia-tax-checkbox-label input[type="checkbox"] {
+    margin: 0;
+}
+
+.vigia-term-count {
+    color: #646970;
+    font-size: 11px;
+}
+
+/* Manual selector (includes/excludes) */
+.vigia-manual-selector {
+    max-width: 600px;
+}
+
+.vigia-search-input-wrap {
+    position: relative;
+    margin-bottom: 10px;
+}
+
+.vigia-ajax-search {
+    width: 100%;
+    padding: 8px 12px;
+}
+
+.vigia-search-results {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    max-height: 250px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-top: none;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    z-index: 100;
+    display: none;
+}
+
+.vigia-search-result-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid #f0f0f1;
+}
+
+.vigia-search-result-item:last-child {
+    border-bottom: none;
+}
+
+.vigia-search-result-item:hover {
+    background: #f6f7f7;
+}
+
+.vigia-result-title {
+    font-size: 13px;
+    color: #1d2327;
+}
+
+.vigia-result-type {
+    font-size: 11px;
+    color: #646970;
+    padding: 2px 8px;
+    background: #f0f0f1;
+    border-radius: 3px;
+}
+
+.vigia-no-results {
+    padding: 15px;
+    text-align: center;
+    color: #646970;
+    font-style: italic;
+}
+
+/* Selected items */
+.vigia-selected-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-height: 30px;
+}
+
+.vigia-selected-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px 4px 10px;
+    background: #f0f6fc;
+    border: 1px solid #c5d9ed;
+    border-radius: 3px;
+    font-size: 12px;
+    color: #1d2327;
+}
+
+.vigia-selected-item small {
+    color: #646970;
+}
+
+.vigia-remove-item {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: #646970;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    border-radius: 50%;
+}
+
+.vigia-remove-item:hover {
+    background: #d63638;
+    color: #fff;
+}
+
+/* Pattern excludes */
+.vigia-pattern-excludes {
+    margin-top: 15px;
+}
+
+.vigia-pattern-excludes label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 500;
+}
+
+.vigia-pattern-excludes textarea {
+    font-family: monospace;
+    font-size: 12px;
+}
+
+/* SEO integration */
+.vigia-seo-detected {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #00a32a;
+    margin-left: 10px;
+}
+
+.vigia-seo-detected .dashicons {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+}
+
+.vigia-seo-not-detected {
+    color: #646970;
+    font-style: italic;
+    margin-left: 10px;
+}
+
+/* Checkbox label */
+.vigia-checkbox-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
+.vigia-checkbox-label input[type="checkbox"] {
+    margin: 0;
+}
+
+/* Full options */
+.vigia-full-options {
+    margin-top: 10px;
+    padding: 12px 15px;
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+}
+
+.vigia-full-options label {
+    margin-right: 15px;
+    cursor: pointer;
+}
+
+/* Regeneration options */
+.vigia-regen-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+}
+
+.vigia-regen-options label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+}
+
+.vigia-next-regen {
+    margin-top: 8px;
+    font-size: 12px;
+    color: #646970;
+}
+
+/* Content summary */
+.vigia-content-summary {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 12px 15px;
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    font-size: 13px;
+    color: #646970;
+}
+
+.vigia-content-summary .dashicons {
+    color: #646970;
+    flex-shrink: 0;
+}
+
+.vigia-content-summary.has-content {
+    background: #f0f6fc;
+    border-color: #c5d9ed;
+    color: #1d2327;
+}
+
+.vigia-content-summary.has-content .dashicons {
+    color: #2271b1;
+}
+
+/* LLMs actions */
+.vigia-llms-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #dcdcde;
+}
+
+/* Tooltip */
+.vigia-tooltip-wrap {
+    position: relative;
+    display: inline-block;
+}
+
+.vigia-tooltip {
+    visibility: hidden;
+    opacity: 0;
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1d2327;
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    line-height: 1.4;
+    width: max-content;
+    max-width: 400px;
+    text-align: center;
+    z-index: 100;
+    transition: opacity 0.2s, visibility 0.2s;
+}
+
+.vigia-tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: #1d2327;
+}
+
+.vigia-tooltip-wrap:hover .vigia-tooltip {
+    visibility: visible;
+    opacity: 1;
+}
+
+.vigia-llms-actions .button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.vigia-llms-actions .button .dashicons {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    line-height: 1;
+}
+
+.vigia-llms-actions .dashicons.spinning {
+    animation: vigia-spin 1s linear infinite;
+}
+
+@keyframes vigia-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* Tables in extras */
+.vigia-extras-section table.wp-list-table {
+    border: 1px solid #c3c4c7;
+}
+
+.vigia-extras-section table.wp-list-table th {
+    background: #f6f7f7;
+}
+
+/* Blocking subsections */
+.vigia-blocking-subsection {
+    background: #f9f9f9;
+    border: 1px solid #e5e5e5;
+    padding: 15px 20px;
+}
+
+.vigia-blocking-subsection h3 {
+    margin: 0 0 15px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+/* Reset h3 margins inside pager header wrapper */
+.vigia-table-header h3 {
+    margin-bottom: 0;
+}
+
+/* Robots.txt type indicator */
+.vigia-robots-type {
+    color: #646970;
+    font-size: 12px;
+    font-style: italic;
+    margin-left: 5px;
+}
+
+/* Menu disabled state */
+.vigia-menu-disabled {
+    display: block;
+    padding: 8px 12px;
+    font-size: 12px;
+    color: #00a32a;
+    border-bottom: 1px solid #f0f0f1;
+}
+
+.vigia-menu-disabled .dashicons {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+    vertical-align: middle;
+    margin-right: 6px;
+}
+
+/* Responsive */
+@media screen and (max-width: 782px) {
+    .vigia-extras-content {
+        padding: 15px;
+    }
+
+    .vigia-email-settings .form-table th,
+    .vigia-llms-generator .form-table th,
+    .vigia-compact-table th {
+        width: auto;
+        display: block;
+        padding-bottom: 5px;
+    }
+
+    .vigia-email-settings .form-table td,
+    .vigia-llms-generator .form-table td,
+    .vigia-compact-table td {
+        display: block;
+        padding-top: 0;
+    }
+
+    .vigia-files-grid {
+        flex-direction: column;
+    }
+
+    .vigia-add-rule-form select,
+    .vigia-add-block-form select {
+        min-width: 100%;
+    }
+
+    .vigia-post-types-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .vigia-accordion-header {
+        flex-wrap: wrap;
+    }
+    
+    .vigia-tax-selection-info {
+        width: 100%;
+        margin-left: 28px;
+        margin-top: 4px;
+    }
+    
+    .vigia-tax-bulk-actions {
+        flex-wrap: wrap;
+    }
+    
+    .vigia-tax-hint {
+        width: 100%;
+        margin-left: 0;
+        margin-top: 8px;
+    }
+
+    .vigia-tax-checkboxes {
+        grid-template-columns: 1fr;
+        max-height: 200px;
+    }
+
+    .vigia-regen-options {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .vigia-llms-actions {
+        flex-direction: column;
+    }
+
+    .vigia-llms-actions .button {
+        width: 100%;
+        text-align: center;
+    }
+}
+
+/* ==========================================================================
+   Markdown for Agents Tab (v1.5.0)
+   ========================================================================== */
+
+.vigia-howto-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 15px;
+    margin-top: 10px;
+    margin-bottom: 20px;
+}
+
+.vigia-howto-item {
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    padding: 15px;
+}
+
+.vigia-howto-item strong {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 13px;
+}
+
+.vigia-howto-item .description {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.vigia-howto-item code {
+    display: block;
+    margin-top: 6px;
+    font-size: 11px;
+    word-break: break-all;
+}
+
+.vigia-markdown-settings .form-table th {
+    width: 180px;
+    padding: 12px 10px 12px 0;
+}
+
+.vigia-markdown-settings .form-table td label {
+    display: inline-block;
+    margin-bottom: 4px;
+}
+
+.vigia-markdown-actions {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #dcdcde;
+}
+
+.vigia-markdown-note {
+    border-radius: 4px;
+}
+
+@media screen and (max-width: 782px) {
+    .vigia-howto-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .vigia-markdown-settings .form-table th {
+        width: auto;
+    }
+}
+/* ============================================================================
+   JSON-LD Tab (v1.7.0)
+   ============================================================================ */
+.vigia-jsonld-generator .vigia-jsonld-section {
+    margin-bottom: 15px;
+}
+
+.vigia-jsonld-generator .vigia-jsonld-section h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 8px;
+    font-size: 14px;
+}
+
+.vigia-jsonld-generator .vigia-jsonld-section h3 label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+}
+
+.vigia-jsonld-generator .vigia-jsonld-section h3 .dashicons {
+    color: var(--vigia-brand, #2271b1);
+}
+
+/* Conflict warning */
+.vigia-jsonld-conflict {
+    margin-bottom: 20px;
+}
+
+.vigia-jsonld-conflict .dashicons {
+    vertical-align: text-bottom;
+    margin-right: 4px;
+}
+
+/* Logo field with button */
+.vigia-jsonld-logo-field {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+}
+
+.vigia-jsonld-logo-field .regular-text {
+    flex: 1;
+}
+
+/* Output page selector */
+.vigia-jsonld-generator #vigia-jsonld-output-page {
+    min-width: 300px;
+    margin-top: 8px;
+}
+
+/* Feature unavailable label */
+.vigia-feature-unavailable {
+    opacity: 0.6;
+}
+
+.vigia-feature-status {
+    font-style: italic;
+    color: #8c8f94;
+    font-weight: normal;
+}
+
+/* Actions bar */
+.vigia-jsonld-actions {
+    margin: 20px 0;
+    padding-top: 10px;
+}
+
+/* Preview code block */
+.vigia-jsonld-preview-code {
+    background: #f0f0f1;
+    border: 1px solid #dcdcde;
+    padding: 15px;
+    font-size: 12px;
+    line-height: 1.6;
+    overflow-x: auto;
+    max-height: 500px;
+    overflow-y: auto;
+    white-space: pre;
+    font-family: Consolas, Monaco, monospace;
+    margin: 10px 0 0;
+}
+
+/* Responsive */
+@media screen and (max-width: 782px) {
+    .vigia-jsonld-logo-field {
+        flex-direction: column;
+    }
+
+    .vigia-jsonld-logo-field .regular-text {
+        width: 100%;
+    }
+
+    .vigia-jsonld-generator #vigia-jsonld-output-page {
+        min-width: 100%;
+    }
+}
+
+/* MCP tab */
+.vigia-mcp-status,
+.vigia-mcp-endpoint,
+.vigia-mcp-auth,
+.vigia-mcp-clients,
+.vigia-mcp-quick-connect,
+.vigia-mcp-manual,
+.vigia-mcp-abilities,
+.vigia-mcp-readonly {
+    margin-top: 20px;
+}
+
+.vigia-mcp-status pre,
+.vigia-mcp-endpoint pre,
+.vigia-mcp-auth pre,
+.vigia-mcp-clients pre,
+.vigia-mcp-quick-connect pre,
+.vigia-mcp-manual pre,
+.vigia-mcp-readonly pre {
+    background: #f0f0f1;
+    border: 1px solid #dcdcde;
+    padding: 12px;
+    font-size: 12px;
+    line-height: 1.5;
+    overflow-x: auto;
+    font-family: Consolas, Monaco, monospace;
+    margin: 8px 0;
+}
+
+.vigia-mcp-clients h4,
+.vigia-mcp-quick-connect h4,
+.vigia-mcp-manual h4 {
+    margin: 16px 0 4px;
+}
+
+/* Quick connect command rows: pre + Copy button side by side */
+.vigia-mcp-cmd-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 8px 0;
+}
+
+.vigia-mcp-cmd-row pre {
+    flex: 1;
+    margin: 0;
+    min-width: 0;
+}
+
+.vigia-mcp-cmd-row pre code {
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.vigia-mcp-cmd-row .vigia-mcp-copy {
+    flex-shrink: 0;
+}
+
+.vigia-mcp-quick-result .notice {
+    padding: 10px 12px;
+}
+
+.vigia-mcp-manual details summary {
+    padding: 6px 0;
+    color: #2271b1;
+}
+
+.vigia-mcp-manual details[open] summary {
+    margin-bottom: 8px;
+}
+
+/* Prompt examples block (kept austere, in line with the rest of the MCP tab) */
+.vigia-mcp-prompts {
+    margin-top: 20px;
+}
+
+.vigia-mcp-prompt-examples {
+    margin: 8px 0 0 18px;
+    list-style: disc;
+}
+
+.vigia-mcp-prompt-examples li {
+    padding: 2px 0;
+    line-height: 1.5;
+}
+
+/* Read-only toggle */
+.vigia-mcp-readonly-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.vigia-mcp-readonly-toggle input[type="checkbox"] {
+    margin: 0;
+}
+
+/* "Need to merge?" link at the bottom of the result panel */
+.vigia-mcp-help-link {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid #dcdcde;
+}
+
+.vigia-mcp-help-link .dashicons {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+    vertical-align: middle;
+}
+
+/* JSON merger — keeps users from breaking their config by hand */
+.vigia-mcp-merger {
+    margin: 8px 0 12px;
+    padding: 10px 12px;
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-radius: 3px;
+}
+
+.vigia-mcp-merger summary {
+    cursor: pointer;
+    font-weight: 500;
+    color: #2271b1;
+    padding: 2px 0;
+}
+
+.vigia-mcp-merger[open] summary {
+    margin-bottom: 8px;
+}
+
+.vigia-mcp-merger-input {
+    width: 100%;
+    box-sizing: border-box;
+    font-family: Consolas, Monaco, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    padding: 8px 10px;
+    background: #fff;
+    border: 1px solid #c5c5c7;
+    border-radius: 3px;
+    resize: vertical;
+}
+
+.vigia-mcp-merger-status {
+    font-size: 12px;
+}
+
+.vigia-mcp-merger-output {
+    margin-top: 8px;
+    padding-top: 10px;
+    border-top: 1px dashed #dcdcde;
+}
+
+.vigia-mcp-abilities-list {
+    margin: 6px 0 16px 18px;
+    list-style: disc;
+}
+
+.vigia-mcp-abilities-list code {
+    font-size: 12px;
+}
+
+.vigia-mcp-pill {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 500;
+    vertical-align: middle;
+}
+
+.vigia-mcp-pill-read {
+    background: #e7f5ec;
+    color: #1d6f42;
+}
+
+.vigia-mcp-pill-write-on {
+    background: #e7f5ec;
+    color: #1d6f42;
+}
+
+.vigia-mcp-pill-write-off {
+    background: #fcf0e6;
+    color: #8a4b00;
+}

@@ -1,0 +1,1441 @@
+/**
+ * VigIA - Admin Styles
+ *
+ * @package VigIA
+ */
+
+/* CSS Variables for brand colors */
+:root {
+    --vigia-brand: #D97757;
+    --vigia-brand-light: rgba(217, 119, 87, 0.1);
+    --vigia-brand-hover: #c56646;
+}
+
+/* Main wrapper */
+.vigia-wrap {
+    max-width: 100%;
+    margin: 20px 20px 20px 0;
+    box-sizing: border-box;
+}
+
+/* Page title with icon */
+.vigia-wrap h1 {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.vigia-title-icon {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+}
+
+.vigia-title-icon img {
+    width: 32px;
+    height: 32px;
+    display: block;
+}
+
+/* Date filter */
+.vigia-date-filter {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 15px;
+    margin-bottom: 25px;
+    padding: 15px 20px;
+    background: #fff;
+    border: 1px solid #c3c4c7;
+}
+
+.vigia-date-filter-left {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.vigia-date-filter-left label {
+    font-weight: 600;
+    color: #1d2327;
+}
+
+.vigia-date-filter-left select {
+    min-width: 140px;
+}
+
+.vigia-compare-label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-left: 15px;
+    padding-left: 15px;
+    border-left: 1px solid #c3c4c7;
+    font-weight: normal !important;
+}
+
+.vigia-compare-label input[type="checkbox"] {
+    margin: 0;
+}
+
+#vigia-compare-range:disabled {
+    opacity: 0.5;
+}
+
+/* Custom date range inputs */
+.vigia-custom-dates {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: 10px;
+}
+
+.vigia-custom-dates input[type="date"] {
+    width: 140px;
+    height: 30px;
+    padding: 0 8px;
+}
+
+.vigia-date-separator {
+    color: #646970;
+}
+
+.vigia-date-filter-right {
+    display: flex;
+    align-items: center;
+}
+
+/* Export dropdown */
+.vigia-export-dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.vigia-export-dropdown #vigia-export-csv {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.vigia-export-dropdown #vigia-export-csv .dashicons-arrow-down-alt2 {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    margin-left: 2px;
+    line-height: 1;
+}
+
+.vigia-export-dropdown #vigia-export-csv .dashicons-download {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    line-height: 1;
+}
+
+.vigia-export-menu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    min-width: 180px;
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.1);
+    z-index: 100;
+}
+
+.vigia-export-menu.open {
+    display: block;
+}
+
+.vigia-export-option {
+    display: block;
+    width: 100%;
+    padding: 10px 15px;
+    border: none;
+    background: none;
+    text-align: left;
+    cursor: pointer;
+    font-size: 13px;
+    color: #1d2327;
+    transition: background-color 0.15s;
+}
+
+.vigia-export-option:hover:not(:disabled) {
+    background-color: #f0f0f1;
+}
+
+.vigia-export-option:disabled {
+    color: #a7aaad;
+    cursor: not-allowed;
+}
+
+.vigia-export-option:not(:last-child) {
+    border-bottom: 1px solid #f0f0f1;
+}
+
+/* Table header with inline pagination */
+.vigia-table-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    min-height: 32px;
+    margin-bottom: 15px;
+}
+
+.vigia-table-header h3,
+.vigia-table-header h4 {
+    margin: 0;
+    flex: 1;
+}
+
+.vigia-table-header-pager-only {
+    justify-content: flex-end;
+    margin-bottom: 5px;
+}
+
+/* Pager controls */
+.vigia-pager {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.vigia-pager-btn {
+    background: none;
+    border: 1px solid #dcdcde;
+    border-radius: 3px;
+    color: #2271b1;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 3px 7px;
+    min-width: 26px;
+    text-align: center;
+}
+
+.vigia-pager-btn:hover:not(:disabled) {
+    border-color: #2271b1;
+    color: #135e96;
+}
+
+.vigia-pager-btn:disabled {
+    color: #a7aaad;
+    border-color: #dcdcde;
+    cursor: default;
+}
+
+.vigia-pager-info {
+    color: #50575e;
+    font-size: 13px;
+    padding: 0 4px;
+}
+
+/* Bottom pager wrapper (right-aligned below table) */
+.vigia-pager-bottom-wrap {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 10px;
+}
+
+/* Stats grid */
+.vigia-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    margin-bottom: 25px;
+}
+
+.vigia-stat-card {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 15px;
+    padding: 20px;
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    transition: box-shadow 0.2s ease;
+    box-sizing: border-box;
+    min-width: 0;
+}
+
+.vigia-stat-card:hover {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.vigia-stat-icon {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    font-size: 40px;
+    line-height: 1;
+    color: var(--vigia-brand);
+}
+
+.vigia-stat-icon::before {
+    display: block;
+    width: 40px;
+    height: 40px;
+    line-height: 40px;
+    text-align: center;
+}
+
+.vigia-stat-content {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    min-width: 0;
+}
+
+.vigia-stat-value {
+    font-size: 32px;
+    font-weight: 600;
+    color: #1d2327;
+    line-height: 1;
+    margin-bottom: 4px;
+}
+
+.vigia-stat-label {
+    font-size: 11px;
+    color: #646970;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    line-height: 1.2;
+}
+
+.vigia-stat-compare {
+    font-size: 12px;
+    margin-top: 4px;
+    display: none;
+}
+
+.vigia-stat-compare.positive {
+    color: #00a32a;
+    display: block;
+}
+
+.vigia-stat-compare.negative {
+    color: #d63638;
+    display: block;
+}
+
+.vigia-stat-compare.neutral {
+    color: #646970;
+    display: block;
+}
+
+/* Charts row */
+.vigia-charts-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 20px;
+    margin-bottom: 25px;
+}
+
+.vigia-chart-container {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    padding: 20px;
+    box-sizing: border-box;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.vigia-chart-container h3 {
+    margin: 0 0 15px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #1d2327;
+}
+
+.vigia-chart-wrapper {
+    position: relative;
+    height: 300px;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.vigia-chart-small .vigia-chart-wrapper {
+    height: 220px;
+}
+
+.vigia-category-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #f0f0f1;
+}
+
+.vigia-category-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #646970;
+}
+
+.vigia-category-legend-color {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+}
+
+/* Tables row */
+.vigia-tables-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 25px;
+}
+
+.vigia-table-container {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    padding: 20px;
+    box-sizing: border-box;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.vigia-table-container h3 {
+    margin: 0 0 15px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #1d2327;
+}
+
+.vigia-table-container table {
+    border: none;
+}
+
+.vigia-table-container table th {
+    background: #f6f7f7;
+    border-bottom: 1px solid #c3c4c7;
+    padding: 10px 12px;
+    font-weight: 600;
+}
+
+.vigia-table-container table td {
+    padding: 10px 12px;
+    vertical-align: middle;
+}
+
+.vigia-table-container table .num {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.vigia-loading {
+    text-align: center;
+    color: #646970;
+    padding: 30px !important;
+}
+
+/* Category badges */
+.vigia-category-badge {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+    text-transform: uppercase;
+}
+
+/* Recent activity */
+.vigia-recent-activity {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    padding: 20px;
+    margin-bottom: 25px;
+    box-sizing: border-box;
+    min-width: 0;
+    overflow-x: auto;
+}
+
+.vigia-recent-activity h3 {
+    margin: 0 0 15px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #1d2327;
+}
+
+.vigia-recent-activity table {
+    border: none;
+}
+
+.vigia-recent-activity table th {
+    background: #f6f7f7;
+    border-bottom: 1px solid #c3c4c7;
+}
+
+/* Recent activity filters */
+.vigia-recent-filters {
+    margin-bottom: 15px;
+    padding: 15px;
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+}
+
+.vigia-filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-end;
+}
+
+.vigia-filter-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.vigia-filter-field label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #1d2327;
+}
+
+.vigia-filter-field input[type="text"],
+.vigia-filter-field input[type="date"],
+.vigia-filter-field select {
+    min-width: 140px;
+    max-width: 180px;
+    height: 32px;
+    padding: 0 8px;
+    font-size: 13px;
+}
+
+.vigia-filter-buttons {
+    flex-direction: row;
+    gap: 8px;
+    padding-bottom: 1px;
+}
+
+.vigia-filter-buttons .button-link {
+    color: #646970;
+    text-decoration: none;
+    min-height: auto;
+    padding: 4px 10px;
+}
+
+.vigia-filter-buttons .button-link:hover {
+    color: #d63638;
+}
+
+@media screen and (max-width: 1200px) {
+    .vigia-filter-field input[type="text"],
+    .vigia-filter-field input[type="date"],
+    .vigia-filter-field select {
+        min-width: 120px;
+    }
+}
+
+@media screen and (max-width: 782px) {
+    .vigia-filter-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .vigia-filter-field input[type="text"],
+    .vigia-filter-field input[type="date"],
+    .vigia-filter-field select {
+        min-width: 100%;
+        max-width: 100%;
+    }
+    
+    .vigia-filter-buttons {
+        flex-direction: row;
+        justify-content: flex-start;
+    }
+}
+
+/* Crawler list */
+.vigia-crawler-list {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    padding: 20px;
+    margin-bottom: 25px;
+}
+
+.vigia-crawler-list h3 {
+    margin: 0 0 5px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #1d2327;
+}
+
+.vigia-crawler-list .description {
+    margin: 0 0 20px;
+    color: #646970;
+}
+
+.vigia-crawler-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+}
+
+.vigia-crawler-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px;
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+}
+
+.vigia-crawler-name {
+    font-weight: 600;
+    color: #1d2327;
+}
+
+.vigia-crawler-company {
+    font-size: 12px;
+    color: #646970;
+}
+
+.vigia-crawler-category {
+    display: inline-block;
+    align-self: flex-start;
+    padding: 2px 6px;
+    border-radius: 2px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #fff;
+    text-transform: uppercase;
+}
+
+.vigia-crawler-count {
+    font-size: 12px;
+    color: #646970;
+    font-weight: normal;
+    margin-left: 5px;
+}
+
+/* Settings box */
+.vigia-settings-box {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    padding: 20px;
+    margin-bottom: 25px;
+}
+
+.vigia-settings-box h3 {
+    margin: 0 0 20px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #1d2327;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.vigia-settings-box h3 .dashicons {
+    color: var(--vigia-brand);
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+}
+
+.vigia-settings-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 30px;
+}
+
+.vigia-setting {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.vigia-setting > label {
+    font-weight: 500;
+    color: #1d2327;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.vigia-setting > label input[type="checkbox"] {
+    margin: 0;
+}
+
+.vigia-setting .description {
+    font-size: 12px;
+    color: #646970;
+    margin: 0;
+}
+
+.vigia-setting-buttons {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+}
+
+.vigia-setting-buttons .button-link-delete {
+    color: #b32d2e;
+}
+
+.vigia-setting-buttons .button-link-delete:hover {
+    color: #a00;
+}
+
+/* Collapsible sections */
+.vigia-collapsible .vigia-collapsible-header {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    padding: 0 0 15px;
+    user-select: none;
+}
+
+.vigia-collapsible .vigia-collapsible-header .dashicons {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+    color: #646970;
+    transition: transform 0.2s ease;
+}
+
+.vigia-collapsible.collapsed .vigia-collapsible-header {
+    padding-bottom: 0;
+}
+
+.vigia-collapsible .vigia-collapsible-content {
+    transition: max-height 0.3s ease;
+    overflow: hidden;
+}
+
+/* Custom crawlers section */
+.vigia-custom-crawlers {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    padding: 20px;
+    margin-bottom: 25px;
+}
+
+.vigia-custom-crawlers h3 {
+    margin: 0 0 5px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #1d2327;
+}
+
+.vigia-custom-crawlers > .description {
+    margin: 0 0 20px;
+    color: #646970;
+}
+
+.vigia-custom-crawler-form {
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    padding: 15px;
+    margin-bottom: 20px;
+}
+
+.vigia-form-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 15px;
+}
+
+.vigia-form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.vigia-form-field label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #1d2327;
+}
+
+.vigia-form-field input[type="text"] {
+    min-width: 150px;
+}
+
+.vigia-form-field select {
+    min-width: 120px;
+}
+
+.vigia-form-field-button {
+    margin-left: auto;
+}
+
+.vigia-custom-crawlers-list table {
+    margin-top: 0;
+}
+
+.vigia-custom-crawlers-list table th,
+.vigia-custom-crawlers-list table td {
+    padding: 10px 12px;
+    vertical-align: middle;
+}
+
+.vigia-custom-crawlers-list table th {
+    background: #f6f7f7;
+    border-bottom: 1px solid #c3c4c7;
+    font-weight: 600;
+    text-align: left;
+}
+
+.vigia-custom-crawlers-list table code {
+    font-size: 12px;
+    background: #f0f0f1;
+    padding: 2px 6px;
+}
+
+.vigia-custom-crawlers-list .column-actions {
+    width: 100px;
+    text-align: left;
+}
+
+.vigia-no-custom-crawlers {
+    color: #646970;
+    font-style: italic;
+    margin: 0;
+}
+
+/* Promotional notice - 3 columns layout */
+.vigia-promo-notice {
+    background: #f6f7f7;
+    border: 1px solid #c3c4c7;
+    padding: 20px;
+    margin-top: 10px;
+}
+
+.vigia-promo-notice > h4 {
+    margin: 0 0 20px;
+    font-size: 15px;
+    font-weight: 600;
+    color: #1d2327;
+}
+
+.vigia-promo-columns {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 25px;
+}
+
+.vigia-promo-column {
+    background: #fff;
+    border: 1px solid #dcdcde;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+}
+
+.vigia-promo-column > .dashicons {
+    font-size: 28px;
+    width: 28px;
+    height: 28px;
+    color: var(--vigia-brand);
+    margin-bottom: 12px;
+}
+
+.vigia-promo-column h5 {
+    margin: 0 0 10px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #1d2327;
+    line-height: 1.4;
+}
+
+.vigia-promo-column p {
+    margin: 0 0 15px;
+    color: #50575e;
+    font-size: 13px;
+    line-height: 1.5;
+    flex-grow: 1;
+}
+
+.vigia-promo-column .button {
+    align-self: flex-start;
+    white-space: normal;
+    height: auto;
+    min-height: auto;
+    line-height: 1.4;
+    padding: 6px 12px;
+    text-align: center;
+}
+
+@media screen and (max-width: 1200px) {
+    .vigia-promo-columns {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media screen and (max-width: 782px) {
+    .vigia-promo-columns {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Dashboard widget styles */
+.vigia-widget-stats {
+    display: flex;
+    justify-content: space-around;
+    padding: 15px 0;
+    margin-bottom: 15px;
+    border-bottom: 1px solid #f0f0f1;
+}
+
+.vigia-widget-stat {
+    text-align: center;
+}
+
+.vigia-widget-stat-value {
+    display: block;
+    font-size: 24px;
+    font-weight: 600;
+    color: #1d2327;
+    line-height: 1.2;
+}
+
+.vigia-widget-stat-label {
+    font-size: 11px;
+    color: #646970;
+    text-transform: uppercase;
+}
+
+.vigia-widget h4 {
+    margin: 0 0 10px;
+    font-size: 13px;
+    color: #1d2327;
+}
+
+.vigia-widget-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.vigia-widget-list li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid #f0f0f1;
+}
+
+.vigia-widget-list li:last-child {
+    border-bottom: none;
+}
+
+.vigia-widget-crawler-name {
+    flex: 1;
+    font-weight: 500;
+}
+
+.vigia-widget-crawler-category {
+    padding: 2px 6px;
+    border-radius: 2px;
+    font-size: 9px;
+    font-weight: 600;
+    color: #fff;
+    text-transform: uppercase;
+}
+
+.vigia-widget-crawler-count {
+    font-weight: 600;
+    color: var(--vigia-brand);
+}
+
+.vigia-widget-empty {
+    text-align: center;
+    color: #646970;
+    padding: 20px 0;
+}
+
+.vigia-widget-footer {
+    margin: 15px 0 0;
+    padding-top: 15px;
+    border-top: 1px solid #f0f0f1;
+    text-align: right;
+}
+
+.vigia-widget-footer a {
+    text-decoration: none;
+    font-weight: 500;
+}
+
+/* Widget title icon */
+.vigia-widget-title-icon {
+    width: 20px;
+    height: 20px;
+    vertical-align: middle;
+    margin-right: 6px;
+}
+
+/* Widget sparkline */
+.vigia-widget-sparkline {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 40px;
+    margin: 10px 0;
+}
+
+.vigia-widget-sparkline-bar {
+    flex: 1;
+    background: var(--vigia-brand);
+    min-height: 2px;
+    border-radius: 1px 1px 0 0;
+    opacity: 0.8;
+}
+
+.vigia-widget-sparkline-bar:hover {
+    opacity: 1;
+}
+
+/* Responsive */
+@media screen and (max-width: 1200px) {
+    .vigia-charts-row {
+        grid-template-columns: 1fr;
+    }
+    
+    .vigia-tables-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media screen and (max-width: 960px) {
+    .vigia-stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media screen and (max-width: 782px) {
+    .vigia-date-filter {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .vigia-date-filter-left {
+        width: 100%;
+    }
+    
+    .vigia-date-filter-right {
+        width: 100%;
+    }
+    
+    .vigia-date-filter-right .button {
+        width: 100%;
+        text-align: center;
+    }
+    
+    .vigia-compare-label {
+        margin-left: 0;
+        padding-left: 0;
+        border-left: none;
+        margin-top: 10px;
+        width: 100%;
+    }
+    
+    .vigia-stats-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .vigia-crawler-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+    
+    .vigia-settings-row {
+        flex-direction: column;
+        gap: 20px;
+    }
+    
+    .vigia-setting-buttons {
+        margin-left: 0;
+        width: 100%;
+        justify-content: flex-start;
+    }
+}
+
+@media screen and (max-width: 480px) {
+    .vigia-crawler-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Dashboard Widget Styles */
+.vigia-widget-stats {
+    display: flex;
+    justify-content: space-around;
+    text-align: center;
+    padding: 10px 0 15px;
+    border-bottom: 1px solid #eee;
+    margin-bottom: 15px;
+}
+
+.vigia-widget-stat-value {
+    display: block;
+    font-size: 24px;
+    font-weight: 600;
+    color: #1d2327;
+    line-height: 1.2;
+}
+
+.vigia-widget-stat-label {
+    font-size: 12px;
+    color: #646970;
+    text-transform: uppercase;
+}
+
+.vigia-widget h4 {
+    margin: 0 0 8px;
+    font-size: 13px;
+    color: #1d2327;
+}
+
+.vigia-widget .vigia-widget-sparkline {
+    display: block !important;
+    margin-bottom: 15px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #eee;
+    width: 100%;
+}
+
+.vigia-widget .vigia-widget-sparkline h4 {
+    display: block !important;
+    float: none !important;
+    margin: 0 0 10px !important;
+    padding: 0 !important;
+    font-size: 13px;
+    width: 100%;
+}
+
+.vigia-widget .vigia-sparkline-container {
+    display: flex !important;
+    align-items: flex-end;
+    gap: 3px;
+    height: 40px;
+    width: 100%;
+}
+
+.vigia-widget .vigia-sparkline-bar {
+    flex: 1;
+    background: #D97757;
+    border-radius: 2px 2px 0 0;
+    min-height: 2px;
+    min-width: 8px;
+    transition: opacity 0.2s;
+}
+
+.vigia-widget .vigia-sparkline-bar:hover {
+    opacity: 0.8;
+}
+
+.vigia-widget .vigia-sparkline-labels {
+    display: flex !important;
+    justify-content: space-between;
+    width: 100%;
+    margin-top: 5px;
+    margin-bottom: 10px;
+    font-size: 11px;
+    color: #888;
+}
+
+.vigia-widget > h4,
+.vigia-widget-section-title {
+    margin: 0 0 10px !important;
+    padding: 0 !important;
+    font-size: 13px;
+    color: #1d2327;
+}
+
+.vigia-widget-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.vigia-widget-list li {
+    display: flex;
+    align-items: center;
+    padding: 6px 0;
+    border-bottom: 1px solid #f0f0f1;
+}
+
+.vigia-widget-list li:last-child {
+    border-bottom: none;
+}
+
+.vigia-widget-crawler-name {
+    flex: 1;
+    font-weight: 500;
+}
+
+.vigia-widget-crawler-category {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: #fff;
+    margin-right: 10px;
+}
+
+.vigia-widget-crawler-count {
+    font-weight: 600;
+    color: #D97757;
+}
+
+.vigia-widget-footer {
+    margin: 15px 0 0;
+    padding-top: 10px;
+    border-top: 1px solid #eee;
+}
+
+.vigia-widget-footer a {
+    text-decoration: none;
+}
+
+.vigia-widget-empty {
+    color: #646970;
+    font-style: italic;
+    margin: 10px 0;
+}
+
+/* ==========================================================================
+   VigIA 1.1.0 - Additional styles for blocking actions
+   ========================================================================== */
+
+/* Actions column in tables - wider for dropdown */
+.vigia-actions-col {
+    width: 110px;
+    min-width: 110px;
+    text-align: center;
+}
+
+#vigia-recent-table .vigia-actions-col {
+    width: 110px;
+    min-width: 110px;
+}
+
+/* Block dropdown */
+.vigia-block-dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+/* Action button base styles */
+.vigia-action-btn {
+    padding: 6px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border-radius: 3px;
+    transition: all 0.15s ease;
+    min-width: 70px;
+    height: 32px;
+    box-sizing: border-box;
+}
+
+.vigia-action-btn .dashicons {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    line-height: 1;
+    vertical-align: middle;
+}
+
+.vigia-action-btn .dashicons-arrow-down-alt2 {
+    font-size: 12px;
+    width: 12px;
+    height: 12px;
+    line-height: 1;
+    margin-left: -2px;
+}
+
+/* Default state - no rules applied (blue/neutral) */
+.vigia-action-btn:not(.vigia-btn-disallow):not(.vigia-btn-blocked):not(.vigia-btn-full) {
+    color: #2271b1;
+    border-color: #2271b1;
+    background: #f6f7f7;
+}
+
+.vigia-action-btn:not(.vigia-btn-disallow):not(.vigia-btn-blocked):not(.vigia-btn-full):hover {
+    background: #f0f0f1;
+    border-color: #0a4b78;
+    color: #0a4b78;
+}
+
+/* Disallow only state - orange/warning */
+.vigia-action-btn.vigia-btn-disallow {
+    color: #996800;
+    border-color: #dba617;
+    background: #fcf9e8;
+}
+
+.vigia-action-btn.vigia-btn-disallow:hover {
+    background: #f5efd4;
+    border-color: #996800;
+}
+
+/* PHP blocked state (UA or IP) - red */
+.vigia-action-btn.vigia-btn-blocked {
+    color: #d63638;
+    border-color: #d63638;
+    background: #fcf0f1;
+}
+
+.vigia-action-btn.vigia-btn-blocked:hover {
+    background: #f5e1e2;
+    border-color: #a41e1e;
+}
+
+/* Fully blocked state - dark/complete */
+.vigia-action-btn.vigia-btn-full {
+    color: #50575e;
+    border-color: #8c8f94;
+    background: #dcdcde;
+}
+
+.vigia-action-btn.vigia-btn-full:hover {
+    background: #c3c4c7;
+    border-color: #50575e;
+}
+
+.vigia-block-menu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 2px;
+    min-width: 160px;
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.15);
+    z-index: 100;
+}
+
+.vigia-block-menu.open {
+    display: block;
+}
+
+.vigia-block-menu button {
+    display: block;
+    width: 100%;
+    padding: 8px 12px;
+    border: none;
+    background: none;
+    text-align: left;
+    cursor: pointer;
+    font-size: 12px;
+    color: #1d2327;
+    transition: background-color 0.15s;
+}
+
+.vigia-block-menu button:hover {
+    background-color: #f0f0f1;
+}
+
+.vigia-block-menu button:not(:last-child) {
+    border-bottom: 1px solid #f0f0f1;
+}
+
+.vigia-block-menu button .dashicons {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+    vertical-align: middle;
+    margin-right: 6px;
+    color: #646970;
+}
+
+/* Blocked status indicator */
+.vigia-blocked-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: #d63638;
+    font-weight: 500;
+}
+
+.vigia-blocked-indicator .dashicons {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+}
+
+/* Blocked via robots.txt */
+.vigia-robots-indicator {
+    color: #dba617;
+}
+
+
+/* Block menu disabled items */
+.vigia-menu-disabled {
+    display: block;
+    width: 100%;
+    padding: 8px 12px;
+    background: #f6f7f7;
+    text-align: left;
+    font-size: 12px;
+    color: #50575e;
+    border-bottom: 1px solid #f0f0f1;
+}
+
+.vigia-menu-disabled:last-child {
+    border-bottom: none;
+}
+
+.vigia-menu-disabled .dashicons {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+    vertical-align: middle;
+    margin-right: 6px;
+    color: #00a32a;
+}
+
+/* ==========================================================================
+   VigIA 1.3.0 - Period indicators and table pagination
+   ========================================================================== */
+
+/* Period indicator in section titles */
+.vigia-period-indicator {
+    font-weight: 400;
+    font-size: 12px;
+    color: #646970;
+    margin-left: 8px;
+}
+
+/* Chart container titles with period indicator */
+.vigia-chart-container h3,
+.vigia-table-container h3 {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+/* AI Share & Summarize tip notice */
+.vigia-aiss-tip {
+    margin-top: 0 !important;
+    margin-bottom: 20px !important;
+}

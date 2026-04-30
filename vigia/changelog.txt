@@ -1,0 +1,233 @@
+VigIA — Full changelog
+
+For each release, see the entries below. The latest version is always at the top.
+The current release notes also live in readme.txt under "== Changelog ==".
+
+= 1.12.1 =
+* Fix: Fatal error "Cannot redeclare WP\MCP\constants()" when both VigIA and the standalone `mcp-adapter` plugin are active. VigIA now skips its bundled adapter bootstrap if the standalone copy has already been loaded
+
+= 1.12.0 =
+* NEW: One-click MCP setup. The MCP Adapter and php-mcp-schema dependencies now ship bundled inside the plugin, so the server is active right after install — no `composer install` and no terminal required
+* NEW: "Quick connect" panel in VigIA > Extras > MCP that generates a dedicated `VigIA MCP` Application Password and renders ready-to-paste connection commands for Claude Code, Cursor, Claude Desktop and a generic block (URL + Authorization header) that fits any other MCP client (Codex CLI, Continue, Cline, Antigravity, Zed, etc.)
+* NEW: Safe JSON merger for Cursor and Claude Desktop. Paste your current config file, the plugin parses it, splices VigIA into `mcpServers` preserving everything else (preferences, other servers) and returns a valid file ready to save back, with no manual comma juggling
+* NEW: Detection and revocation flow for an existing `VigIA MCP` Application Password directly from the MCP tab
+* NEW: "What can I ask my AI now?" section in the MCP tab with example prompts so users immediately see what the connection unlocks
+* NEW: Read-only mode is now a one-click toggle in the MCP tab (option `vigia_mcp_read_only`). The `vigia_can_write_via_abilities` filter still works for developers who prefer to force it from code and takes precedence over the toggle
+* Changed: Claude Desktop snippet now launches `mcp-remote` via `npx` as a stdio-to-HTTP bridge (the only way Claude Desktop can currently talk to a remote HTTP MCP server). Requires Node.js installed on the machine. Claude Code and Cursor speak HTTP MCP natively and need no bridge
+* Changed: Manual setup snippets moved into a collapsed "Manual setup (advanced)" block to avoid competing with Quick connect; inactive-server message now references a missing `vendor/` directory instead of a missing Composer install
+* Fix: `vigia/get-blocked-items`, `vigia/get-top-pages` and `vigia/block-crawler` abilities were calling non-existent methods and returned a 500 when invoked. They now resolve correctly and the output surfaces fields that were being discarded (`name` for blocked items, `crawler_count` for top pages)
+
+= 1.11.0 =
+* NEW: Native MCP server that exposes VigIA abilities at /wp-json/vigia/v1/mcp through the official WordPress MCP Adapter, ready to plug into Claude Code, Cursor or Claude Desktop
+* NEW: MCP tab in VigIA > Extras with adapter status, endpoint URL, Application Password setup, connection snippets for Claude Code, Cursor and Claude Desktop, list of exposed abilities and the read-only mode snippet
+* NEW: Filter `vigia_can_write_via_abilities` to disable mutating abilities (block, unblock, robots changes) while keeping read-only abilities working - useful when granting MCP access with Application Passwords
+* Fix: `vigia/block-crawler` now validates IP addresses with FILTER_VALIDATE_IP, matching the behavior of the AJAX blocking handler
+* Performance: results of `vigia/get-crawler-stats`, `vigia/get-top-crawlers` and `vigia/get-top-pages` are now cached for 5 minutes via transients to keep MCP clients from hammering the database
+* Changed: Version history moved to a dedicated changelog.txt file served from the plugin's public SVN, keeping readme.txt focused on the current release
+* Dev: introduced composer.json declaring the optional `wordpress/mcp-adapter` dependency
+
+= 1.10.2 =
+* Fix: Removed stray whitespace before PHP opening tag in class-visibility-analyzer.php that caused "headers already sent" warnings and could break other plugins functionality
+
+= 1.10.1 =
+* Fixed: AI Visibility Analyzer now detects sitemaps.xml (plural) in addition to sitemap.xml, sitemap_index.xml and wp-sitemap.xml
+
+= 1.10.0 =
+* Added: NoIndexer plugin integration for llms.txt generator, Markdown endpoints, and AI Visibility Analyzer
+* Added: Posts marked as noindex by NoIndexer are now automatically excluded from llms.txt and .md endpoints
+* Added: NoIndexer detection displayed in LLMs.txt Generator settings alongside SEO plugin detection
+* Added: NoIndexer detection and recommendation in AI Visibility Analyzer
+* Added: NoIndexer to promotional banner catalog
+* Updated: Periscope plugin renamed from Periscopio in promotional banner catalog
+
+= 1.9.5 =
+* Tested up to WordPress 7.0
+* Updated: Promotional banner catalog with latest plugins and services
+
+= 1.9.4 =
+* Added: Google-Agent, PetalBot, and Applebot crawlers to built-in detection list
+* Improved: Table headers now display "URL" instead of "Page" for clarity
+* Improved: Better contextual links in Extras page (FAQ reference for blocking, updated Markdown for Agents documentation)
+
+= 1.9.3 =
+* Improved: AI Visibility Analyzer now distinguishes between perfect (Excellent, green) and good (Good, blue) scores for clearer visual feedback at a glance (Props to @fpuenteonline)
+
+= 1.9.2 =
+* Fix - Robots.txt: fixed VigIA rules merging with existing content from other plugins (e.g., Sitemap lines) due to missing line breaks
+
+= 1.9.1 =
+* Improved: Bottom pagination controls added to recent activity table for easier navigation on long lists
+* Fixed: Blocking a crawler from recent activity no longer resets pagination to page 1
+
+= 1.9.0 =
+* NEW: Client-side paginated navigation replaces "Load more" buttons across all tables
+* NEW: Reusable VigiaPaginator component with first/prev/next/last arrows and range indicator (e.g., 1–10 of 85)
+* NEW: Analytics page tables: Top crawlers (10/page), Most crawled pages (10/page), Recent activity (20/page), Custom crawlers (5/page)
+* NEW: Extras page tables: Disallow rules, Compliance check, Blocked User-Agents, Blocked IPs (5/page each)
+* NEW: Arrows only shown when multiple pages exist, range always visible
+* Improved: Remove/Unblock actions in Extras page now update inline without page reload (smooth fade animation)
+* Improved: Add Disallow rule in Extras page now inserts row and updates robots.txt preview without reload
+* Improved: Block via PHP from compliance panel updates button state without reload
+* Improved: Pagination automatically recalculates when rows are added or removed
+* Improved: Top crawlers and top pages now load all results in a single request (client-side pagination)
+
+= 1.8.1 =
+* NEW: Clickable URLs in the Recent Activity table (opens in new tab, matching Top Pages behavior)
+* NEW: Neutral "info" status icon for checks that are not applicable (e.g., no images on page, share buttons on homepage)
+* NEW: Periscopio plugin added to the promotional banner catalog
+* Improved: Visibility Score banner redesigned with outlined style - subtle tinted backgrounds and colored text instead of solid color blocks
+* Improved: WordPress 7.0 compatibility for all button styles (dashicons alignment in Generate, Export CSV, Clear, Home, and Re-analyze buttons)
+* Improved: WordPress 7.0 compatibility for promotional banner buttons (min-height override)
+* Improved: AI Share & Summarize recommendation now appears on homepage analysis when plugin is not installed or active
+* Improved: Image alt text check shows neutral "info" status when no images are found instead of a misleading green pass
+* Improved: AI share buttons check shows neutral "info" status on homepage instead of a misleading green pass
+* Fixed: Comparison chart not updating when changing period with comparison enabled
+* Fixed: Image alt text parser incorrectly matched `data-wp-bind--alt` (WordPress Interactivity API) as real alt attributes
+* Fixed: Image alt text parser now correctly counts `alt=""` (empty alt for decorative images) as valid
+* Fixed: Removed dead CSS rule for export button icon (vertical-align inside flex container)
+
+= 1.8.0 =
+* NEW: AI Visibility Analyzer - 100-point scoring system with letter grades (A+ to F)
+* NEW: 20 individual checks across 5 weighted categories
+* NEW: Access & AI Discovery checks (37 pts): robots.txt, AI bot directives, Content Signals, llms.txt, llms-full.txt, sitemap, RSS feed, noai meta
+* NEW: Structured Data & Semantic Context checks (25 pts): JSON-LD types, Open Graph, Twitter Cards, meta description, canonical URL, language
+* NEW: Content Structure & Readability checks (20 pts): H1, heading hierarchy, semantic HTML5, image alt text, content/HTML ratio, JS independence
+* NEW: AI Interaction & Distribution checks (8 pts): markdown delivery, AI share buttons
+* NEW: Access Performance checks (10 pts): TTFB measurement with tiered scoring
+* NEW: Smart recommendations with 4 tiers: VigIA features, AyudaWP plugins, inactive plugins, third-party SEO
+* NEW: URL autocomplete selector to analyze any page on your site (posts, pages, custom post types)
+* NEW: Results cached for 24 hours with manual re-analyze option
+* NEW: AI Score link in plugin action links (plugins page)
+* NEW: Dedicated VigIA > AI Score admin page
+
+= 1.7.0 =
+* NEW: JSON-LD structured data generator with Site Identity and AI Discovery sections
+* NEW: Site Identity - WebSite and Organization/Person schema with sameAs social profiles
+* NEW: AI Discovery - ReadAction pointers to llms.txt, llms-full.txt, and Markdown for Agents endpoints
+* NEW: SearchAction support for Google sitelinks search box
+* NEW: Media library integration for JSON-LD logo selection
+* NEW: JSON-LD conflict detection warns when SEO plugins already generate WebSite/Organization schema
+* NEW: JSON-LD output page selector (front page or any published page)
+* NEW: Live JSON-LD preview with real-time updates
+* NEW: JSON-LD automatically detects available LLMs.txt and Markdown for Agents features
+* NEW: JSON-LD tab in Extras page
+
+= 1.6.1 =
+* Improved: New plugin suggestion added.
+
+= 1.6.0 =
+* NEW: AI Share & Summarize integration - see share button clicks per page in the Most Crawled Pages table
+* NEW: Clickable URLs in the Most Crawled Pages table (opens in new tab)
+* NEW: Cross-plugin promotion tip for AI Share & Summarize (dismissible)
+* Improved: Most Crawled Pages table dynamically shows Clicks column when AI Share & Summarize is active
+* Fixed: Action button icons and dropdown arrow now properly centered vertically
+
+= 1.5.0 =
+* NEW: Markdown for Agents - serve individual posts as optimized markdown for AI agents
+* NEW: Dedicated .md URL endpoints for each post and page
+* NEW: Accept: text/markdown content negotiation support
+* NEW: Discoverability via link rel="alternate" HTML tags and Link HTTP headers
+* NEW: YAML frontmatter with full post metadata (title, date, author, categories, tags, image, language)
+* NEW: X-Markdown-Tokens response header
+* NEW: Respects LLMs.txt exclusion filters (noindex, URL patterns, manual excludes)
+* NEW: Blocked crawlers receive 403 on markdown endpoints too
+* NEW: Analytics integration tracks markdown requests from known crawlers
+* NEW: Configurable post type selection for markdown endpoints
+* NEW: New "Markdown for Agents" tab in Extras page
+* Follows the Cloudflare Markdown for Agents standard
+
+= 1.4.1 =
+* Fixed: Abilities API category registration error on WordPress 6.9+
+* Improved: Abilities API initialization method for better compatibility
+* Improved: Dynamic promotional banners with random plugin and service rotation
+
+= 1.4.0 =
+* NEW: WordPress Abilities API integration (requires WordPress 6.9+)
+* NEW: 9 abilities for AI agents and automation tools
+* NEW: Analytics abilities: get-crawler-stats, get-top-crawlers, get-top-pages
+* NEW: Blocking abilities: get-blocked-items, block-crawler, unblock-crawler
+* NEW: Robots.txt abilities: get-robots-rules, add-robots-disallow, remove-robots-rule
+* NEW: Custom ability category "AI Crawler Analytics" for better discoverability
+* Improved: Graceful degradation for WordPress versions below 6.9
+
+= 1.3.0 =
+* NEW: Period indicator in dynamic section titles (timeline, categories, crawlers, pages)
+* NEW: "Load more" pagination in Top crawlers and Top pages tables (10 items per load, up to 100)
+* NEW: Showing counter display (e.g. "Showing 10 of 47")
+* Improved: Plugin recommendation boxes now available on Extras page
+* Fixed: Shortcodes from page builders and common plugins now display as clean text in llms.txt files
+
+= 1.2.9 =
+* Fixed: robots.txt Disallow rules now work correctly with physical robots.txt files (Yoast SEO and other plugins that create physical files)
+* Improved: AI crawler rules are now synced to physical robots.txt automatically when adding or removing rules
+
+= 1.2.8 =
+* Fixed: UTF-8 encoding issues in llms.txt and llms-full.txt files (special characters like accents now display correctly in all browsers)
+
+= 1.2.7 =
+* Fixed: "Learn more" link is now translatable
+
+= 1.2.6 =
+* Fixed: LLMs.txt Generator now correctly adds robots.txt references when saving and generating
+* Improved: Simplified LLMs.txt Generator to single "Save and generate" button for clearer workflow
+* Updated: "Learn more" link now points to AyudaWP documentation
+
+= 1.2.5 =
+* Fixed: Responsive layout issues with charts and content boxes overflowing on smaller screens
+* Improved: Better breakpoint handling for stats grid and charts adaptation
+
+= 1.2.4 =
+* Fixed: Renamed duplicate "VigIA" submenu to "Analytics" for better navigation clarity
+
+= 1.2.3 =
+* Fixed: Activation notice now properly dismisses when closed on the plugins page
+
+= 1.2.2 =
+* Improved: Added PHPCS ignore comments for intentional direct database queries (cache bypass)
+* Improved: Added translator comments for all placeholder strings in LLMs generator
+
+= 1.2.1 =
+* Fix: LLMs.txt generator now correctly handles taxonomy filters for each post type
+* Fix: Taxonomy filters (categories, tags) no longer incorrectly exclude pages or other post types
+* Fix: Resolved object cache conflicts on hosts with Memcached/Redis (SiteGround, etc.)
+* Fix: Settings now persist correctly after saving and regenerating
+* Fix: Robots.txt references only added when llms files actually exist
+* Fix: Robots.txt integration reads fresh data bypassing object cache
+* Improved: Added "Save settings" button to save options without generating files
+* Improved: Direct database queries for settings to avoid cache inconsistencies
+* Improved: Better boolean normalization for checkbox values
+
+= 1.2.0 =
+* NEW: Redesigned LLMs.txt generator with improved content selection
+* NEW: Select content by post type (posts, pages, custom post types)
+* NEW: Filter content by taxonomies (categories, tags, custom taxonomies)
+* NEW: Manual include with AJAX-powered search
+* NEW: Manual exclude with AJAX-powered search
+* NEW: Exclude content by URL patterns with wildcard support
+* NEW: SEO plugin integration - auto-exclude noindex content
+* NEW: Supported SEO plugins: Yoast, Rank Math, AIOSEO, SEOPress, The SEO Framework
+* NEW: Auto-regeneration options (daily, weekly, monthly)
+* NEW: Add llms.txt and llms-full.txt references to robots.txt
+* Improved: Scalable architecture for sites with thousands of posts
+* Improved: Better UI/UX for content selection
+
+= 1.1.1 =
+* Fix: Version dump to improve texts.
+
+= 1.1.0 =
+* NEW: PHP-based crawler blocking (403 Forbidden response)
+* NEW: Robots.txt management for AI crawlers
+* NEW: Compliance monitoring (detect crawlers ignoring robots.txt)
+* NEW: Email alerts system (daily/weekly/monthly reports)
+* NEW: LLMs.txt and llms-full.txt file generator
+* NEW: Extras page with all new management tools
+* NEW: Quick block dropdown in crawlers table
+* Improved: Block actions directly from analytics dashboard
+
+= 1.0.0 =
+* Initial release
+* AI crawler detection and tracking
+* Analytics dashboard with charts
+* CSV data export
+* Custom crawler support
+* Dashboard widget

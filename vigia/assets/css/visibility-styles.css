@@ -1,0 +1,541 @@
+/**
+ * VigIA AI Visibility Styles
+ *
+ * Styles for the AI Visibility Score page.
+ * All classes prefixed with vigia-vis- to avoid conflicts.
+ *
+ * @package VigIA
+ * @since   1.8.0
+ */
+
+ /* Page wrapper */
+.vigia-vis-wrap {
+	max-width: 1400px;
+}
+
+/* Intro */
+.vigia-vis-intro {
+	margin: 12px 0 20px;
+	max-width: 720px;
+}
+
+.vigia-vis-intro p {
+	font-size: 14px;
+	color: #50575e;
+	line-height: 1.6;
+}
+
+/* Two-column layout */
+.vigia-vis-layout {
+	display: grid;
+	grid-template-columns: 1fr 300px;
+	gap: 20px;
+	align-items: start;
+}
+
+.vigia-vis-main {
+	min-width: 0;
+}
+
+.vigia-vis-sidebar {
+	display: flex;
+	flex-direction: column;
+	gap: 15px;
+	position: sticky;
+	top: 32px;
+	margin-top: 80px;
+}
+
+.vigia-vis-sidebar .vigia-promo-box:first-child {
+	margin-top: 0;
+}
+
+/* URL Selector */
+.vigia-vis-url-selector {
+	margin-bottom: 24px;
+	padding: 16px;
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+}
+
+.vigia-vis-url-field {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.vigia-vis-url-field label {
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+.vigia-vis-url-wrapper {
+	position: relative;
+	flex: 1;
+	min-width: 280px;
+}
+
+.vigia-vis-url-wrapper input {
+	width: 100%;
+}
+
+.vigia-vis-url-selector .description {
+	margin-top: 8px;
+}
+
+/* Button icon alignment */
+#vigia-vis-home-btn,
+#vigia-vis-reanalyze-btn,
+#vigia-vis-analyze-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+}
+
+#vigia-vis-home-btn .dashicons,
+#vigia-vis-reanalyze-btn .dashicons {
+	font-size: 18px;
+	width: 18px;
+	height: 18px;
+	line-height: 1;
+}
+
+/* Autocomplete dropdown */
+.vigia-vis-autocomplete {
+	position: absolute;
+	top: 100%;
+	left: 0;
+	right: 0;
+	z-index: 100;
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-top: 0;
+	border-radius: 0 0 4px 4px;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+	max-height: 300px;
+	overflow-y: auto;
+}
+
+.vigia-vis-ac-item {
+	padding: 8px 12px;
+	cursor: pointer;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	border-bottom: 1px solid #f0f0f1;
+}
+
+.vigia-vis-ac-item:last-child {
+	border-bottom: 0;
+}
+
+.vigia-vis-ac-item:hover {
+	background: #f0f0f1;
+}
+
+.vigia-vis-ac-title {
+	font-weight: 500;
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.vigia-vis-ac-type {
+	font-size: 12px;
+	color: #757575;
+	margin-left: 12px;
+	background: #f0f0f1;
+	padding: 2px 8px;
+	border-radius: 3px;
+	white-space: nowrap;
+}
+
+/* Loading state */
+.vigia-vis-loading {
+	display: flex;
+	align-items: center;
+	padding: 24px;
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+	font-size: 14px;
+	color: #50575e;
+}
+
+/* Score banner */
+.vigia-vis-banner {
+	padding: 32px 24px 24px;
+	border-radius: 4px;
+	border: 2px solid;
+	margin-bottom: 20px;
+	text-align: center;
+	background: #fff;
+}
+
+.vigia-vis-banner.vigia-vis-excellent {
+	background: #f7fdf9;
+	border-color: #1a5e3a;
+	color: #1d2327;
+}
+
+.vigia-vis-banner.vigia-vis-ok {
+	background: #f6f8fc;
+	border-color: #1a4a8a;
+	color: #1d2327;
+}
+
+.vigia-vis-banner.vigia-vis-warning {
+	background: #fffcf6;
+	border-color: #cb7621;
+	color: #1d2327;
+}
+
+.vigia-vis-banner.vigia-vis-danger {
+	background: #fef8f8;
+	border-color: #ab0213;
+	color: #1d2327;
+}
+
+/* Hero: grade + score + message */
+.vigia-vis-banner-hero {
+	margin-bottom: 16px;
+}
+
+.vigia-vis-hero-circle {
+	display: inline-flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	width: 120px;
+	height: 120px;
+	border: 3px solid currentColor;
+	border-radius: 50%;
+	margin: 0 auto 16px;
+}
+
+.vigia-vis-excellent .vigia-vis-hero-circle {
+	border-color: #1a5e3a;
+}
+
+.vigia-vis-ok .vigia-vis-hero-circle {
+	border-color: #1a4a8a;
+}
+
+.vigia-vis-warning .vigia-vis-hero-circle {
+	border-color: #cb7621;
+}
+
+.vigia-vis-danger .vigia-vis-hero-circle {
+	border-color: #ab0213;
+}
+
+.vigia-vis-hero-grade {
+	font-size: 36px;
+	font-weight: 800;
+	line-height: 1;
+}
+
+.vigia-vis-excellent .vigia-vis-hero-grade {
+	color: #1a5e3a;
+}
+
+.vigia-vis-ok .vigia-vis-hero-grade {
+	color: #1a4a8a;
+}
+
+.vigia-vis-warning .vigia-vis-hero-grade {
+	color: #cb7621;
+}
+
+.vigia-vis-danger .vigia-vis-hero-grade {
+	color: #ab0213;
+}
+
+.vigia-vis-hero-score {
+	font-size: 16px;
+	font-weight: 700;
+	line-height: 1.2;
+	margin-bottom: 0;
+	color: #1d2327;
+}
+
+.vigia-vis-hero-score small {
+	font-size: 13px;
+	font-weight: 400;
+	color: #646970;
+}
+
+.vigia-vis-hero-message {
+	font-size: 14px;
+	line-height: 1.5;
+	color: #50575e;
+}
+
+/* Meta bar: page type + TTFB */
+.vigia-vis-banner-meta {
+	font-size: 12px;
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+	color: #646970;
+}
+
+.vigia-vis-meta-sep {
+	margin: 0 8px;
+	opacity: 0.4;
+}
+
+/* Re-analyze area */
+.vigia-vis-reanalyze {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin-bottom: 20px;
+}
+
+.vigia-vis-cache-info {
+	font-size: 12px;
+	color: #757575;
+}
+
+/* Accordions */
+.vigia-vis-accordion {
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+	margin-bottom: 8px;
+}
+
+.vigia-vis-accordion-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	width: 100%;
+	padding: 14px 16px;
+	border: 0;
+	background: transparent;
+	cursor: pointer;
+	text-align: left;
+	font-size: 14px;
+	color: #1d2327;
+}
+
+.vigia-vis-accordion-header:hover {
+	background: #f9f9f9;
+}
+
+.vigia-vis-accordion-title {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex: 1;
+}
+
+.vigia-vis-accordion-arrow {
+	font-size: 10px;
+	color: #757575;
+	width: 16px;
+	display: inline-block;
+}
+
+.vigia-vis-accordion-name {
+	font-weight: 600;
+}
+
+.vigia-vis-accordion-summary {
+	font-size: 13px;
+	color: #757575;
+	white-space: nowrap;
+}
+
+/* Status badges */
+.vigia-vis-status-badge {
+	display: inline-block;
+	font-size: 11px;
+	font-weight: 600;
+	padding: 2px 10px;
+	border-radius: 3px;
+	text-transform: uppercase;
+	letter-spacing: 0.3px;
+}
+
+.vigia-vis-status-badge.vigia-vis-excellent {
+	background: #e6f7f0;
+	color: #1a5e3a;
+}
+
+.vigia-vis-status-badge.vigia-vis-ok {
+	background: #e0eaf7;
+	color: #1a4a8a;
+}
+
+.vigia-vis-status-badge.vigia-vis-warning {
+	background: #fef3d0;
+	color: #6e4b0a;
+}
+
+.vigia-vis-status-badge.vigia-vis-danger {
+	background: #fde2e2;
+	color: #721c24;
+}
+
+/* Accordion body */
+.vigia-vis-accordion-body {
+	padding: 0 16px 16px;
+	border-top: 1px solid #f0f0f1;
+}
+
+/* Individual checks */
+.vigia-vis-check {
+	padding: 10px 0;
+	border-bottom: 1px solid #f0f0f1;
+}
+
+.vigia-vis-check:last-child {
+	border-bottom: 0;
+}
+
+.vigia-vis-check-header {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.vigia-vis-check-icon {
+	flex-shrink: 0;
+	line-height: 1;
+	display: flex;
+}
+
+.vigia-vis-check-label {
+	flex: 1;
+	font-weight: 500;
+	font-size: 13px;
+}
+
+.vigia-vis-check-points {
+	font-size: 12px;
+	color: #757575;
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+.vigia-vis-check-detail {
+	margin-top: 4px;
+	margin-left: 24px;
+	font-size: 12px;
+	color: #757575;
+	line-height: 1.5;
+}
+
+/* Recommendations */
+.vigia-vis-recommendations {
+	margin-top: 24px;
+	padding: 20px;
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-radius: 4px;
+}
+
+.vigia-vis-recommendations h3 {
+	margin: 0 0 16px;
+	font-size: 15px;
+	color: #1d2327;
+}
+
+.vigia-vis-rec {
+	padding: 12px 16px;
+	border-bottom: 1px solid #f0f0f1;
+}
+
+.vigia-vis-rec:last-child {
+	border-bottom: 0;
+}
+
+.vigia-vis-rec-text {
+	margin: 0 0 8px;
+	font-size: 13px;
+	line-height: 1.5;
+	color: #50575e;
+}
+
+/* Reference section */
+.vigia-vis-reference {
+	margin-top: 24px;
+}
+
+.vigia-vis-reference-toggle {
+	background: transparent;
+	border: 0;
+	cursor: pointer;
+	font-size: 13px;
+	color: #2271b1;
+	padding: 4px 0;
+}
+
+.vigia-vis-reference-toggle:hover {
+	color: #135e96;
+}
+
+.vigia-vis-toggle-icon {
+	font-size: 10px;
+	margin-right: 4px;
+}
+
+.vigia-vis-reference-content {
+	margin-top: 12px;
+	display: flex;
+	gap: 16px;
+	align-items: flex-start;
+}
+
+.vigia-vis-reference-content table {
+	flex: 1;
+	min-width: 0;
+	font-size: 13px;
+}
+
+/* Responsive */
+@media screen and (max-width: 782px) {
+	.vigia-vis-url-field {
+		flex-direction: column;
+		align-items: stretch;
+	}
+
+	.vigia-vis-url-field label {
+		margin-bottom: 4px;
+	}
+
+	.vigia-vis-url-wrapper {
+		min-width: auto;
+	}
+
+	.vigia-vis-hero-grade {
+		font-size: 44px;
+	}
+
+	.vigia-vis-hero-score {
+		font-size: 22px;
+	}
+
+	.vigia-vis-accordion-header {
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 4px;
+	}
+
+	.vigia-vis-accordion-summary {
+		margin-left: 24px;
+	}
+
+	.vigia-vis-layout {
+		grid-template-columns: 1fr;
+	}
+
+	.vigia-vis-sidebar {
+		position: static;
+		margin-top: 0;
+	}
+}
