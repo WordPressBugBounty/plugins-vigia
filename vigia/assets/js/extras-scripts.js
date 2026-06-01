@@ -1083,6 +1083,12 @@
                 postTypes.push($(this).val());
             });
 
+            // Collect selected taxonomies
+            var taxonomies = [];
+            $('input[name="vigia_md_taxonomies[]"]').filter(':checked').each(function() {
+                taxonomies.push($(this).val());
+            });
+
             $.ajax({
                 url: vigiaData.ajaxUrl,
                 method: 'POST',
@@ -1095,7 +1101,8 @@
                     enable_link_header: $('#vigia-md-link-header').is(':checked') ? 'true' : 'false',
                     enable_link_tag: $('#vigia-md-link-tag').is(':checked') ? 'true' : 'false',
                     respect_llms_filters: $('#vigia-md-respect-llms').is(':checked') ? 'true' : 'false',
-                    post_types: postTypes
+                    post_types: postTypes,
+                    taxonomies: taxonomies
                 },
                 success: function(response) {
                     if (response.success) {

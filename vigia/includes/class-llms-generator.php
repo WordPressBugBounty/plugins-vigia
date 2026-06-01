@@ -114,7 +114,12 @@ class VigIA_LLMS_Generator {
             )
         );
 
-        $settings = $row ? maybe_unserialize( $row ) : array();
+        $settings = array();
+        if ( $row ) {
+            // Decode without allowing object instantiation (guards against PHP object injection).
+            $decoded  = is_serialized( $row ) ? unserialize( $row, array( 'allowed_classes' => false ) ) : $row;
+            $settings = is_array( $decoded ) ? $decoded : array();
+        }
         $settings = self::normalize_settings( $settings );
 
         // Defaults for empty values.
@@ -578,7 +583,10 @@ class VigIA_LLMS_Generator {
         }
 
         if ( ! empty( $config['is_array'] ) ) {
-            $meta = is_array( $meta ) ? $meta : maybe_unserialize( $meta );
+            if ( ! is_array( $meta ) ) {
+                // Decode without allowing object instantiation (guards against PHP object injection).
+                $meta = is_serialized( $meta ) ? unserialize( $meta, array( 'allowed_classes' => false ) ) : $meta;
+            }
             return is_array( $meta ) && in_array( $config['noindex'], $meta, true );
         }
 
@@ -630,6 +638,7 @@ class VigIA_LLMS_Generator {
                 $args = array(
                     'post_type'      => sanitize_key( $post_type ),
                     'post_status'    => 'publish',
+                    'has_password'   => false,
                     'posts_per_page' => -1,
                     'fields'         => 'ids',
                 );
@@ -688,7 +697,7 @@ class VigIA_LLMS_Generator {
         $filtered = array();
         foreach ( $post_ids as $id ) {
             $post = get_post( $id );
-            if ( ! $post || 'publish' !== $post->post_status ) {
+            if ( ! $post || 'publish' !== $post->post_status || '' !== $post->post_password ) {
                 continue;
             }
 
@@ -1401,6 +1410,7 @@ class VigIA_LLMS_Generator {
             $args = array(
                 'post_type'      => $pt,
                 'post_status'    => 'publish',
+                'has_password'   => false,
                 'posts_per_page' => -1,
                 'fields'         => 'ids',
             );

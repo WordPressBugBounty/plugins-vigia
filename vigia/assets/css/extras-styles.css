@@ -564,6 +564,51 @@
     color: #646970;
 }
 
+/* Markdown for Agents — taxonomy selector (v2.0.0) */
+.vigia-md-tax-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 16px;
+    margin-top: 6px;
+}
+
+.vigia-md-tax-grid label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0;
+    line-height: 1.5;
+}
+
+.vigia-md-tax-slug {
+    font-size: 11px;
+    color: #50575e;
+    background: #f0f0f1;
+    padding: 1px 5px;
+    border-radius: 2px;
+}
+
+.vigia-md-tax-details {
+    margin-top: 6px;
+}
+
+.vigia-md-tax-details > summary {
+    cursor: pointer;
+    padding: 4px 0;
+    font-weight: 500;
+    color: #2271b1;
+}
+
+.vigia-md-tax-details[open] > summary {
+    margin-bottom: 6px;
+}
+
+@media (max-width: 782px) {
+    .vigia-md-tax-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* Taxonomy filters - Accordion style */
 .vigia-taxonomy-filters {
     margin-top: 15px;

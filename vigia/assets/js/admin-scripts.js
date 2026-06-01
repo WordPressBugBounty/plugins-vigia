@@ -309,12 +309,53 @@ window.VigiaPaginator = (function($) {
         // Recent activity filter handlers
         $('#vigia-filter-apply').on('click', applyRecentFilters);
         $('#vigia-filter-clear').on('click', clearRecentFilters);
-        
+        $('#vigia-filter-export').on('click', exportFilteredRecent);
+
         // Apply filters on Enter key
-        $('.vigia-recent-filters input').on('keypress', function(e) {
+        $('.vigia-recent-filters input, .vigia-recent-filters select').on('keypress', function(e) {
             if (e.which === 13) {
                 applyRecentFilters();
             }
+        });
+
+        // Server-side pager controls (4 buttons mirroring VigiaPaginator).
+        $(document).on('click', '.vigia-recent-pager-first', function() {
+            fetchRecentPage(recentFilters, 1);
+        });
+        $(document).on('click', '.vigia-recent-pager-prev', function() {
+            var p = Math.max(1, recentPagination.page - 1);
+            fetchRecentPage(recentFilters, p);
+        });
+        $(document).on('click', '.vigia-recent-pager-next', function() {
+            var p = Math.min(Math.max(1, recentPagination.total_pages), recentPagination.page + 1);
+            fetchRecentPage(recentFilters, p);
+        });
+        $(document).on('click', '.vigia-recent-pager-last', function() {
+            fetchRecentPage(recentFilters, Math.max(1, recentPagination.total_pages));
+        });
+
+        // Crawlers multiselect — open/close panel.
+        $(document).on('click', '#vigia-filter-crawlers .vigia-multiselect-toggle', function(e) {
+            e.stopPropagation();
+            populateCrawlerOptions();
+            var $multi = $('#vigia-filter-crawlers');
+            var $panel = $multi.find('.vigia-multiselect-panel');
+            var willOpen = $panel.prop('hidden');
+            $panel.prop('hidden', !willOpen);
+            $(this).attr('aria-expanded', willOpen ? 'true' : 'false');
+        });
+
+        // Close multiselect when clicking outside.
+        $(document).on('click', function(e) {
+            if (!$(e.target).closest('#vigia-filter-crawlers').length) {
+                $('#vigia-filter-crawlers .vigia-multiselect-panel').prop('hidden', true);
+                $('#vigia-filter-crawlers .vigia-multiselect-toggle').attr('aria-expanded', 'false');
+            }
+        });
+
+        // Update label as user toggles crawler checkboxes (no fetch yet — wait for Apply).
+        $(document).on('change', '#vigia-filter-crawlers .vigia-multiselect-options input[type=checkbox]', function() {
+            updateCrawlerToggleLabel();
         });
 
         // Init paginator for custom crawlers table (PHP-rendered)
@@ -906,43 +947,128 @@ window.VigiaPaginator = (function($) {
     }
 
     /**
-     * Recent activity data storage
+     * Recent activity — server-side pagination and filters (v2.0.0)
+     *
+     * State:
+     *  - recentFilters: object with the currently applied filters.
+     *  - recentPagination: page/per_page/total/total_pages from the last response.
+     *  - recentPageCache: cache of the last few rendered pages (key = filters+page).
+     *  - recentRequestSeq: monotonic counter to discard stale AJAX responses.
      */
-    var recentActivityData = [];
-    var recentFilteredData = [];
+    var recentFilters = { crawlers: [], category: '', content_type: '', http_status: '', date_from: '', date_to: '' };
+    var recentPagination = { page: 1, per_page: 20, total: 0, total_pages: 0 };
+    var recentPageCache = {};
+    var recentRequestSeq = 0;
+    var crawlerOptionsLoaded = false;
 
-    /**
-     * Load recent activity table
-     */
+    function filtersCacheKey(filters, page) {
+        return [
+            (filters.crawlers || []).slice().sort().join('|'),
+            filters.category || '',
+            filters.content_type || '',
+            filters.http_status || '',
+            filters.date_from || '',
+            filters.date_to || '',
+            page
+        ].join('::');
+    }
+
+    function activeFilterCount() {
+        var count = 0;
+        if (recentFilters.crawlers && recentFilters.crawlers.length) count++;
+        if (recentFilters.category) count++;
+        if (recentFilters.content_type) count++;
+        if (recentFilters.http_status) count++;
+        if (recentFilters.date_from || recentFilters.date_to) count++;
+        return count;
+    }
+
+    function updateActiveFilterBadge() {
+        var $badge = $('#vigia-filter-badge');
+        var n = activeFilterCount();
+        if (n === 0) {
+            $badge.prop('hidden', true).text('');
+            $('#vigia-filter-export').prop('disabled', true);
+            return;
+        }
+        var template = n === 1
+            ? (vigiaData.strings.filterBadgeSingular || '%d active filter')
+            : (vigiaData.strings.filterBadgePlural || '%d active filters');
+        $badge.prop('hidden', false).text(template.replace('%d', n));
+        $('#vigia-filter-export').prop('disabled', false);
+    }
+
+    function buildRecentRequestParams(filters, page) {
+        var params = {
+            page: page,
+            per_page: recentPagination.per_page
+        };
+        if (filters.crawlers && filters.crawlers.length) {
+            params.crawlers = filters.crawlers;
+        }
+        if (filters.category) params.category = filters.category;
+        if (filters.content_type) params.content_type = filters.content_type;
+        if (filters.http_status) params.http_status = filters.http_status;
+        if (filters.date_from) params.date_from = filters.date_from;
+        if (filters.date_to) params.date_to = filters.date_to;
+        return params;
+    }
+
     function loadRecent(preservePage) {
-        var $tbody = $('#vigia-recent-table tbody');
-        $tbody.html('<tr class="vigia-no-data"><td colspan="5" class="vigia-loading">' + vigiaData.strings.loading + '</td></tr>');
+        var page = preservePage ? recentPagination.page : 1;
+        fetchRecentPage(recentFilters, page);
+    }
 
-        apiRequest('recent', {}, function(data) {
-            recentActivityData = data;
-            recentFilteredData = data;
-            renderRecentTable(preservePage);
+    function fetchRecentPage(filters, page) {
+        var $tbody = $('#vigia-recent-table tbody');
+        var cacheKey = filtersCacheKey(filters, page);
+
+        if (recentPageCache[cacheKey]) {
+            renderRecentTable(recentPageCache[cacheKey]);
+            return;
+        }
+
+        $tbody.html('<tr class="vigia-no-data"><td colspan="6" class="vigia-loading">' + vigiaData.strings.loading + '</td></tr>');
+
+        var mySeq = ++recentRequestSeq;
+        apiRequest('recent', buildRecentRequestParams(filters, page), function(data) {
+            // Discard stale responses if a newer request was fired meanwhile.
+            if (mySeq !== recentRequestSeq) return;
+
+            // Server returns either an array (legacy) or a paged object.
+            if (Array.isArray(data)) {
+                data = { items: data, total: data.length, page: 1, per_page: data.length, total_pages: 1 };
+            }
+
+            recentPagination = {
+                page: data.page || 1,
+                per_page: data.per_page || recentPagination.per_page,
+                total: data.total || 0,
+                total_pages: data.total_pages || 0
+            };
+
+            // Cache up to 3 page snapshots; drop oldest first.
+            var keys = Object.keys(recentPageCache);
+            if (keys.length >= 3) delete recentPageCache[keys[0]];
+            recentPageCache[cacheKey] = data;
+
+            renderRecentTable(data);
         });
     }
 
-    /**
-     * Render recent activity table with client-side pagination
-     *
-     * @param {boolean} [preservePage] Keep current page after reload (e.g. block action).
-     */
-    function renderRecentTable(preservePage) {
+    function renderRecentTable(data) {
         var $tbody = $('#vigia-recent-table tbody');
+        var items = (data && data.items) ? data.items : [];
+        var typeLabels = (vigiaData.strings.contentTypeLabels) || {};
 
-        if (recentFilteredData.length === 0) {
-            $tbody.html('<tr class="vigia-no-data"><td colspan="6" class="vigia-loading">' + vigiaData.strings.noData + '</td></tr>');
-            if (recentPaginator) {
-                recentPaginator.refresh();
-            }
+        if (items.length === 0) {
+            $tbody.html('<tr class="vigia-no-data"><td colspan="8" class="vigia-loading">' + vigiaData.strings.noData + '</td></tr>');
+            renderRecentPager();
             return;
         }
 
         var html = '';
-        recentFilteredData.forEach(function(row) {
+        items.forEach(function(row) {
             var categoryLabel = vigiaDataCategories.labels[row.crawler_category] || row.crawler_category;
             var categoryColor = vigiaDataCategories.colors[row.crawler_category] || '#95a5a6';
             var path = row.request_path || '/';
@@ -950,11 +1076,17 @@ window.VigiaPaginator = (function($) {
             var ip = row.ip_address || '-';
             var actionsHtml = getActionsDropdownHTML(row.crawler_name, ip);
 
+            var contentType = row.content_type || 'other';
+            var contentTypeLabel = typeLabels[contentType] || contentType;
+            var httpStatus = row.http_status || '';
+
             html += '<tr>';
             html += '<td><strong>' + escapeHtml(row.crawler_name) + '</strong></td>';
             html += '<td><span class="vigia-category-badge" style="background-color:' + categoryColor + '">' + escapeHtml(categoryLabel) + '</span></td>';
             var fullUrl = vigiaData.siteUrl + path;
             html += '<td title="' + escapeHtml(path) + '"><a href="' + escapeHtml(fullUrl) + '" target="_blank" rel="noopener noreferrer"><code>' + escapeHtml(truncatedPath) + '</code></a></td>';
+            html += '<td class="vigia-content-type vigia-content-type-' + escapeHtml(contentType) + '">' + escapeHtml(contentTypeLabel) + '</td>';
+            html += '<td class="vigia-http-status vigia-http-' + escapeHtml(String(httpStatus).charAt(0)) + 'xx">' + escapeHtml(String(httpStatus)) + '</td>';
             html += '<td><code>' + escapeHtml(ip) + '</code></td>';
             html += '<td>' + escapeHtml(row.visit_date) + '</td>';
             html += '<td class="vigia-actions-col">' + actionsHtml + '</td>';
@@ -962,69 +1094,147 @@ window.VigiaPaginator = (function($) {
         });
 
         $tbody.html(html);
-
-        if (!recentPaginator) {
-            recentPaginator = new VigiaPaginator({
-                table: '#vigia-recent-table',
-                pageSize: 20,
-                pager: '#vigia-recent-pager',
-                pagerBottom: '#vigia-recent-pager-bottom'
-            });
-        }
-        if (!preservePage) {
-            recentPaginator.currentPage = 1;
-        }
-        recentPaginator.refresh();
+        renderRecentPager();
     }
 
-    /**
-     * Apply filters to recent activity
-     */
-    function applyRecentFilters() {
-        var crawlerFilter = $('#vigia-filter-crawler').val().toLowerCase();
-        var categoryFilter = $('#vigia-filter-category').val();
-        var pageFilter = $('#vigia-filter-page').val().toLowerCase();
-        var ipFilter = $('#vigia-filter-ip').val().toLowerCase();
-        var dateFilter = $('#vigia-filter-date').val();
+    function renderRecentPager() {
+        var $pagers = $('#vigia-recent-pager, #vigia-recent-pager-bottom');
 
-        recentFilteredData = recentActivityData.filter(function(row) {
-            // Crawler filter
-            if (crawlerFilter && row.crawler_name.toLowerCase().indexOf(crawlerFilter) === -1) {
-                return false;
-            }
-            // Category filter
-            if (categoryFilter && row.crawler_category !== categoryFilter) {
-                return false;
-            }
-            // Page filter
-            if (pageFilter && (!row.request_path || row.request_path.toLowerCase().indexOf(pageFilter) === -1)) {
-                return false;
-            }
-            // IP filter
-            if (ipFilter && (!row.ip_address || row.ip_address.toLowerCase().indexOf(ipFilter) === -1)) {
-                return false;
-            }
-            // Date filter
-            if (dateFilter && row.visit_date.indexOf(dateFilter) === -1) {
-                return false;
-            }
-            return true;
+        var total = recentPagination.total;
+        var page = recentPagination.page;
+        var perPage = recentPagination.per_page;
+        var totalPages = Math.max(1, recentPagination.total_pages);
+
+        if (total === 0) {
+            $pagers.empty();
+            return;
+        }
+
+        var first = ((page - 1) * perPage) + 1;
+        var last = Math.min(page * perPage, total);
+
+        var rangeStr = (vigiaData.strings.pagerRange || '%1$s–%2$s of %3$s')
+            .replace('%1$s', first)
+            .replace('%2$s', last)
+            .replace('%3$s', total);
+
+        var atStart = page <= 1;
+        var atEnd   = page >= totalPages;
+        var singlePage = totalPages <= 1;
+
+        // Mirror VigiaPaginator's markup so styling stays consistent across tables.
+        var html = '<button type="button" class="vigia-pager-btn vigia-recent-pager-first" title="' + escapeHtml(vigiaData.strings.first || 'First') + '"' + (atStart ? ' disabled' : '') + (singlePage ? ' style="display:none"' : '') + '>&laquo;</button>' +
+            '<button type="button" class="vigia-pager-btn vigia-recent-pager-prev" title="' + escapeHtml(vigiaData.strings.previous || 'Previous') + '"' + (atStart ? ' disabled' : '') + (singlePage ? ' style="display:none"' : '') + '>&lsaquo;</button>' +
+            '<span class="vigia-pager-info">' + escapeHtml(rangeStr) + '</span>' +
+            '<button type="button" class="vigia-pager-btn vigia-recent-pager-next" title="' + escapeHtml(vigiaData.strings.next || 'Next') + '"' + (atEnd ? ' disabled' : '') + (singlePage ? ' style="display:none"' : '') + '>&rsaquo;</button>' +
+            '<button type="button" class="vigia-pager-btn vigia-recent-pager-last" title="' + escapeHtml(vigiaData.strings.last || 'Last') + '"' + (atEnd ? ' disabled' : '') + (singlePage ? ' style="display:none"' : '') + '>&raquo;</button>';
+
+        $pagers.html(html);
+    }
+
+    function readRecentFiltersFromUI() {
+        var crawlers = [];
+        $('#vigia-filter-crawlers .vigia-multiselect-options input[type=checkbox]:checked').each(function() {
+            crawlers.push($(this).val());
         });
-
-        renderRecentTable();
+        return {
+            crawlers: crawlers,
+            category: $('#vigia-filter-category').val() || '',
+            content_type: $('#vigia-filter-content-type').val() || '',
+            http_status: $('#vigia-filter-http-status').val() || '',
+            date_from: $('#vigia-filter-date-from').val() || '',
+            date_to: $('#vigia-filter-date-to').val() || ''
+        };
     }
 
-    /**
-     * Clear recent activity filters
-     */
+    function applyRecentFilters() {
+        recentFilters = readRecentFiltersFromUI();
+        recentPageCache = {}; // Invalidate cache on filter change.
+        updateActiveFilterBadge();
+        updateCrawlerToggleLabel();
+        fetchRecentPage(recentFilters, 1);
+    }
+
     function clearRecentFilters() {
-        $('#vigia-filter-crawler').val('');
+        $('#vigia-filter-crawlers .vigia-multiselect-options input[type=checkbox]').prop('checked', false);
         $('#vigia-filter-category').val('');
-        $('#vigia-filter-page').val('');
-        $('#vigia-filter-ip').val('');
-        $('#vigia-filter-date').val('');
-        recentFilteredData = recentActivityData;
-        renderRecentTable();
+        $('#vigia-filter-content-type').val('');
+        $('#vigia-filter-http-status').val('');
+        $('#vigia-filter-date-from').val('');
+        $('#vigia-filter-date-to').val('');
+        recentFilters = { crawlers: [], category: '', content_type: '', http_status: '', date_from: '', date_to: '' };
+        recentPageCache = {};
+        updateActiveFilterBadge();
+        updateCrawlerToggleLabel();
+        fetchRecentPage(recentFilters, 1);
+    }
+
+    function exportFilteredRecent() {
+        if (activeFilterCount() === 0) return;
+        var params = $.extend({}, buildRecentRequestParams(recentFilters, 1));
+        delete params.page;
+        delete params.per_page;
+
+        // Signal to the server that this export came from the "Export filtered
+        // CSV" button so it always uses the filtered filename and the
+        // "Activity (filtered)" header label, even when only a date range
+        // happens to be set (no other filters would still feel like a filter
+        // to the user because they clicked the filtered-export button).
+        params.mode = 'filtered';
+
+        var $btn = $('#vigia-filter-export');
+        $btn.prop('disabled', true);
+
+        apiRequest('export', params, function(data) {
+            $btn.prop('disabled', false);
+            if (!data || !data.content) return;
+            var blob = new Blob([data.content], { type: 'text/csv;charset=utf-8' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = data.filename || 'vigia-filtered.csv';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+    }
+
+    function updateCrawlerToggleLabel() {
+        var $label = $('#vigia-filter-crawlers .vigia-multiselect-label');
+        var selected = $('#vigia-filter-crawlers .vigia-multiselect-options input[type=checkbox]:checked');
+        var allLabel = vigiaData.strings.allCrawlers || 'All crawlers';
+        if (selected.length === 0) {
+            $label.text(allLabel);
+        } else if (selected.length === 1) {
+            $label.text(selected.val());
+        } else {
+            var template = vigiaData.strings.crawlersSelected || '%d crawlers selected';
+            $label.text(template.replace('%d', selected.length));
+        }
+    }
+
+    function populateCrawlerOptions() {
+        if (crawlerOptionsLoaded) return;
+        crawlerOptionsLoaded = true;
+        apiRequest('crawlers', { limit: 100, offset: 0 }, function(response) {
+            var $container = $('#vigia-filter-crawlers .vigia-multiselect-options');
+            var items = (response && response.items) ? response.items : (Array.isArray(response) ? response : []);
+            if (!items || items.length === 0) {
+                $container.html('<p class="description">' + escapeHtml(vigiaData.strings.noData) + '</p>');
+                return;
+            }
+            var html = '';
+            items.forEach(function(row) {
+                var name = row.crawler_name || row.name || '';
+                if (!name) return;
+                html += '<label class="vigia-multiselect-option">';
+                html += '<input type="checkbox" value="' + escapeHtml(name) + '"> ';
+                html += escapeHtml(name);
+                html += '</label>';
+            });
+            $container.html(html);
+        });
     }
 
     /**

@@ -51,15 +51,16 @@ class VigIA_Admin_Page {
         $end_date   = gmdate( 'Y-m-d' );
         $start_date = gmdate( 'Y-m-d', strtotime( '-30 days' ) );
 
-        $stats             = VigIA_Database::get_stats( $start_date, $end_date );
-        $category_labels   = VigIA_Crawler_Detector::get_category_labels();
-        $category_colors   = VigIA_Crawler_Detector::get_category_colors();
-        $settings          = VigIA_Settings::get_settings();
-        $retention_options = VigIA_Settings::get_retention_options();
-        $custom_crawlers   = VigIA_Settings::get_custom_crawlers();
-        $crawlers_collapsed = ! empty( $settings['crawlers_box_collapsed'] );
-        $blocked_crawlers  = VigIA_Blocker::get_blocked_crawlers();
-        $robots_rules      = VigIA_Robots_Manager::get_ai_rules();
+        $stats               = VigIA_Database::get_stats( $start_date, $end_date );
+        $category_labels     = VigIA_Crawler_Detector::get_category_labels();
+        $category_colors     = VigIA_Crawler_Detector::get_category_colors();
+        $content_type_labels = VigIA_Rest_API::get_localized_content_type_labels();
+        $settings            = VigIA_Settings::get_settings();
+        $retention_options   = VigIA_Settings::get_retention_options();
+        $custom_crawlers     = VigIA_Settings::get_custom_crawlers();
+        $crawlers_collapsed  = ! empty( $settings['crawlers_box_collapsed'] );
+        $blocked_crawlers    = VigIA_Blocker::get_blocked_crawlers();
+        $robots_rules        = VigIA_Robots_Manager::get_ai_rules();
 
         // Get blocked crawler names for quick lookup.
         $blocked_names = array_column( $blocked_crawlers, 'name' );
@@ -264,9 +265,17 @@ class VigIA_Admin_Page {
 
                 <div class="vigia-recent-filters">
                     <div class="vigia-filter-row">
-                        <div class="vigia-filter-field">
-                            <label for="vigia-filter-crawler"><?php echo esc_html__( 'Crawler', 'vigia' ); ?></label>
-                            <input type="text" id="vigia-filter-crawler" placeholder="<?php echo esc_attr__( 'Filter by crawler...', 'vigia' ); ?>">
+                        <div class="vigia-filter-field vigia-filter-crawlers">
+                            <label id="vigia-filter-crawlers-label"><?php echo esc_html__( 'Crawlers', 'vigia' ); ?></label>
+                            <div class="vigia-multiselect" id="vigia-filter-crawlers" aria-labelledby="vigia-filter-crawlers-label">
+                                <button type="button" class="button vigia-multiselect-toggle" aria-haspopup="listbox" aria-expanded="false">
+                                    <span class="vigia-multiselect-label"><?php echo esc_html__( 'All crawlers', 'vigia' ); ?></span>
+                                    <span class="dashicons dashicons-arrow-down-alt2" aria-hidden="true"></span>
+                                </button>
+                                <div class="vigia-multiselect-panel" role="listbox" aria-multiselectable="true" hidden>
+                                    <div class="vigia-multiselect-options"></div>
+                                </div>
+                            </div>
                         </div>
                         <div class="vigia-filter-field">
                             <label for="vigia-filter-category"><?php echo esc_html__( 'Category', 'vigia' ); ?></label>
@@ -278,20 +287,43 @@ class VigIA_Admin_Page {
                             </select>
                         </div>
                         <div class="vigia-filter-field">
-                            <label for="vigia-filter-page"><?php echo esc_html__( 'URL', 'vigia' ); ?></label>
-                            <input type="text" id="vigia-filter-page" placeholder="<?php echo esc_attr__( 'Filter by URL...', 'vigia' ); ?>">
+                            <label for="vigia-filter-content-type"><?php echo esc_html__( 'Content type', 'vigia' ); ?></label>
+                            <select id="vigia-filter-content-type">
+                                <option value=""><?php echo esc_html__( 'All types', 'vigia' ); ?></option>
+                                <?php foreach ( $content_type_labels as $ct_key => $ct_label ) : ?>
+                                    <option value="<?php echo esc_attr( $ct_key ); ?>"><?php echo esc_html( $ct_label ); ?></option>
+                                <?php endforeach; ?>
+                            </select>
                         </div>
                         <div class="vigia-filter-field">
-                            <label for="vigia-filter-ip"><?php echo esc_html__( 'IP Address', 'vigia' ); ?></label>
-                            <input type="text" id="vigia-filter-ip" placeholder="<?php echo esc_attr__( 'Filter by IP...', 'vigia' ); ?>">
+                            <label for="vigia-filter-http-status"><?php echo esc_html__( 'HTTP status', 'vigia' ); ?></label>
+                            <select id="vigia-filter-http-status">
+                                <option value=""><?php echo esc_html__( 'All statuses', 'vigia' ); ?></option>
+                                <option value="200">200</option>
+                                <option value="301">301</option>
+                                <option value="304">304</option>
+                                <option value="403">403</option>
+                                <option value="404">404</option>
+                                <option value="410">410</option>
+                                <option value="other"><?php echo esc_html__( 'Other', 'vigia' ); ?></option>
+                            </select>
                         </div>
-                        <div class="vigia-filter-field">
-                            <label for="vigia-filter-date"><?php echo esc_html__( 'Date', 'vigia' ); ?></label>
-                            <input type="date" id="vigia-filter-date">
+                        <div class="vigia-filter-field vigia-filter-date-range">
+                            <label><?php echo esc_html__( 'Date range', 'vigia' ); ?></label>
+                            <div class="vigia-date-range-inputs">
+                                <input type="date" id="vigia-filter-date-from" title="<?php echo esc_attr__( 'From', 'vigia' ); ?>">
+                                <span class="vigia-date-separator">&mdash;</span>
+                                <input type="date" id="vigia-filter-date-to" title="<?php echo esc_attr__( 'To', 'vigia' ); ?>">
+                            </div>
                         </div>
                         <div class="vigia-filter-field vigia-filter-buttons">
-                            <button type="button" id="vigia-filter-apply" class="button button-secondary"><?php echo esc_html__( 'Apply filters', 'vigia' ); ?></button>
-                            <button type="button" id="vigia-filter-clear" class="button button-link"><?php echo esc_html__( 'Clear', 'vigia' ); ?></button>
+                            <button type="button" id="vigia-filter-apply" class="button button-primary"><?php echo esc_html__( 'Apply filters', 'vigia' ); ?></button>
+                            <button type="button" id="vigia-filter-clear" class="button"><?php echo esc_html__( 'Clear', 'vigia' ); ?></button>
+                            <button type="button" id="vigia-filter-export" class="button" disabled>
+                                <span class="dashicons dashicons-download"></span>
+                                <?php echo esc_html__( 'Export filtered CSV', 'vigia' ); ?>
+                            </button>
+                            <span class="vigia-filter-badge" id="vigia-filter-badge" hidden></span>
                         </div>
                     </div>
                 </div>
@@ -302,6 +334,8 @@ class VigIA_Admin_Page {
                             <th><?php echo esc_html__( 'Crawler', 'vigia' ); ?></th>
                             <th><?php echo esc_html__( 'Category', 'vigia' ); ?></th>
                             <th><?php echo esc_html__( 'URL', 'vigia' ); ?></th>
+                            <th class="vigia-col-content-type"><?php echo esc_html__( 'Content type', 'vigia' ); ?></th>
+                            <th class="vigia-col-http"><?php echo esc_html__( 'HTTP', 'vigia' ); ?></th>
                             <th><?php echo esc_html__( 'IP Address', 'vigia' ); ?></th>
                             <th><?php echo esc_html__( 'Date', 'vigia' ); ?></th>
                             <th class="vigia-actions-col"><?php echo esc_html__( 'Actions', 'vigia' ); ?></th>
@@ -309,7 +343,7 @@ class VigIA_Admin_Page {
                     </thead>
                     <tbody>
                         <tr class="vigia-no-data">
-                            <td colspan="6" class="vigia-loading"><?php echo esc_html__( 'Loading...', 'vigia' ); ?></td>
+                            <td colspan="8" class="vigia-loading"><?php echo esc_html__( 'Loading...', 'vigia' ); ?></td>
                         </tr>
                     </tbody>
                 </table>

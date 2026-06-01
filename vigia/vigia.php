@@ -3,7 +3,7 @@
  * Plugin Name: VigIA - AI Visibility, Analytics & Control
  * Plugin URI: https://servicios.ayudawp.com
  * Description: Monitor, control, and optimize how AI systems interact with your WordPress site. Track 55+ AI crawlers, manage access via robots.txt, and boost your AI visibility with llms.txt, JSON-LD, Markdown for Agents, and AI Visibility Score.
- * Version: 1.12.1
+ * Version: 2.0.1
  * Author: Fernando Tellado
  * Author URI: https://ayudawp.com
  * License: GPL v2 or later
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'VIGIA_VERSION', '1.12.1' );
+define( 'VIGIA_VERSION', '2.0.1' );
 define( 'VIGIA_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VIGIA_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'VIGIA_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -91,7 +91,11 @@ final class VigIA {
             $vigia_mcp_bootstrap = VIGIA_PLUGIN_DIR . 'vendor/wordpress/mcp-adapter/mcp-adapter.php';
             if ( file_exists( $vigia_mcp_bootstrap ) && ! function_exists( 'WP\\MCP\\constants' ) ) {
                 if ( ! defined( 'WP_MCP_AUTOLOAD' ) ) {
-                    define( 'WP_MCP_AUTOLOAD', false );
+                    // The WordPress MCP Adapter checks this exact constant name
+                    // to skip its own bundled autoloader (we use our own PSR-4
+                    // loader in vendor/autoload.php), so the name is fixed by
+                    // the upstream library and cannot be prefixed.
+                    define( 'WP_MCP_AUTOLOAD', false ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound -- upstream contract.
                 }
                 require_once $vigia_mcp_bootstrap;
             }
@@ -155,6 +159,11 @@ final class VigIA {
         add_action( 'vigia_daily_cleanup', array( 'VigIA_Settings', 'run_cleanup' ) );
         add_action( 'vigia_send_email_alerts', array( 'VigIA_Email_Alerts', 'send_scheduled_alerts' ) );
         add_action( 'vigia_llms_regenerate', array( 'VigIA_LLMS_Generator', 'cron_regenerate' ) );
+        add_action( 'vigia_backfill_content_type', array( $this, 'run_content_type_backfill' ) );
+
+        // Run schema migrations on every admin request — idempotent, only
+        // touches dbDelta when DB_VERSION is newer than the stored version.
+        add_action( 'admin_init', array( 'VigIA_Database', 'maybe_upgrade_schema' ) );
 
         // Settings link in plugins page.
         add_filter( 'plugin_action_links_' . VIGIA_PLUGIN_BASENAME, array( $this, 'add_settings_link' ) );
@@ -235,6 +244,12 @@ final class VigIA {
             wp_schedule_event( time(), 'daily', 'vigia_daily_cleanup' );
         }
 
+        // Schedule the content_type backfill cron for sites upgrading from
+        // pre-2.0.0. Newly installed sites will simply find no rows to process.
+        if ( ! wp_next_scheduled( 'vigia_backfill_content_type' ) ) {
+            wp_schedule_event( time() + 60, 'hourly', 'vigia_backfill_content_type' );
+        }
+
         // Schedule email alerts if enabled.
         VigIA_Email_Alerts::schedule_alerts();
     }
@@ -246,6 +261,18 @@ final class VigIA {
         wp_clear_scheduled_hook( 'vigia_daily_cleanup' );
         wp_clear_scheduled_hook( 'vigia_send_email_alerts' );
         wp_clear_scheduled_hook( 'vigia_llms_regenerate' );
+        wp_clear_scheduled_hook( 'vigia_backfill_content_type' );
+    }
+
+    /**
+     * Cron handler for the content_type backfill queue.
+     *
+     * Processes a fixed-size batch each tick. When the underlying table is
+     * fully populated, the call returns 0 rows and the cron stays scheduled
+     * but cheap (a single COUNT lookup).
+     */
+    public function run_content_type_backfill() {
+        VigIA_Database::backfill_content_types( 500 );
     }
 
     /**
@@ -465,6 +492,21 @@ final class VigIA {
                     'confirmDeleteLlms'   => __( 'Are you sure you want to delete this file?', 'vigia' ),
                     'robotsRuleAdded'     => __( 'Robots.txt rule added', 'vigia' ),
                     'robotsRuleRemoved'   => __( 'Robots.txt rule removed', 'vigia' ),
+                    // Activity table v2.0.0 strings.
+                    'allCrawlers'         => __( 'All crawlers', 'vigia' ),
+                    /* translators: %d: number of crawlers selected in the multi-select. */
+                    'crawlersSelected'    => __( '%d crawlers selected', 'vigia' ),
+                    /* translators: %d: number of active filters. */
+                    'filterBadgeSingular' => __( '%d active filter', 'vigia' ),
+                    /* translators: %d: number of active filters. */
+                    'filterBadgePlural'   => __( '%d active filters', 'vigia' ),
+                    /* translators: 1: first row index, 2: last row index, 3: total rows. */
+                    'pagerRange'          => __( '%1$s–%2$s of %3$s', 'vigia' ),
+                    'first'               => __( 'First', 'vigia' ),
+                    'previous'            => __( 'Previous', 'vigia' ),
+                    'next'                => __( 'Next', 'vigia' ),
+                    'last'                => __( 'Last', 'vigia' ),
+                    'contentTypeLabels'   => VigIA_Rest_API::get_localized_content_type_labels(),
                     // LLMs Generator v1.2.0 strings.
                     'selectCrawler'       => __( 'Please select a crawler', 'vigia' ),
                     'enterBothFields'     => __( 'Please enter both name and pattern', 'vigia' ),
@@ -1244,6 +1286,7 @@ final class VigIA {
             'enable_link_tag'      => isset( $_POST['enable_link_tag'] ) && 'true' === $_POST['enable_link_tag'],
             'respect_llms_filters' => isset( $_POST['respect_llms_filters'] ) && 'true' === $_POST['respect_llms_filters'],
             'post_types'           => isset( $_POST['post_types'] ) ? array_map( 'sanitize_key', (array) $_POST['post_types'] ) : array( 'post', 'page' ),
+            'taxonomies'           => isset( $_POST['taxonomies'] ) ? array_map( 'sanitize_key', (array) $_POST['taxonomies'] ) : array(),
         );
 
         VigIA_Markdown_Endpoints::save_settings( $settings );

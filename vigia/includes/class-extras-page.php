@@ -906,6 +906,48 @@ class VigIA_Extras_Page {
                             </fieldset>
                         </td>
                     </tr>
+                    <?php
+                    $taxonomies        = VigIA_Markdown_Endpoints::get_public_taxonomies();
+                    $selected_tax      = isset( $settings['taxonomies'] ) ? (array) $settings['taxonomies'] : array();
+                    $taxonomies_count  = count( $taxonomies );
+                    $taxonomies_collapse = $taxonomies_count > 20;
+                    if ( ! empty( $taxonomies ) ) :
+                    ?>
+                    <tr>
+                        <th scope="row"><?php esc_html_e( 'Taxonomies', 'vigia' ); ?></th>
+                        <td>
+                            <p class="description" style="margin-top:0;">
+                                <?php esc_html_e( 'Serve markdown for taxonomy archive pages (categories, tags, product categories, custom taxonomies). Disabled by default. Useful for online shops with rich category descriptions.', 'vigia' ); ?>
+                            </p>
+                            <?php if ( $taxonomies_collapse ) : ?>
+                            <details class="vigia-md-tax-details">
+                                <summary>
+                                    <?php
+                                    printf(
+                                        /* translators: %d: total number of public taxonomies on the site. */
+                                        esc_html__( 'Show all taxonomies (%d)', 'vigia' ),
+                                        (int) $taxonomies_count
+                                    );
+                                    ?>
+                                </summary>
+                            <?php endif; ?>
+                            <fieldset id="vigia-md-taxonomies" class="vigia-md-tax-grid">
+                                <?php foreach ( $taxonomies as $tax ) : ?>
+                                    <label>
+                                        <input type="checkbox" name="vigia_md_taxonomies[]" value="<?php echo esc_attr( $tax['name'] ); ?>"
+                                            <?php checked( in_array( $tax['name'], $selected_tax, true ) ); ?>>
+                                        <?php echo esc_html( $tax['label'] ); ?>
+                                        <code class="vigia-md-tax-slug"><?php echo esc_html( $tax['name'] ); ?></code>
+                                        <span class="vigia-pt-count">(<?php echo esc_html( number_format_i18n( $tax['count'] ) ); ?>)</span>
+                                    </label>
+                                <?php endforeach; ?>
+                            </fieldset>
+                            <?php if ( $taxonomies_collapse ) : ?>
+                            </details>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <?php endif; ?>
                     <tr>
                         <th scope="row"><?php esc_html_e( 'Exclusion filters', 'vigia' ); ?></th>
                         <td>

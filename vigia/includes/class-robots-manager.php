@@ -86,7 +86,12 @@ class VigIA_Robots_Manager {
                 'vigia_llms_settings'
             )
         );
-        $llms_settings = $llms_option ? maybe_unserialize( $llms_option ) : array();
+        $llms_settings = array();
+        if ( $llms_option ) {
+            // Decode without allowing object instantiation (guards against PHP object injection).
+            $decoded       = is_serialized( $llms_option ) ? unserialize( $llms_option, array( 'allowed_classes' => false ) ) : $llms_option;
+            $llms_settings = is_array( $decoded ) ? $decoded : array();
+        }
         
         // Only add reference if enabled AND file actually exists.
         $has_llms_ref  = ! empty( $llms_settings['robots_llms'] ) && file_exists( ABSPATH . 'llms.txt' );

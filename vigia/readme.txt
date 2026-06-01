@@ -4,7 +4,7 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.2
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 1.12.1
+Stable tag: 2.0.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -18,12 +18,12 @@ Monitor 55+ AI crawlers, control access via robots.txt, and boost your AI visibi
 
 * **Scores your AI visibility** with a 100-point analyzer covering 20 checks across 5 categories
 * **Tracks AI crawlers** visiting your site (GPTBot, ClaudeBot, PerplexityBot, and 55+ others)
-* **Provides detailed analytics** with charts, statistics, and exportable reports
+* **Provides detailed analytics** with advanced filters, server-side pagination, and exportable reports with metadata banner
 * **Blocks unwanted crawlers** via PHP (403 response)
 * **Manages robots.txt rules** for AI crawlers with compliance monitoring
 * **Sends email alerts** about crawler activity (daily, weekly, or monthly)
 * **Generates llms.txt files** to help AI systems understand your site
-* **Serves markdown endpoints** for individual posts and pages (Markdown for Agents standard)
+* **Serves markdown endpoints** for posts, pages, taxonomy archives (categories, tags, WooCommerce product categories, custom taxonomies) and WooCommerce products with schema-like data
 * **Generates JSON-LD structured data** with Site Identity and AI Discovery signals
 * **Exposes abilities** for AI agents and automation tools (WordPress 6.9+)
 
@@ -47,9 +47,13 @@ Monitor 55+ AI crawlers, control access via robots.txt, and boost your AI visibi
 * Category distribution (AI Training, AI Search, AI Assistant, Data Scraper)
 * Top crawlers and most crawled pages tables with paginated navigation
 * [AI Share & Summarize](https://wordpress.org/plugins/ai-share-summarize/) integration: see share button clicks per page
-* Recent activity log with filters and paginated navigation
+* Recent activity log with content type and HTTP status columns (color coded by status family)
+* Advanced filters: multi-select crawler picker, content type, HTTP status code, and configurable date range
+* Server-side pagination with four-button pager (first, previous, next, last) — operates over the full database, not just the latest 500 rows
 * Period comparison functionality
-* CSV export
+* CSV export with a metadata banner (site name, site URL, export type, date range, export timestamp, applied filters)
+* "Export filtered CSV" button that downloads exactly what the active filters return, with `vigia-filtered-YYYY-MM-DD.csv` filename
+* Content type detection distinguishes Home, Post, Page, Product, custom CPTs, Category archive, Tag archive, Date/Author archive, Feed, Sitemap, REST API, File, Admin / login attempts (`/wp-admin`, `/wp-login.php`), WordPress system (admin-ajax, xmlrpc, wp-cron, wp-comments-post), 404 Not found, and Other
 
 **Crawler Blocking**
 * Block crawlers via PHP with 403 Forbidden response
@@ -71,15 +75,21 @@ Monitor 55+ AI crawlers, control access via robots.txt, and boost your AI visibi
 * Activity comparison with previous period
 
 **Markdown for Agents**
-* Serve individual posts/pages as optimized markdown for AI agents
-* Dedicated .md URL endpoints (e.g., /your-post.md)
-* Accept: text/markdown content negotiation
-* Discoverability via link headers and HTML alternate tags
-* YAML frontmatter with title, date, author, categories, tags, and more
-* Respects blocking rules (blocked crawlers get 403)
-* Respects LLMs.txt exclusion filters
+* Serve posts, pages and any public post type as optimized markdown for AI agents
+* Serve taxonomy archive pages (categories, tags, WooCommerce product categories, custom taxonomies) as markdown — disabled by default, opt in per taxonomy
+* Dedicated .md URL endpoints (e.g., `/your-post.md`, `/category/news.md`, `/product-category/electronics.md`)
+* Accept: text/markdown content negotiation on posts and taxonomy archive pages
+* Discoverability via Link HTTP headers and `<link rel="alternate" type="text/markdown">` HTML tags
+* YAML frontmatter for posts: title, date, modified, author, image, categories, tags, post type, lang
+* YAML frontmatter for taxonomy terms: title, description, url, type, taxonomy, parent, count, image (term meta), lang
+* WooCommerce product frontmatter adds schema-like fields: sku, product_type, price, regular_price, sale_price, currency, availability, stock_quantity, rating, rating_count, review_count
+* Taxonomy term body includes the term description (rendered through `the_content`), the list of direct child terms in hierarchical taxonomies, and an excerpt of the latest posts/products assigned to the term
+* Product listings inside `product_cat` archives include an inline summary with formatted price, "was X" on sale items, star rating and out-of-stock flag
+* Respects blocking rules (blocked crawlers get 403) and LLMs.txt exclusion filters
+* Per-term noindex detection from Yoast SEO, Rank Math, All in One SEO and SEOPress
 * Analytics integration: tracks markdown requests per crawler
 * X-Markdown-Tokens response header
+* Filters: `vigia_markdown_post_eligible`, `vigia_markdown_term_eligible`, `vigia_markdown_term_posts_limit`
 * Follows the Cloudflare Markdown for Agents standard
 
 **LLMs.txt Generator**
@@ -92,7 +102,7 @@ Monitor 55+ AI crawlers, control access via robots.txt, and boost your AI visibi
 * Robots.txt integration (add llms.txt and llms-full.txt references)
 * Generate llms.txt and llms-full.txt files
 * Full content or excerpt mode
-* Compatible with Yoast SEO, Rank Math, All in One SEO, SEOPress, and The SEO Framework
+* Compatible with Yoast SEO, Rank Math, All in One SEO, SEOPress, The SEO Framework, and Native SEO NoIndexer
 
 **JSON-LD Structured Data**
 * Generate WebSite and Organization/Person schema for site identity
@@ -337,6 +347,12 @@ Blocking AI training crawlers (like GPTBot or ClaudeBot) will not affect traditi
 
 Markdown for Agents is a standard for serving web content as clean markdown to AI agents. Instead of processing full HTML, agents receive lightweight markdown with structured metadata. VigIA supports both dedicated .md URLs and Accept: text/markdown content negotiation. Enable it in VigIA > Extras > Markdown for Agents.
 
+Since VigIA 2.0.0 the feature also covers taxonomy archives (categories, tags, WooCommerce product categories, custom taxonomies) and WooCommerce products. Term archives include the term description, the list of child terms in hierarchical taxonomies and an excerpt of the latest entries; product `.md` endpoints embed schema-like data (price, sale price, SKU, stock status, rating) directly in the YAML frontmatter.
+
+= Which content types does the activity table classify? =
+
+VigIA 2.0.0 classifies each crawler hit into one of these buckets, indexed in the database so filters and CSV exports are instant: Home (the `/` path), Post, Page, Product, any other public custom post type, Category archive, Tag archive, Date/Author archive, Feed, Sitemap, REST API, File (PDFs, images, downloads), Admin/login attempt (`/wp-admin`, `wp-login.php` — useful to spot bots probing the admin), WordPress system (admin-ajax, xmlrpc, wp-cron, wp-comments-post), 404 Not found, and Other.
+
 = Can I add custom crawlers to monitor? =
 
 Yes! In the main analytics page, scroll down to "Custom crawlers" and add your own User-Agent patterns to track.
@@ -351,7 +367,7 @@ The llms.txt file is a standard for helping AI systems understand your website's
 
 = Which SEO plugins are supported for noindex detection? =
 
-VigIA supports automatic noindex detection from: Yoast SEO, Rank Math, All in One SEO, SEOPress, and The SEO Framework.
+VigIA supports automatic noindex detection from: Yoast SEO, Rank Math, All in One SEO, SEOPress, The SEO Framework, and Native SEO NoIndexer.
 
 = What is the Abilities API? =
 
@@ -379,53 +395,30 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
-= 1.12.1 =
-* Fix: Fatal error "Cannot redeclare WP\MCP\constants()" when both VigIA and the standalone `mcp-adapter` plugin are active. VigIA now skips its bundled adapter bootstrap if the standalone copy has already been loaded
+= 2.0.1 =
+* Fix: Markdown for Agents and llms.txt no longer expose password-protected content. The `.md` endpoints (and `Accept: text/markdown` negotiation) now return 404 for password-protected posts and pages, such posts are dropped from taxonomy term `.md` listings, and they are excluded from llms.txt and llms-full.txt
+* Fix: Hardened deserialization of plugin options and post meta (`unserialize` now runs with `allowed_classes => false`) to guard against PHP object injection
 
-= 1.12.0 =
-* NEW: One-click MCP setup. The MCP Adapter and php-mcp-schema dependencies now ship bundled inside the plugin, so the server is active right after install — no `composer install` and no terminal required
-* NEW: "Quick connect" panel in VigIA > Extras > MCP that generates a dedicated `VigIA MCP` Application Password and renders ready-to-paste connection commands for Claude Code, Cursor, Claude Desktop and a generic block (URL + Authorization header) that fits any other MCP client (Codex CLI, Continue, Cline, Antigravity, Zed, etc.)
-* NEW: Safe JSON merger for Cursor and Claude Desktop. Paste your current config file, the plugin parses it, splices VigIA into `mcpServers` preserving everything else (preferences, other servers) and returns a valid file ready to save back, with no manual comma juggling
-* NEW: Detection and revocation flow for an existing `VigIA MCP` Application Password directly from the MCP tab
-* NEW: "What can I ask my AI now?" section in the MCP tab with example prompts so users immediately see what the connection unlocks
-* NEW: Read-only mode is now a one-click toggle in the MCP tab (option `vigia_mcp_read_only`). The `vigia_can_write_via_abilities` filter still works for developers who prefer to force it from code and takes precedence over the toggle
-* Changed: Claude Desktop snippet now launches `mcp-remote` via `npx` as a stdio-to-HTTP bridge (the only way Claude Desktop can currently talk to a remote HTTP MCP server). **Requires Node.js installed on the machine.** Claude Code and Cursor speak HTTP MCP natively and need no bridge
-* Changed: Manual setup snippets moved into a collapsed "Manual setup (advanced)" block to avoid competing with Quick connect; inactive-server message now references a missing `vendor/` directory instead of a missing Composer install
-* Fix: `vigia/get-blocked-items`, `vigia/get-top-pages` and `vigia/block-crawler` abilities were calling non-existent methods and returned a 500 when invoked. They now resolve correctly and the output surfaces fields that were being discarded (`name` for blocked items, `crawler_count` for top pages)
-
-= 1.11.0 =
-* NEW: Native MCP server that exposes VigIA abilities at /wp-json/vigia/v1/mcp through the official WordPress MCP Adapter, ready to plug into Claude Code, Cursor or Claude Desktop
-* NEW: MCP tab in VigIA > Extras with adapter status, endpoint URL, Application Password setup, connection snippets for Claude Code, Cursor and Claude Desktop, list of exposed abilities and the read-only mode snippet
-* NEW: Filter `vigia_can_write_via_abilities` to disable mutating abilities (block, unblock, robots changes) while keeping read-only abilities working - useful when granting MCP access with Application Passwords
-* Fix: `vigia/block-crawler` now validates IP addresses with FILTER_VALIDATE_IP, matching the behavior of the AJAX blocking handler
-* Performance: results of `vigia/get-crawler-stats`, `vigia/get-top-crawlers` and `vigia/get-top-pages` are now cached for 5 minutes via transients to keep MCP clients from hammering the database
-* Changed: Version history moved to a dedicated changelog.txt file served from the plugin's public SVN, keeping readme.txt focused on the current release
-* Dev: introduced composer.json declaring the optional `wordpress/mcp-adapter` dependency
-
-= 1.10.2 =
-* Fix: Removed stray whitespace before PHP opening tag in class-visibility-analyzer.php that caused "headers already sent" warnings and could break other plugins functionality
-
-= 1.10.1 =
-* Fixed: AI Visibility Analyzer now detects sitemaps.xml (plural) in addition to sitemap.xml, sitemap_index.xml and wp-sitemap.xml
+= 2.0.0 =
+* NEW: Markdown for Agents now serves taxonomy archive pages (categories, tags, WooCommerce product categories, custom taxonomies). Frontmatter includes title, description, taxonomy, parent, count, image and lang. Body includes the term description, the list of child terms in hierarchical taxonomies, and an excerpt of the latest posts/products assigned to the term. Disabled by default — opt in per taxonomy in VigIA > Extras > Markdown for Agents
+* NEW: WooCommerce product `.md` endpoints embed schema-like fields in the YAML frontmatter (sku, product_type, price, regular_price, sale_price, currency, availability, stock_quantity, rating, rating_count, review_count). Product listings inside `product_cat` term archives also gain an inline summary with formatted price, "was X" on sale items, star rating and out-of-stock flag
+* NEW: Advanced filters on the recent activity table — multi-select crawler picker, content type filter (post, page, product, category archive, tag archive, date/author archive, feed, sitemap, REST API, file, other), HTTP status filter, configurable date range, and an "Export filtered CSV" button that downloads exactly what the filters return
+* NEW: Two new visible columns on the recent activity table — Content type and HTTP status (color coded by status family). Content type detection distinguishes Home, Post, Page, Product, CPTs, taxonomy archives, Feed, Sitemap, REST API, File, Admin / login attempt (/wp-admin, wp-login.php — useful to spot bots probing the admin), WordPress system (admin-ajax, xmlrpc, wp-cron, wp-comments-post), 404 Not found, and Other
+* NEW: Server-side pagination on the recent activity table with a four-button pager (first, previous, next, last) consistent with the rest of the dashboard tables. The count, navigation and CSV export operate over the full database instead of the last 500 rows
+* NEW: Every CSV export now opens with a metadata banner (site name, site URL, export type, date range, export timestamp, generator string, applied filters). The activity export uses the `vigia-filtered-YYYY-MM-DD.csv` filename when any filter is in effect
+* NEW: `/vigia/v1/recent` and `/vigia/v1/export` accept new query params (crawlers[], category, content_type, http_status, date_from, date_to, page, per_page) and `VigIA_Database::query_visits()` is now public for site builders. The legacy contract — no parameters returns the latest 500 visits as a flat array — is preserved
+* NEW: Filters `vigia_markdown_term_eligible` and `vigia_markdown_term_posts_limit` for site builders to control term markdown output programmatically
+* DB: New `content_type` column on `wp_vigia_visits` (DB version 1.1.0) populated at insert time. Pre-2.0.0 rows are backfilled hourly by the `vigia_backfill_content_type` cron, plus eagerly when the user filters by content_type in the dashboard
+* Changed: Admin menu order restored. *Analytics* is the default landing page again when clicking the VigIA top-level menu, with *AI Visibility* in second position
+* Changed: Per-term noindex settings from Yoast SEO, Rank Math, All in One SEO and SEOPress are honored when "Respect LLMs.txt exclusion filters" is on. Native SEO NoIndexer (AyudaWP) is also recognised for single posts when its `Noindexer_Frontend::is_noindex()` helper is available
+* i18n: CSV export headers, CSV metadata banner labels and every new UI string ship translation-ready
 
 For older changelog entries, please check the [changelog.txt](https://plugins.svn.wordpress.org/vigia/trunk/changelog.txt) file
 
 == Upgrade Notice ==
 
-= 1.12.1 =
-Fixes a fatal error when the standalone MCP Adapter plugin is also active alongside VigIA. Recommended for everyone running both.
-
-= 1.12.0 =
-MCP server active out of the box: dependencies bundled (no Composer), new Quick Connect panel with ready-to-paste connection commands and a one-click read-only toggle. Three MCP abilities fixed. Note: connecting Claude Desktop now requires Node.js installed.
-
-= 1.11.0 =
-New MCP server makes VigIA usable from Claude Code, Cursor and Claude Desktop. Install the WordPress MCP Adapter via composer install to enable it. Existing Abilities API integrations keep working without changes.
-
-= 1.10.2 =
-Fixes a PHP warning in the Visibility Analyzer that could interfere with other plugins sending HTTP headers.
-
-= 1.10.1 =
-AI Visibility Analyzer now detects sitemaps.xml (plural) for sites using that convention.
+= 2.0.1 =
+Security fix: when Markdown for Agents was enabled, password-protected posts and pages were served in full through their .md endpoint, bypassing the password form. Update if you use Markdown for Agents or llms.txt.
 
 == Support ==
 

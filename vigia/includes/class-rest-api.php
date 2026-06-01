@@ -142,6 +142,7 @@ class VigIA_Rest_API {
                 'methods'             => 'GET',
                 'callback'            => array( __CLASS__, 'get_recent' ),
                 'permission_callback' => array( __CLASS__, 'check_permission' ),
+                'args'                => self::get_activity_filter_args(),
             )
         );
 
@@ -153,7 +154,7 @@ class VigIA_Rest_API {
                 'methods'             => 'GET',
                 'callback'            => array( __CLASS__, 'export_data' ),
                 'permission_callback' => array( __CLASS__, 'check_permission' ),
-                'args'                => self::get_date_args(),
+                'args'                => array_merge( self::get_date_args(), self::get_activity_filter_args() ),
             )
         );
 
@@ -222,6 +223,72 @@ class VigIA_Rest_API {
                 'type'              => 'string',
                 'default'           => '',
                 'sanitize_callback' => 'sanitize_text_field',
+            ),
+        );
+    }
+
+    /**
+     * Get recent activity filter arguments.
+     *
+     * Used by /recent and /export to filter results by crawler, category,
+     * content type, HTTP status code, and to paginate server-side.
+     *
+     * @return array
+     */
+    private static function get_activity_filter_args() {
+        return array(
+            'crawlers'     => array(
+                'type'              => 'array',
+                'default'           => array(),
+                'items'             => array( 'type' => 'string' ),
+                'sanitize_callback' => function ( $value ) {
+                    if ( ! is_array( $value ) ) {
+                        $value = array_filter( array_map( 'trim', explode( ',', (string) $value ) ) );
+                    }
+                    return array_values( array_filter( array_map( 'sanitize_text_field', $value ) ) );
+                },
+            ),
+            'category'     => array(
+                'type'              => 'string',
+                'default'           => '',
+                'sanitize_callback' => 'sanitize_text_field',
+            ),
+            'content_type' => array(
+                'type'              => 'string',
+                'default'           => '',
+                'sanitize_callback' => 'sanitize_key',
+                'validate_callback' => function ( $value ) {
+                    if ( '' === $value ) {
+                        return true;
+                    }
+                    return array_key_exists( $value, VigIA_Database::get_content_type_options() );
+                },
+            ),
+            'http_status'  => array(
+                'type'              => 'string',
+                'default'           => '',
+                'sanitize_callback' => 'sanitize_text_field',
+            ),
+            'page'         => array(
+                'type'              => 'integer',
+                'default'           => 1,
+                'sanitize_callback' => 'absint',
+                'validate_callback' => function ( $param ) {
+                    return $param >= 1;
+                },
+            ),
+            'per_page'     => array(
+                'type'              => 'integer',
+                'default'           => 20,
+                'sanitize_callback' => 'absint',
+                'validate_callback' => function ( $param ) {
+                    return $param >= 1 && $param <= 100;
+                },
+            ),
+            'mode'         => array(
+                'type'              => 'string',
+                'default'           => '',
+                'sanitize_callback' => 'sanitize_key',
             ),
         );
     }
@@ -535,15 +602,59 @@ class VigIA_Rest_API {
     }
 
     /**
-     * Get recent activity
+     * Get recent activity.
+     *
+     * Backwards compatible: when no filter/pagination params are passed, the
+     * response is a flat array of the latest 500 visits (legacy clients still
+     * work). When any of crawlers/category/content_type/http_status/page/
+     * per_page is present, the response is a structured object with pagination
+     * metadata so the table can render server-side controls.
      *
      * @param WP_REST_Request $request Request object.
      * @return WP_REST_Response
      */
     public static function get_recent( $request ) {
-        $recent = VigIA_Database::get_recent_visits( 500 );
+        $params = $request->get_params();
 
-        return rest_ensure_response( $recent );
+        $filter_keys = array( 'crawlers', 'category', 'content_type', 'http_status', 'page', 'per_page', 'date_from', 'date_to' );
+        $has_filters = false;
+        foreach ( $filter_keys as $key ) {
+            if ( isset( $params[ $key ] ) && '' !== $params[ $key ] && array() !== $params[ $key ] ) {
+                $has_filters = true;
+                break;
+            }
+        }
+
+        if ( ! $has_filters ) {
+            return rest_ensure_response( VigIA_Database::get_recent_visits( 500 ) );
+        }
+
+        // When filters are present but the caller did not pass an explicit date
+        // range, derive one from the days param so the dashboard's range
+        // selector ("Last 7 days", "Last 30 days"...) applies to recent activity
+        // the same way it applies to every other endpoint.
+        $date_from = isset( $params['date_from'] ) ? $params['date_from'] : '';
+        $date_to   = isset( $params['date_to'] ) ? $params['date_to'] : '';
+        if ( '' === $date_from && '' === $date_to ) {
+            $range     = self::get_date_range_from_request( $request );
+            $date_from = $range['start'];
+            $date_to   = $range['end'];
+        }
+
+        $result = VigIA_Database::query_visits(
+            array(
+                'crawlers'     => isset( $params['crawlers'] ) ? (array) $params['crawlers'] : array(),
+                'category'     => isset( $params['category'] ) ? $params['category'] : '',
+                'content_type' => isset( $params['content_type'] ) ? $params['content_type'] : '',
+                'http_status'  => isset( $params['http_status'] ) ? $params['http_status'] : '',
+                'date_from'    => $date_from,
+                'date_to'      => $date_to,
+                'page'         => isset( $params['page'] ) ? (int) $params['page'] : 1,
+                'per_page'     => isset( $params['per_page'] ) ? (int) $params['per_page'] : 20,
+            )
+        );
+
+        return rest_ensure_response( $result );
     }
 
     /**
@@ -554,42 +665,203 @@ class VigIA_Rest_API {
      */
     public static function export_data( $request ) {
         $range = self::get_date_range_from_request( $request );
-        $data  = VigIA_Database::export_data( $range['start'], $range['end'] );
 
-        // Build CSV content with translatable headers
-        $csv_lines   = array();
+        $filters = array(
+            'crawlers'     => (array) $request->get_param( 'crawlers' ),
+            'category'     => (string) $request->get_param( 'category' ),
+            'content_type' => (string) $request->get_param( 'content_type' ),
+            'http_status'  => (string) $request->get_param( 'http_status' ),
+        );
+
+        // The dashboard sends mode=filtered when the user clicks the
+        // "Export filtered CSV" button. That button is only enabled when at
+        // least one filter is active, so when the flag is present we always
+        // brand the export as filtered (filename + Export type header),
+        // even if the actually-active filter happens to be just the date
+        // range — that case still meant "filter" from the user's point of
+        // view.
+        $mode_filtered = 'filtered' === (string) $request->get_param( 'mode' );
+        $has_filters   = $mode_filtered
+            || ! empty( $filters['crawlers'] )
+            || '' !== $filters['category']
+            || '' !== $filters['content_type']
+            || '' !== $filters['http_status'];
+
+        $data = VigIA_Database::export_data( $range['start'], $range['end'], $filters );
+
+        $type_labels = self::get_localized_content_type_labels();
+        $export_type = $has_filters
+            ? __( 'Activity (filtered)', 'vigia' )
+            : __( 'Activity', 'vigia' );
+
+        $applied_filters = self::describe_activity_filters( $filters, $range );
+
+        // CSV body starts with a metadata banner so downstream tools (and the
+        // user) can tell at a glance which site and which selection produced
+        // the file.
+        $csv_lines = self::build_csv_metadata( $export_type, $range, $applied_filters );
+
         $csv_lines[] = array(
             __( 'Crawler', 'vigia' ),
             __( 'Category', 'vigia' ),
             __( 'Page', 'vigia' ),
             __( 'IP Address', 'vigia' ),
             __( 'HTTP Status', 'vigia' ),
+            __( 'Content type', 'vigia' ),
             __( 'Date', 'vigia' ),
         );
 
         foreach ( $data as $row ) {
+            $type = isset( $row['content_type'] ) && '' !== $row['content_type']
+                ? $row['content_type']
+                : VigIA_Database::detect_content_type( $row['request_path'] );
+
             $csv_lines[] = array(
                 $row['crawler_name'],
                 $row['crawler_category'],
                 $row['request_path'],
                 $row['ip_address'],
                 $row['http_status'],
+                isset( $type_labels[ $type ] ) ? $type_labels[ $type ] : $type,
                 $row['visit_date'],
             );
         }
 
-        // Convert to CSV string
-        $csv_content = '';
-        foreach ( $csv_lines as $line ) {
-            $csv_content .= '"' . implode( '","', array_map( 'esc_attr', $line ) ) . '"' . "\n";
-        }
+        $csv_content = self::csv_lines_to_string( $csv_lines );
+
+        $prefix   = $has_filters ? 'vigia-filtered-' : 'vigia-';
+        $filename = $prefix . gmdate( 'Y-m-d' ) . '.csv';
 
         return rest_ensure_response(
             array(
-                'filename' => 'vigia-' . gmdate( 'Y-m-d' ) . '.csv',
+                'filename' => $filename,
                 'content'  => $csv_content,
             )
         );
+    }
+
+    /**
+     * Build the metadata banner shared by every CSV export.
+     *
+     * Returns a list of rows ready to be CSV-serialized. Two-column shape
+     * (label, value) keeps the file readable in any spreadsheet app and easy
+     * to parse with a CSV reader.
+     *
+     * @param string $export_type     Human-readable export type.
+     * @param array  $range           ['start' => Y-m-d, 'end' => Y-m-d].
+     * @param array  $applied_filters Pre-formatted list of "Label: value" strings.
+     * @return array<int, array>
+     */
+    private static function build_csv_metadata( $export_type, $range, $applied_filters = array() ) {
+        $lines = array(
+            array( __( 'Site name', 'vigia' ), wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES ) ),
+            array( __( 'Site URL', 'vigia' ), home_url( '/' ) ),
+            array( __( 'Export type', 'vigia' ), $export_type ),
+            array( __( 'Date range', 'vigia' ), $range['start'] . ' / ' . $range['end'] ),
+            array( __( 'Export date', 'vigia' ), gmdate( 'Y-m-d H:i:s' ) . ' UTC' ),
+            array(
+                __( 'Generated by', 'vigia' ),
+                /* translators: %s: VigIA plugin version. */
+                sprintf( __( 'VigIA plugin %s', 'vigia' ), defined( 'VIGIA_VERSION' ) ? VIGIA_VERSION : '' ),
+            ),
+        );
+
+        if ( ! empty( $applied_filters ) ) {
+            $lines[] = array( __( 'Applied filters', 'vigia' ), implode( ' | ', $applied_filters ) );
+        }
+
+        // Empty row separates the banner from the column headers.
+        $lines[] = array( '', '' );
+
+        return $lines;
+    }
+
+    /**
+     * Render filters into a list of "Label: value" strings for the CSV banner.
+     *
+     * @param array $filters Filter args.
+     * @param array $range   Date range.
+     * @return array<int, string>
+     */
+    private static function describe_activity_filters( $filters, $range ) {
+        $out = array();
+
+        if ( ! empty( $filters['crawlers'] ) ) {
+            $out[] = __( 'Crawlers', 'vigia' ) . ': ' . implode( ', ', (array) $filters['crawlers'] );
+        }
+        if ( ! empty( $filters['category'] ) ) {
+            $out[] = __( 'Category', 'vigia' ) . ': ' . $filters['category'];
+        }
+        if ( ! empty( $filters['content_type'] ) ) {
+            $labels = self::get_localized_content_type_labels();
+            $value  = isset( $labels[ $filters['content_type'] ] ) ? $labels[ $filters['content_type'] ] : $filters['content_type'];
+            $out[]  = __( 'Content type', 'vigia' ) . ': ' . $value;
+        }
+        if ( '' !== (string) $filters['http_status'] ) {
+            $value = 'other' === $filters['http_status']
+                ? __( 'Other', 'vigia' )
+                : (string) $filters['http_status'];
+            $out[] = __( 'HTTP status', 'vigia' ) . ': ' . $value;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Serialize a list of CSV rows into a single string with proper escaping.
+     *
+     * @param array<int, array> $lines CSV rows.
+     * @return string
+     */
+    private static function csv_lines_to_string( $lines ) {
+        $out = '';
+        foreach ( $lines as $line ) {
+            $out .= '"' . implode( '","', array_map( 'esc_attr', $line ) ) . '"' . "\n";
+        }
+        return $out;
+    }
+
+    /**
+     * Localized labels for the content_type keys exposed by VigIA_Database.
+     *
+     * Kept here (REST layer) rather than in the database class because i18n
+     * belongs at the presentation boundary. Built on top of
+     * VigIA_Database::get_content_type_options() so any custom post type
+     * registered on the site is exposed automatically.
+     *
+     * @return array<string, string>
+     */
+    public static function get_localized_content_type_labels() {
+        $options = VigIA_Database::get_content_type_options();
+
+        // Translate the curated entries; CPT singular names from
+        // get_content_type_options() are already what the site owner
+        // registered, so we leave them as-is.
+        $i18n_overrides = array(
+            'home'      => __( 'Home', 'vigia' ),
+            'post'      => __( 'Post', 'vigia' ),
+            'page'      => __( 'Page', 'vigia' ),
+            'product'   => __( 'Product', 'vigia' ),
+            'feed'      => __( 'Feed', 'vigia' ),
+            'sitemap'   => __( 'Sitemap', 'vigia' ),
+            'api'       => __( 'REST API', 'vigia' ),
+            'file'      => __( 'File', 'vigia' ),
+            'category'  => __( 'Category archive', 'vigia' ),
+            'tag'       => __( 'Tag archive', 'vigia' ),
+            'archive'   => __( 'Date / author archive', 'vigia' ),
+            'admin'     => __( 'Admin / login attempt', 'vigia' ),
+            'wp-system' => __( 'WordPress system', 'vigia' ),
+            'not-found' => __( '404 Not found', 'vigia' ),
+            'other'     => __( 'Other', 'vigia' ),
+        );
+
+        foreach ( $i18n_overrides as $key => $label ) {
+            if ( isset( $options[ $key ] ) ) {
+                $options[ $key ] = $label;
+            }
+        }
+
+        return $options;
     }
 
     /**
@@ -636,7 +908,11 @@ class VigIA_Rest_API {
         }
 
         // Build CSV content
-        $csv_lines = array();
+        $applied = array();
+        if ( ! empty( $compare ) ) {
+            $applied[] = __( 'Comparison', 'vigia' ) . ': ' . $compare;
+        }
+        $csv_lines = self::build_csv_metadata( __( 'Timeline summary', 'vigia' ), $range, $applied );
 
         // Headers depend on whether comparison is enabled
         if ( ! empty( $compare ) ) {
@@ -685,11 +961,7 @@ class VigIA_Rest_API {
             }
         }
 
-        // Convert to CSV string
-        $csv_content = '';
-        foreach ( $csv_lines as $line ) {
-            $csv_content .= '"' . implode( '","', array_map( 'esc_attr', $line ) ) . '"' . "\n";
-        }
+        $csv_content = self::csv_lines_to_string( $csv_lines );
 
         return rest_ensure_response(
             array(

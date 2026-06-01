@@ -20,8 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 class VigIA_Visibility_Page {
 
 	/**
-	 * Register submenu page.
-	 * Called before Analytics and Extras to appear first in the menu.
+	 * Register the AI Visibility submenu.
 	 */
 	public static function register_menu() {
 		add_submenu_page(
@@ -30,8 +29,7 @@ class VigIA_Visibility_Page {
 			__( 'AI Visibility', 'vigia' ),
 			'manage_options',
 			'vigia-visibility',
-			array( __CLASS__, 'render_page' ),
-			0 // Position: first submenu item.
+			array( __CLASS__, 'render_page' )
 		);
 	}
 

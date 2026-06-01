@@ -38,6 +38,7 @@ class VigIA_Markdown_Endpoints {
 		'enable_link_tag'      => true,
 		'respect_llms_filters' => true,
 		'post_types'           => array( 'post', 'page' ),
+		'taxonomies'           => array(),
 	);
 
 	/**
@@ -106,13 +107,56 @@ class VigIA_Markdown_Endpoints {
 			$normalized['post_types'] = array_map( 'sanitize_key', $settings['post_types'] );
 		}
 
-		// Flush rewrite rules when enabling/disabling.
-		$old_settings = self::get_settings();
-		if ( $old_settings['enabled'] !== $normalized['enabled'] || $old_settings['enable_md_urls'] !== $normalized['enable_md_urls'] ) {
+		if ( isset( $settings['taxonomies'] ) && is_array( $settings['taxonomies'] ) ) {
+			$normalized['taxonomies'] = array_values( array_filter( array_map( 'sanitize_key', $settings['taxonomies'] ) ) );
+		}
+
+		// Flush rewrite rules when enabling/disabling or when the taxonomies
+		// set changes (term lookups depend on the active taxonomy list, not on
+		// the rewrite rules themselves, but we keep the trigger consistent so
+		// admins can recover from broken permalinks by toggling the setting).
+		$old_settings        = self::get_settings();
+		$taxonomies_changed  = $old_settings['taxonomies'] !== $normalized['taxonomies'];
+		if (
+			$old_settings['enabled'] !== $normalized['enabled']
+			|| $old_settings['enable_md_urls'] !== $normalized['enable_md_urls']
+			|| $taxonomies_changed
+		) {
 			update_option( 'vigia_flush_rewrite', true );
 		}
 
 		return update_option( self::OPTION_NAME, $normalized );
+	}
+
+	/**
+	 * List public taxonomies for the settings UI.
+	 *
+	 * Mirrors VigIA_LLMS_Generator::get_public_post_types() but for taxonomies.
+	 * Filters out non-public ones and attachments' taxonomies, returns the
+	 * registered label and a term count per taxonomy.
+	 *
+	 * @return array<string, array{name:string,label:string,count:int}>
+	 */
+	public static function get_public_taxonomies() {
+		$taxonomies = get_taxonomies( array( 'public' => true ), 'objects' );
+		$result     = array();
+
+		foreach ( $taxonomies as $tax ) {
+			$count = wp_count_terms(
+				array(
+					'taxonomy'   => $tax->name,
+					'hide_empty' => false,
+				)
+			);
+
+			$result[ $tax->name ] = array(
+				'name'  => $tax->name,
+				'label' => isset( $tax->labels->name ) ? $tax->labels->name : $tax->name,
+				'count' => is_wp_error( $count ) ? 0 : (int) $count,
+			);
+		}
+
+		return $result;
 	}
 
 	/**
@@ -191,6 +235,11 @@ class VigIA_Markdown_Endpoints {
 				if ( $the_post && self::is_post_eligible( $the_post ) ) {
 					self::serve_markdown_response( $the_post );
 				}
+			} elseif ( is_tax() || is_category() || is_tag() ) {
+				$term = get_queried_object();
+				if ( $term instanceof WP_Term && self::is_term_eligible( $term ) ) {
+					self::serve_markdown_response_for_term( $term );
+				}
 			}
 		}
 	}
@@ -224,12 +273,20 @@ class VigIA_Markdown_Endpoints {
 
 		$the_post = self::find_post_by_path( $path );
 
-		if ( ! $the_post || ! self::is_post_eligible( $the_post ) ) {
-			self::send_404();
+		if ( $the_post && self::is_post_eligible( $the_post ) ) {
+			self::serve_markdown_response( $the_post );
 			return;
 		}
 
-		self::serve_markdown_response( $the_post );
+		// Fall back to taxonomy term lookup when no post matches the path.
+		$term = self::find_term_by_path( $path );
+
+		if ( $term && self::is_term_eligible( $term ) ) {
+			self::serve_markdown_response_for_term( $term );
+			return;
+		}
+
+		self::send_404();
 	}
 
 	/**
@@ -243,7 +300,7 @@ class VigIA_Markdown_Endpoints {
 	private static function find_post_by_path( $path ) {
 		// Try page path first (handles nested pages like parent/child).
 		$page = get_page_by_path( $path );
-		if ( $page && 'publish' === $page->post_status ) {
+		if ( $page && 'publish' === $page->post_status && '' === $page->post_password ) {
 			return $page;
 		}
 
@@ -254,10 +311,11 @@ class VigIA_Markdown_Endpoints {
 
 		$posts = get_posts(
 			array(
-				'name'        => $slug,
-				'post_type'   => $post_types,
-				'post_status' => 'publish',
-				'numberposts' => 1,
+				'name'         => $slug,
+				'post_type'    => $post_types,
+				'post_status'  => 'publish',
+				'has_password' => false,
+				'numberposts'  => 1,
 			)
 		);
 
@@ -276,6 +334,11 @@ class VigIA_Markdown_Endpoints {
 	 */
 	private static function is_post_eligible( $the_post ) {
 		if ( 'publish' !== $the_post->post_status ) {
+			return false;
+		}
+
+		// Never serve password-protected posts as markdown; that would bypass the password form.
+		if ( '' !== $the_post->post_password ) {
 			return false;
 		}
 
@@ -376,6 +439,166 @@ class VigIA_Markdown_Endpoints {
 	}
 
 	// =========================================================================
+	// Taxonomy term resolution and eligibility
+	// =========================================================================
+
+	/**
+	 * Resolve a URL path into a taxonomy term.
+	 *
+	 * Strategy: iterate over enabled taxonomies, try each one with its rewrite
+	 * base stripped from the path and use get_term_by('slug', $tail). When the
+	 * path is hierarchical (e.g. parent/child), only the last segment is the
+	 * slug — WordPress allows duplicate slugs across different parents within
+	 * the same taxonomy, so we re-verify by comparing the resolved term link
+	 * against the original request path.
+	 *
+	 * @param string $path Request path without the .md suffix and trimmed slashes.
+	 * @return WP_Term|null
+	 */
+	private static function find_term_by_path( $path ) {
+		$settings = self::get_settings();
+
+		if ( empty( $settings['taxonomies'] ) ) {
+			return null;
+		}
+
+		$path     = trim( $path, '/' );
+		$segments = explode( '/', $path );
+		$slug     = end( $segments );
+
+		if ( empty( $slug ) ) {
+			return null;
+		}
+
+		$home_url = trailingslashit( home_url( '/' ) );
+
+		foreach ( $settings['taxonomies'] as $taxonomy ) {
+			if ( ! taxonomy_exists( $taxonomy ) ) {
+				continue;
+			}
+
+			$terms = get_terms(
+				array(
+					'taxonomy'   => $taxonomy,
+					'slug'       => $slug,
+					'hide_empty' => false,
+				)
+			);
+
+			if ( is_wp_error( $terms ) || empty( $terms ) ) {
+				continue;
+			}
+
+			foreach ( $terms as $term ) {
+				$link = get_term_link( $term );
+				if ( is_wp_error( $link ) ) {
+					continue;
+				}
+
+				$link_path = trim( str_replace( $home_url, '', trailingslashit( $link ) ), '/' );
+
+				if ( $link_path === $path ) {
+					return $term;
+				}
+			}
+
+			// Single slug match with no path collision is good enough.
+			if ( 1 === count( $terms ) && count( $segments ) === 1 ) {
+				return $terms[0];
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Check if a taxonomy term is eligible for markdown serving.
+	 *
+	 * @param WP_Term $term Term object.
+	 * @return bool
+	 */
+	private static function is_term_eligible( $term ) {
+		if ( ! $term instanceof WP_Term ) {
+			return false;
+		}
+
+		$settings = self::get_settings();
+
+		if ( empty( $settings['taxonomies'] ) || ! in_array( $term->taxonomy, $settings['taxonomies'], true ) ) {
+			return false;
+		}
+
+		// Respect LLMs.txt exclusion rules when enabled: URL patterns and the
+		// noindex term meta from SEO plugins that support per-term robots.
+		if ( $settings['respect_llms_filters'] && class_exists( 'VigIA_LLMS_Generator' ) ) {
+			$llms_settings = VigIA_LLMS_Generator::get_settings();
+
+			if ( ! empty( $llms_settings['exclude_patterns'] ) ) {
+				$patterns = array_filter( array_map( 'trim', explode( "\n", $llms_settings['exclude_patterns'] ) ) );
+				$url      = get_term_link( $term );
+
+				if ( ! is_wp_error( $url ) ) {
+					foreach ( $patterns as $pattern ) {
+						if ( empty( $pattern ) ) {
+							continue;
+						}
+						$regex = '#' . str_replace( '\*', '.*', preg_quote( $pattern, '#' ) ) . '#i';
+						if ( preg_match( $regex, $url ) ) {
+							return false;
+						}
+					}
+				}
+			}
+
+			if ( self::is_term_noindex( $term ) ) {
+				return false;
+			}
+		}
+
+		/**
+		 * Filter whether a taxonomy term is eligible for markdown output.
+		 *
+		 * @param bool    $eligible Whether the term is eligible.
+		 * @param WP_Term $term     Term object.
+		 */
+		return apply_filters( 'vigia_markdown_term_eligible', true, $term );
+	}
+
+	/**
+	 * Check if a term is flagged as noindex by SEO plugins that support per-term robots.
+	 *
+	 * @param WP_Term $term Term object.
+	 * @return bool
+	 */
+	private static function is_term_noindex( $term ) {
+		// Yoast SEO stores per-term meta in its own option table, not term meta.
+		if ( class_exists( 'WPSEO_Taxonomy_Meta' ) ) {
+			$noindex = WPSEO_Taxonomy_Meta::get_term_meta( $term->term_id, $term->taxonomy, 'noindex' );
+			if ( 'noindex' === $noindex ) {
+				return true;
+			}
+		}
+
+		// Rank Math stores it in term meta.
+		$rankmath = get_term_meta( $term->term_id, 'rank_math_robots', true );
+		if ( is_array( $rankmath ) && in_array( 'noindex', $rankmath, true ) ) {
+			return true;
+		}
+
+		// All in One SEO stores it in term meta as a string flag.
+		if ( '1' === get_term_meta( $term->term_id, '_aioseo_noindex', true ) ) {
+			return true;
+		}
+
+		// SEOPress.
+		if ( 'yes' === get_term_meta( $term->term_id, '_seopress_robots_index', true ) ) {
+			return true;
+		}
+
+		return false;
+	}
+
+	// =========================================================================
 	// Markdown generation and response
 	// =========================================================================
 
@@ -385,7 +608,40 @@ class VigIA_Markdown_Endpoints {
 	 * @param WP_Post $the_post Post object.
 	 */
 	private static function serve_markdown_response( $the_post ) {
-		// Check if crawler is blocked.
+		self::send_markdown_response(
+			self::generate_post_markdown( $the_post ),
+			get_permalink( $the_post )
+		);
+	}
+
+	/**
+	 * Serve a markdown response for a taxonomy term.
+	 *
+	 * @param WP_Term $term Term object.
+	 */
+	private static function serve_markdown_response_for_term( $term ) {
+		$link = get_term_link( $term );
+		if ( is_wp_error( $link ) ) {
+			self::send_404();
+			return;
+		}
+
+		self::send_markdown_response(
+			self::generate_term_markdown( $term ),
+			$link
+		);
+	}
+
+	/**
+	 * Shared response writer used by both post and term markdown responses.
+	 *
+	 * Handles user-agent based blocking, analytics tracking, headers and the
+	 * actual body output. Exits on completion.
+	 *
+	 * @param string $markdown      Markdown body to serve.
+	 * @param string $canonical_url Canonical URL for the Link header.
+	 */
+	private static function send_markdown_response( $markdown, $canonical_url ) {
 		if ( class_exists( 'VigIA_Blocker' ) ) {
 			$user_agent = isset( $_SERVER['HTTP_USER_AGENT'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_USER_AGENT'] ) ) : '';
 			if ( ! empty( $user_agent ) ) {
@@ -402,24 +658,18 @@ class VigIA_Markdown_Endpoints {
 			}
 		}
 
-		// Track this request if from a known crawler.
 		self::maybe_track_request();
 
-		// Generate markdown.
-		$markdown = self::generate_post_markdown( $the_post );
-
-		// Estimate token count (~4 chars per token).
 		$token_count = (int) ceil( mb_strlen( $markdown, 'UTF-8' ) / 4 );
 
-		// Send response.
 		status_header( 200 );
 		nocache_headers();
 
 		header( 'Content-Type: text/markdown; charset=utf-8' );
 		header( 'Vary: Accept' );
 		header( 'X-Markdown-Tokens: ' . $token_count );
-		header( 'Link: <' . esc_url( get_permalink( $the_post ) ) . '>; rel="canonical"' );
-		
+		header( 'Link: <' . esc_url( $canonical_url ) . '>; rel="canonical"' );
+
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Markdown plain text output.
 		echo $markdown;
 		exit;
@@ -495,6 +745,39 @@ class VigIA_Markdown_Endpoints {
 	}
 
 	/**
+	 * Generate markdown for a taxonomy term archive.
+	 *
+	 * The body has three optional sections:
+	 *  - the term description (rendered through the_content filter),
+	 *  - a list of child terms when the taxonomy is hierarchical,
+	 *  - a list of the most recent posts assigned to the term.
+	 *
+	 * @param WP_Term $term Term object.
+	 * @return string
+	 */
+	private static function generate_term_markdown( $term ) {
+		$output  = self::build_term_frontmatter( $term );
+		$output .= '# ' . $term->name . "\n\n";
+
+		$description = self::get_term_clean_content( $term );
+		if ( '' !== $description ) {
+			$output .= $description . "\n\n";
+		}
+
+		$children = self::get_term_children_section( $term );
+		if ( '' !== $children ) {
+			$output .= $children;
+		}
+
+		$posts = self::get_term_posts_section( $term );
+		if ( '' !== $posts ) {
+			$output .= $posts;
+		}
+
+		return $output;
+	}
+
+	/**
 	 * Build YAML frontmatter with post metadata
 	 *
 	 * @param WP_Post $the_post Post object.
@@ -553,9 +836,370 @@ class VigIA_Markdown_Endpoints {
 			$fm .= 'lang: ' . substr( $locale, 0, 2 ) . "\n";
 		}
 
+		// WooCommerce: enrich product frontmatter with schema-like data
+		// (price, sale price, currency, rating, sku, stock status). This is
+		// the closest equivalent to schema.org Product inside YAML; AI agents
+		// reading the .md can parse it without extra requests.
+		if ( 'product' === $the_post->post_type && function_exists( 'wc_get_product' ) ) {
+			$fm .= self::build_woocommerce_product_frontmatter( $the_post );
+		}
+
 		$fm .= "---\n\n";
 
 		return $fm;
+	}
+
+	/**
+	 * Append WooCommerce product fields to a YAML frontmatter string.
+	 *
+	 * @param WP_Post $the_post Product post.
+	 * @return string YAML fragment (lines ending in \n) or empty string.
+	 */
+	private static function build_woocommerce_product_frontmatter( $the_post ) {
+		$product = wc_get_product( $the_post->ID );
+		if ( ! $product ) {
+			return '';
+		}
+
+		$out = '';
+
+		$sku = $product->get_sku();
+		if ( '' !== $sku ) {
+			$out .= 'sku: "' . self::escape_yaml( $sku ) . '"' . "\n";
+		}
+
+		$out .= 'product_type: ' . $product->get_type() . "\n";
+
+		$regular = $product->get_regular_price();
+		$sale    = $product->get_sale_price();
+		$price   = $product->get_price();
+
+		if ( '' !== $price ) {
+			$out .= 'price: ' . $price . "\n";
+		}
+		if ( '' !== $regular && $regular !== $price ) {
+			$out .= 'regular_price: ' . $regular . "\n";
+		}
+		if ( '' !== $sale ) {
+			$out .= 'sale_price: ' . $sale . "\n";
+		}
+
+		if ( function_exists( 'get_woocommerce_currency' ) ) {
+			$out .= 'currency: ' . get_woocommerce_currency() . "\n";
+		}
+
+		$stock_status = $product->get_stock_status();
+		if ( $stock_status ) {
+			$out .= 'availability: ' . $stock_status . "\n";
+		}
+		if ( $product->managing_stock() ) {
+			$qty = $product->get_stock_quantity();
+			if ( null !== $qty ) {
+				$out .= 'stock_quantity: ' . (int) $qty . "\n";
+			}
+		}
+
+		$rating_count = (int) $product->get_rating_count();
+		if ( $rating_count > 0 ) {
+			$out .= 'rating: ' . (float) $product->get_average_rating() . "\n";
+			$out .= 'rating_count: ' . $rating_count . "\n";
+			$out .= 'review_count: ' . (int) $product->get_review_count() . "\n";
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Inline WooCommerce snippet for a product listed inside a term archive.
+	 *
+	 * Returns a short markdown fragment ("12,90 EUR · was 19,90 · ★4.5 (12)")
+	 * to append after the post excerpt in get_term_posts_section().
+	 *
+	 * @param WP_Post $the_post Product post.
+	 * @return string
+	 */
+	private static function product_summary_inline( $the_post ) {
+		if ( 'product' !== $the_post->post_type || ! function_exists( 'wc_get_product' ) ) {
+			return '';
+		}
+
+		$product = wc_get_product( $the_post->ID );
+		if ( ! $product ) {
+			return '';
+		}
+
+		$parts = array();
+
+		$price   = $product->get_price();
+		$regular = $product->get_regular_price();
+		$sale    = $product->get_sale_price();
+
+		if ( '' !== $sale && '' !== $regular ) {
+			$parts[] = wp_strip_all_tags( wc_price( $sale ) );
+			$parts[] = wp_strip_all_tags(
+				sprintf(
+					/* translators: %s: original price before the discount. */
+					__( 'was %s', 'vigia' ),
+					wc_price( $regular )
+				)
+			);
+		} elseif ( '' !== $price ) {
+			$parts[] = wp_strip_all_tags( wc_price( $price ) );
+		}
+
+		$rating_count = (int) $product->get_rating_count();
+		if ( $rating_count > 0 ) {
+			$parts[] = '★ ' . number_format_i18n( (float) $product->get_average_rating(), 1 ) . ' (' . $rating_count . ')';
+		}
+
+		$stock_status = $product->get_stock_status();
+		if ( 'outofstock' === $stock_status ) {
+			$parts[] = __( 'out of stock', 'vigia' );
+		}
+
+		if ( empty( $parts ) ) {
+			return '';
+		}
+
+		return ' · ' . implode( ' · ', $parts );
+	}
+
+	/**
+	 * Build YAML frontmatter for a taxonomy term.
+	 *
+	 * @param WP_Term $term Term object.
+	 * @return string
+	 */
+	private static function build_term_frontmatter( $term ) {
+		$fm = "---\n";
+
+		$fm .= 'title: "' . self::escape_yaml( $term->name ) . '"' . "\n";
+
+		$description = trim( wp_strip_all_tags( (string) $term->description ) );
+		if ( '' !== $description ) {
+			if ( strlen( $description ) > 200 ) {
+				$description = substr( $description, 0, 200 );
+				$pos         = strrpos( $description, ' ' );
+				if ( false !== $pos ) {
+					$description = substr( $description, 0, $pos ) . '...';
+				}
+			}
+			$fm .= 'description: "' . self::escape_yaml( $description ) . '"' . "\n";
+		}
+
+		$link = get_term_link( $term );
+		if ( ! is_wp_error( $link ) ) {
+			$fm .= 'url: ' . $link . "\n";
+		}
+
+		$fm .= 'type: term' . "\n";
+		$fm .= 'taxonomy: ' . $term->taxonomy . "\n";
+
+		$tax_object = get_taxonomy( $term->taxonomy );
+		if ( $tax_object && ! empty( $tax_object->labels->singular_name ) ) {
+			$fm .= 'taxonomy_label: "' . self::escape_yaml( $tax_object->labels->singular_name ) . '"' . "\n";
+		}
+
+		if ( $term->parent ) {
+			$parent = get_term( $term->parent, $term->taxonomy );
+			if ( $parent && ! is_wp_error( $parent ) ) {
+				$fm .= 'parent: "' . self::escape_yaml( $parent->name ) . '"' . "\n";
+				$fm .= 'parent_slug: ' . $parent->slug . "\n";
+			}
+		}
+
+		$fm .= 'count: ' . (int) $term->count . "\n";
+
+		$image_url = self::get_term_image_url( $term );
+		if ( $image_url ) {
+			$fm .= 'image: ' . $image_url . "\n";
+		}
+
+		$locale = get_locale();
+		if ( $locale ) {
+			$fm .= 'lang: ' . substr( $locale, 0, 2 ) . "\n";
+		}
+
+		$fm .= "---\n\n";
+
+		return $fm;
+	}
+
+	/**
+	 * Resolve a term image URL from common term meta keys.
+	 *
+	 * WooCommerce stores it as `thumbnail_id` (attachment ID). Other plugins
+	 * use ad-hoc keys; we try a reasonable handful before giving up.
+	 *
+	 * @param WP_Term $term Term object.
+	 * @return string Empty string when no image is found.
+	 */
+	private static function get_term_image_url( $term ) {
+		$keys = array( 'thumbnail_id', 'image', 'category_image_id', 'term_image' );
+
+		foreach ( $keys as $key ) {
+			$value = get_term_meta( $term->term_id, $key, true );
+			if ( empty( $value ) ) {
+				continue;
+			}
+
+			if ( is_numeric( $value ) ) {
+				$url = wp_get_attachment_image_url( (int) $value, 'full' );
+				if ( $url ) {
+					return $url;
+				}
+			} elseif ( is_string( $value ) && filter_var( $value, FILTER_VALIDATE_URL ) ) {
+				return $value;
+			}
+		}
+
+		return '';
+	}
+
+	/**
+	 * Render the term description through the_content filter and convert to markdown.
+	 *
+	 * @param WP_Term $term Term object.
+	 * @return string
+	 */
+	private static function get_term_clean_content( $term ) {
+		$raw = (string) $term->description;
+		if ( '' === trim( $raw ) ) {
+			return '';
+		}
+
+		$content = $raw;
+
+		if ( false !== strpos( $content, '[' ) ) {
+			$content = do_shortcode( $content );
+		}
+
+		remove_filter( 'the_content', 'do_shortcode', 11 );
+		$content = apply_filters( 'the_content', $content ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound
+		add_filter( 'the_content', 'do_shortcode', 11 );
+
+		if ( preg_match( '/\[[a-z][a-z0-9_-]*[\s\]]/i', $content ) ) {
+			$content = self::extract_text_from_shortcodes( $raw );
+		}
+
+		$content = strip_shortcodes( $content );
+
+		return self::html_to_markdown( $content );
+	}
+
+	/**
+	 * Build a markdown list with the direct child terms of a hierarchical taxonomy.
+	 *
+	 * @param WP_Term $term Term object.
+	 * @return string Empty string when there are no children or the taxonomy is flat.
+	 */
+	private static function get_term_children_section( $term ) {
+		if ( ! is_taxonomy_hierarchical( $term->taxonomy ) ) {
+			return '';
+		}
+
+		$children = get_terms(
+			array(
+				'taxonomy'   => $term->taxonomy,
+				'parent'     => $term->term_id,
+				'hide_empty' => false,
+			)
+		);
+
+		if ( is_wp_error( $children ) || empty( $children ) ) {
+			return '';
+		}
+
+		$tax_object = get_taxonomy( $term->taxonomy );
+		$heading    = $tax_object && ! empty( $tax_object->labels->name ) ? $tax_object->labels->name : __( 'Subcategories', 'vigia' );
+
+		$lines = array( '## ' . $heading, '' );
+		foreach ( $children as $child ) {
+			$link = get_term_link( $child );
+			if ( is_wp_error( $link ) ) {
+				continue;
+			}
+			$lines[] = sprintf( '- [%s](%s) (%d)', $child->name, $link, (int) $child->count );
+		}
+
+		return implode( "\n", $lines ) . "\n\n";
+	}
+
+	/**
+	 * Build a markdown list with the most recent posts assigned to the term.
+	 *
+	 * Limited to the first 20 entries to keep markdown payloads bounded. Posts
+	 * are ordered by menu_order then date desc so manually curated product
+	 * archives surface their pinned items first.
+	 *
+	 * @param WP_Term $term Term object.
+	 * @return string Empty string when there are no eligible posts.
+	 */
+	private static function get_term_posts_section( $term ) {
+		$limit = (int) apply_filters( 'vigia_markdown_term_posts_limit', 20, $term );
+		if ( $limit < 1 ) {
+			return '';
+		}
+
+		$query = new WP_Query(
+			array(
+				'post_type'              => 'any',
+				'post_status'            => 'publish',
+				'has_password'           => false,
+				'posts_per_page'         => $limit,
+				'no_found_rows'          => false,
+				'orderby'                => array(
+					'menu_order' => 'ASC',
+					'date'       => 'DESC',
+				),
+				'update_post_meta_cache' => false,
+				'update_post_term_cache' => false,
+				'tax_query'              => array( // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query
+					array(
+						'taxonomy' => $term->taxonomy,
+						'field'    => 'term_id',
+						'terms'    => $term->term_id,
+					),
+				),
+			)
+		);
+
+		if ( empty( $query->posts ) ) {
+			return '';
+		}
+
+		$tax_object = get_taxonomy( $term->taxonomy );
+		$is_product = $tax_object && in_array( 'product', (array) $tax_object->object_type, true );
+		$heading    = $is_product ? __( 'Products in this category', 'vigia' ) : __( 'Latest entries', 'vigia' );
+
+		$lines = array( '## ' . $heading, '' );
+
+		foreach ( $query->posts as $entry ) {
+			$permalink = get_permalink( $entry );
+			$title     = get_the_title( $entry );
+			$excerpt   = self::get_clean_excerpt( $entry );
+
+			$line = sprintf( '- [%s](%s)', $title, $permalink );
+			if ( $excerpt ) {
+				$line .= ' — ' . $excerpt;
+			}
+			$line   .= self::product_summary_inline( $entry );
+			$lines[] = $line;
+		}
+
+		$total = (int) $query->found_posts;
+		if ( $total > $limit ) {
+			$lines[] = '';
+			$lines[] = sprintf(
+				/* translators: %d: number of additional entries not listed. */
+				__( '...and %d more.', 'vigia' ),
+				$total - $limit
+			);
+		}
+
+		wp_reset_postdata();
+
+		return implode( "\n", $lines ) . "\n\n";
 	}
 
 	/**
@@ -825,16 +1469,7 @@ class VigIA_Markdown_Endpoints {
 	 * Add <link rel="alternate" type="text/markdown"> in HTML head
 	 */
 	public static function add_link_alternate_tag() {
-		if ( ! is_singular() ) {
-			return;
-		}
-
-		$the_post = get_queried_object();
-		if ( ! $the_post || ! self::is_post_eligible( $the_post ) ) {
-			return;
-		}
-
-		$md_url = self::get_markdown_url( $the_post );
+		$md_url = self::resolve_current_markdown_url();
 		if ( $md_url ) {
 			echo '<link rel="alternate" type="text/markdown" href="' . esc_url( $md_url ) . '" />' . "\n";
 		}
@@ -844,19 +1479,36 @@ class VigIA_Markdown_Endpoints {
 	 * Add Link HTTP header for markdown alternate
 	 */
 	public static function add_link_header() {
-		if ( ! is_singular() ) {
-			return;
-		}
-
-		$the_post = get_queried_object();
-		if ( ! $the_post || ! self::is_post_eligible( $the_post ) ) {
-			return;
-		}
-
-		$md_url = self::get_markdown_url( $the_post );
+		$md_url = self::resolve_current_markdown_url();
 		if ( $md_url ) {
 			header( 'Link: <' . esc_url( $md_url ) . '>; rel="alternate"; type="text/markdown"', false );
 		}
+	}
+
+	/**
+	 * Resolve the markdown URL for the current request, if any.
+	 *
+	 * Handles both singular posts and taxonomy term archives.
+	 *
+	 * @return string|false
+	 */
+	private static function resolve_current_markdown_url() {
+		if ( is_singular() ) {
+			$the_post = get_queried_object();
+			if ( $the_post && self::is_post_eligible( $the_post ) ) {
+				return self::get_markdown_url( $the_post );
+			}
+			return false;
+		}
+
+		if ( is_tax() || is_category() || is_tag() ) {
+			$term = get_queried_object();
+			if ( $term instanceof WP_Term && self::is_term_eligible( $term ) ) {
+				return self::get_markdown_url_for_term( $term );
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -876,6 +1528,34 @@ class VigIA_Markdown_Endpoints {
 		$home_url  = home_url( '/' );
 		$path      = str_replace( $home_url, '', $permalink );
 		$path      = trim( $path, '/' );
+
+		if ( empty( $path ) ) {
+			return false;
+		}
+
+		return home_url( '/' . $path . '.md' );
+	}
+
+	/**
+	 * Get the markdown URL for a taxonomy term.
+	 *
+	 * @param WP_Term $term Term object.
+	 * @return string|false
+	 */
+	public static function get_markdown_url_for_term( $term ) {
+		$settings = self::get_settings();
+
+		if ( ! $settings['enable_md_urls'] ) {
+			return false;
+		}
+
+		$link = get_term_link( $term );
+		if ( is_wp_error( $link ) ) {
+			return false;
+		}
+
+		$home_url = home_url( '/' );
+		$path     = trim( str_replace( $home_url, '', $link ), '/' );
 
 		if ( empty( $path ) ) {
 			return false;
