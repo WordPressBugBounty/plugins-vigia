@@ -3,7 +3,7 @@
  * Plugin Name: VigIA - AI Visibility, Analytics & Control
  * Plugin URI: https://servicios.ayudawp.com
  * Description: Monitor, control, and optimize how AI systems interact with your WordPress site. Track 55+ AI crawlers, manage access via robots.txt, and boost your AI visibility with llms.txt, JSON-LD, Markdown for Agents, and AI Visibility Score.
- * Version: 2.0.1
+ * Version: 2.0.2
  * Author: Fernando Tellado
  * Author URI: https://ayudawp.com
  * License: GPL v2 or later
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'VIGIA_VERSION', '2.0.1' );
+define( 'VIGIA_VERSION', '2.0.2' );
 define( 'VIGIA_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VIGIA_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'VIGIA_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -132,8 +132,12 @@ final class VigIA {
         // Initialize blocker early (before tracking).
         add_action( 'plugins_loaded', array( 'VigIA_Blocker', 'init' ), 1 );
 
+        // Track AI crawler visits on the shutdown hook, when the request's
+        // final HTTP status is known. Hooking on init (as before) always
+        // recorded 200 because WordPress resolves 404s and redirects later.
+        add_action( 'shutdown', array( $this, 'track_crawler_visit' ) );
+
         // Initialize components.
-        add_action( 'init', array( $this, 'init' ), 1 );
         add_action( 'admin_menu', array( 'VigIA_Admin_Page', 'register_menu' ) );
         add_action( 'admin_menu', array( 'VigIA_Visibility_Page', 'register_menu' ) );
         add_action( 'admin_menu', array( 'VigIA_Extras_Page', 'register_menu' ) );
@@ -276,10 +280,14 @@ final class VigIA {
     }
 
     /**
-     * Initialize crawler detection on every request
+     * Record an AI crawler visit for the current request.
+     *
+     * Hooked on `shutdown` so http_response_code() reports the real status
+     * WordPress sent (200, 404, 301, 410…). Running earlier (e.g. on init)
+     * always saw 200 because the 404/redirect outcome is resolved after init.
      */
-    public function init() {
-        // Only track on frontend requests.
+    public function track_crawler_visit() {
+        // Only track frontend requests; never admin, AJAX, cron or REST.
         if ( ! is_admin() && ! wp_doing_ajax() && ! wp_doing_cron() && ! defined( 'REST_REQUEST' ) ) {
             VigIA_Crawler_Detector::track_request();
         }

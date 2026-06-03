@@ -429,9 +429,24 @@ class VigIA_Crawler_Detector {
     }
 
     /**
+     * Whether the current request has already been logged.
+     *
+     * Guards against logging the same hit twice when more than one code path
+     * can record it (for example a markdown endpoint that serves its response
+     * and exits before the shutdown tracker runs).
+     *
+     * @var bool
+     */
+    private static $logged_this_request = false;
+
+    /**
      * Track current request if it's from an AI crawler
      */
     public static function track_request() {
+        if ( self::$logged_this_request ) {
+            return;
+        }
+
         $user_agent = isset( $_SERVER['HTTP_USER_AGENT'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_USER_AGENT'] ) ) : '';
         $crawler    = self::detect( $user_agent );
 
@@ -458,8 +473,21 @@ class VigIA_Crawler_Detector {
             'visit_date'       => current_time( 'mysql' ),
         );
 
-        // Insert into database
+        // Insert into database. Mark as logged first so any later code path in
+        // the same request (such as the shutdown tracker firing after a
+        // markdown endpoint has exited) does not record this hit again.
+        self::$logged_this_request = true;
         VigIA_Database::insert_visit( $data );
+    }
+
+    /**
+     * Mark the current request as already logged.
+     *
+     * Called by alternate code paths that record their own visit (such as the
+     * markdown endpoints) so the shutdown tracker does not log it a second time.
+     */
+    public static function mark_logged() {
+        self::$logged_this_request = true;
     }
 
     /**

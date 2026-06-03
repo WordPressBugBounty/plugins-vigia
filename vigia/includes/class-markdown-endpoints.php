@@ -704,6 +704,11 @@ class VigIA_Markdown_Endpoints {
 				'visit_date'       => current_time( 'mysql' ),
 			)
 		);
+
+		// This request is served and exited here, but the shutdown tracker
+		// would still fire afterwards and log the same hit again. Mark it so
+		// that does not happen.
+		VigIA_Crawler_Detector::mark_logged();
 	}
 
 	/**

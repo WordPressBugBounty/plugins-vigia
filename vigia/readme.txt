@@ -4,7 +4,7 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.2
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.0.1
+Stable tag: 2.0.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -395,6 +395,10 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
+= 2.0.2 =
+* Fix: The recent activity table now records the real HTTP status (200, 404, 301, 410…) for each AI crawler hit. Visits were always stored as 200 because the status was read on the `init` hook, before WordPress resolved the request, so 404s and redirects looked like 200s — and not-found hits were mistyped in the Content type column. The status is now captured on `shutdown`, when WordPress has sent the final response. Existing rows keep their stored value; only visits logged from 2.0.2 on carry the corrected status
+* Fix: A crawler request served by a Markdown for Agents `.md` endpoint is no longer recorded twice in the activity table
+
 = 2.0.1 =
 * Fix: Markdown for Agents and llms.txt no longer expose password-protected content. The `.md` endpoints (and `Accept: text/markdown` negotiation) now return 404 for password-protected posts and pages, such posts are dropped from taxonomy term `.md` listings, and they are excluded from llms.txt and llms-full.txt
 * Fix: Hardened deserialization of plugin options and post meta (`unserialize` now runs with `allowed_classes => false`) to guard against PHP object injection
@@ -417,8 +421,8 @@ For older changelog entries, please check the [changelog.txt](https://plugins.sv
 
 == Upgrade Notice ==
 
-= 2.0.1 =
-Security fix: when Markdown for Agents was enabled, password-protected posts and pages were served in full through their .md endpoint, bypassing the password form. Update if you use Markdown for Agents or llms.txt.
+= 2.0.2 =
+Fixes the recent activity table logging every AI crawler hit as HTTP 200. New visits now record the real status (200, 404, 301…) and the correct content type. Existing rows keep their old value.
 
 == Support ==
 
