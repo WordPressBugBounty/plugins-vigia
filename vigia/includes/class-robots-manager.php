@@ -323,7 +323,7 @@ class VigIA_Robots_Manager {
         // Initialize with direct method.
         if ( ! WP_Filesystem( false, ABSPATH, true ) ) {
             // Fallback to direct file write.
-            // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Fallback when WP_Filesystem fails.
+            // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents, PluginCheck.CodeAnalysis.WriteFile.ABSPATHDetected -- Fallback when WP_Filesystem fails; robots.txt must live at the site root (ABSPATH), wp_upload_dir() is not an option for it.
             $result = file_put_contents( $robots_path, $content );
             return false !== $result ? true : new WP_Error( 'write_error', __( 'Could not write to robots.txt file.', 'vigia' ) );
         }
@@ -525,7 +525,7 @@ class VigIA_Robots_Manager {
         // Initialize with direct method.
         if ( ! WP_Filesystem( false, ABSPATH, true ) ) {
             // Fallback to direct file write.
-            // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Fallback when WP_Filesystem fails.
+            // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents, PluginCheck.CodeAnalysis.WriteFile.ABSPATHDetected -- Fallback when WP_Filesystem fails; robots.txt must live at the site root (ABSPATH), wp_upload_dir() is not an option for it.
             $result = file_put_contents( $robots_path, $content );
             return false !== $result ? true : new WP_Error( 'write_error', __( 'Could not write to robots.txt file.', 'vigia' ) );
         }

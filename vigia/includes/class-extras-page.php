@@ -1015,7 +1015,7 @@ class VigIA_Extras_Page {
                     printf(
                         /* translators: %s: comma-separated list of SEO plugin names */
                         esc_html__( 'Detected active SEO plugins generating WebSite/Organization schema: %s. Enabling Site Identity below may create duplicate structured data. Consider disabling the equivalent schema in your SEO plugin first, or use only the AI Discovery section.', 'vigia' ),
-                        implode( ', ', $names ) // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- names escaped above.
+                        wp_kses( implode( ', ', $names ), array( 'strong' => array() ) )
                     );
                     ?>
                 </p>

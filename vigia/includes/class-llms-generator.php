@@ -55,6 +55,7 @@ class VigIA_LLMS_Generator {
      *
      * @var array
      */
+    // phpcs:disable WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- The 'meta_key' entries below are array keys in a static map of SEO plugins, not query arguments. The only real use is a get_post_meta() call, which is not a slow query.
     private static $seo_plugins = array(
         'yoast'        => array(
             'name'     => 'Yoast SEO',
@@ -88,6 +89,7 @@ class VigIA_LLMS_Generator {
             'noindex'  => '1',
         ),
     );
+    // phpcs:enable WordPress.DB.SlowDBQuery.slow_db_query_meta_key
 
     /**
      * Initialize cron schedules
@@ -481,6 +483,7 @@ class VigIA_LLMS_Generator {
             $args['s'] = $search;
         }
         if ( $exclude_ids ) {
+            // phpcs:ignore WordPressVIPMinimum.Performance.WPQueryParams.PostNotIn_post__not_in -- Small, manually-curated exclusion list in an admin-only post picker; never a large set.
             $args['post__not_in'] = array_map( 'absint', $exclude_ids );
         }
 

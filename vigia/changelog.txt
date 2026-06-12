@@ -3,6 +3,10 @@ VigIA — Full changelog
 For each release, see the entries below. The latest version is always at the top.
 The current release notes also live in readme.txt under "== Changelog ==".
 
+= 2.0.3 =
+* Improved: Internal security hardening to align with the WordPress.org plugin review guidelines, with no change to behavior.
+* Fix: Prevented a fatal error ("Call to a member function wp_rewrite_rules() on null") that could occur when an AI crawler hit was tracked on `shutdown` during an early-exit request, such as a 301 redirect handled before WordPress initializes its rewrite rules.
+
 = 2.0.2 =
 * Fix: The recent activity table now records the real HTTP status of each AI crawler hit. Until now every visit was stored as HTTP 200, even when the crawler actually received a 404, 301 or 410, because the status was read on the `init` hook — early in the request, before WordPress resolves the query and sends the 404/redirect status. The visit is now logged on the `shutdown` hook, where `http_response_code()` reflects the status WordPress actually sent. The same root cause was mistyping not-found hits in the Content type column, since the classifier keys "404 Not found" off the stored status; a 404 hit is now typed correctly. Note: rows recorded before this update keep their stored 200 — only visits logged from 2.0.2 onward carry the corrected status
 * Fix: A crawler request served by a Markdown for Agents `.md` endpoint is no longer logged twice. The endpoint records its own hit and then exits the request; the general tracker, now running on `shutdown`, would otherwise log the same request again. The tracker now skips any request that has already been recorded

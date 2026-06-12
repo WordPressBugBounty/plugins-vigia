@@ -756,7 +756,13 @@ class VigIA_Database {
         $full_url = home_url( '/' . $clean_path . '/' );
 
         // 1. url_to_postid works with the site's real permalink structure.
-        $post_id = url_to_postid( $full_url );
+        //    It dereferences the global $wp_rewrite, which WordPress only
+        //    instantiates between plugins_loaded and init. On an early-exit
+        //    request (for example a redirect plugin issuing a 301 and exit()
+        //    before init) the shutdown tracker runs with $wp_rewrite still
+        //    null, so guard the call and fall through to the lookups below
+        //    that do not need the rewrite rules.
+        $post_id = empty( $GLOBALS['wp_rewrite'] ) ? 0 : url_to_postid( $full_url );
         if ( $post_id > 0 ) {
             return (string) get_post_type( $post_id );
         }

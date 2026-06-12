@@ -1,10 +1,10 @@
 === VigIA - AI Visibility, Analytics & Control ===
 Contributors: fernandot, ayudawp
 Tags: ai, analytics, gpt, claude, llms
-Requires at least: 6.2
+Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.0.2
+Stable tag: 2.0.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -395,6 +395,10 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
+= 2.0.3 =
+* Improved: Internal security hardening to align with the WordPress.org plugin review guidelines, with no change to behavior.
+* Fix: Prevented a fatal error ("Call to a member function wp_rewrite_rules() on null") that could occur when an AI crawler hit was tracked on `shutdown` during an early-exit request, such as a 301 redirect handled before WordPress initializes its rewrite rules.
+
 = 2.0.2 =
 * Fix: The recent activity table now records the real HTTP status (200, 404, 301, 410…) for each AI crawler hit. Visits were always stored as 200 because the status was read on the `init` hook, before WordPress resolved the request, so 404s and redirects looked like 200s — and not-found hits were mistyped in the Content type column. The status is now captured on `shutdown`, when WordPress has sent the final response. Existing rows keep their stored value; only visits logged from 2.0.2 on carry the corrected status
 * Fix: A crawler request served by a Markdown for Agents `.md` endpoint is no longer recorded twice in the activity table
@@ -421,8 +425,8 @@ For older changelog entries, please check the [changelog.txt](https://plugins.sv
 
 == Upgrade Notice ==
 
-= 2.0.2 =
-Fixes the recent activity table logging every AI crawler hit as HTTP 200. New visits now record the real status (200, 404, 301…) and the correct content type. Existing rows keep their old value.
+= 2.0.3 =
+Fixes a fatal error that could be triggered when an AI crawler hit a URL handled by an early redirect (e.g. 301) before WordPress finished loading. Recommended for all sites.
 
 == Support ==
 

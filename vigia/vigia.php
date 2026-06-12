@@ -3,13 +3,13 @@
  * Plugin Name: VigIA - AI Visibility, Analytics & Control
  * Plugin URI: https://servicios.ayudawp.com
  * Description: Monitor, control, and optimize how AI systems interact with your WordPress site. Track 55+ AI crawlers, manage access via robots.txt, and boost your AI visibility with llms.txt, JSON-LD, Markdown for Agents, and AI Visibility Score.
- * Version: 2.0.2
+ * Version: 2.0.3
  * Author: Fernando Tellado
  * Author URI: https://ayudawp.com
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: vigia
- * Requires at least: 6.2
+ * Requires at least: 6.9
  * Requires PHP: 7.4
  * Tested up to: 7.0
  *
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'VIGIA_VERSION', '2.0.2' );
+define( 'VIGIA_VERSION', '2.0.3' );
 define( 'VIGIA_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VIGIA_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'VIGIA_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -174,7 +174,6 @@ final class VigIA {
 
         // Activation notice.
         add_action( 'admin_notices', array( $this, 'activation_notice' ) );
-        add_action( 'admin_notices', array( $this, 'block_success_notice' ) );
         add_action( 'wp_ajax_vigia_dismiss_notice', array( $this, 'dismiss_notice' ) );
 
         // AJAX handlers.
@@ -600,7 +599,7 @@ final class VigIA {
         // Inline script for notice dismiss.
         $notice_script = "
             jQuery(document).ready(function($) {
-                $('.vigia-activation-notice, .vigia-block-notice').on('click', '.notice-dismiss', function() {
+                $('.vigia-activation-notice').on('click', '.notice-dismiss', function() {
                     var nonce = $(this).closest('.notice').data('nonce');
                     $.post(ajaxurl, {
                         action: 'vigia_dismiss_notice',
@@ -682,41 +681,6 @@ final class VigIA {
             });
         });
         </script>
-        <?php
-    }
-
-    /**
-     * Display block success notice
-     */
-    public function block_success_notice() {
-        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display only, no data processing.
-        if ( ! isset( $_GET['vigia_blocked'] ) ) {
-            return;
-        }
-
-        // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-        $crawler = sanitize_text_field( wp_unslash( $_GET['vigia_blocked'] ) );
-        // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-        $method = isset( $_GET['method'] ) ? sanitize_key( wp_unslash( $_GET['method'] ) ) : 'php';
-
-        $method_label = 'robots' === $method ? 'robots.txt' : 'PHP';
-
-        ?>
-        <div class="notice notice-success is-dismissible vigia-block-notice" data-nonce="<?php echo esc_attr( wp_create_nonce( 'vigia_dismiss_notice' ) ); ?>">
-            <p>
-                <strong><?php echo esc_html( $crawler ); ?></strong>
-                <?php
-                printf(
-                    /* translators: %s: blocking method (robots.txt or PHP) */
-                    esc_html__( 'has been blocked via %s.', 'vigia' ),
-                    esc_html( $method_label )
-                );
-                ?>
-                <a href="<?php echo esc_url( admin_url( 'admin.php?page=vigia-extras' ) ); ?>">
-                    <?php esc_html_e( 'Manage blocking rules in Extras', 'vigia' ); ?>
-                </a>
-            </p>
-        </div>
         <?php
     }
 
@@ -1128,8 +1092,7 @@ final class VigIA {
             'site_name'        => isset( $_POST['site_name'] ) ? sanitize_text_field( wp_unslash( $_POST['site_name'] ) ) : '',
             'site_description' => isset( $_POST['site_description'] ) ? sanitize_textarea_field( wp_unslash( $_POST['site_description'] ) ) : '',
             'post_types'       => isset( $_POST['post_types'] ) ? array_map( 'sanitize_key', (array) $_POST['post_types'] ) : array(),
-            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Sanitized below.
-            'taxonomy_filters' => isset( $_POST['taxonomy_filters'] ) ? $this->sanitize_taxonomy_filters( wp_unslash( $_POST['taxonomy_filters'] ) ) : array(),
+            'taxonomy_filters' => isset( $_POST['taxonomy_filters'] ) ? $this->sanitize_taxonomy_filters( map_deep( wp_unslash( $_POST['taxonomy_filters'] ), 'sanitize_text_field' ) ) : array(),
             'manual_includes'  => isset( $_POST['manual_includes'] ) ? array_map( 'absint', (array) $_POST['manual_includes'] ) : array(),
             'manual_excludes'  => isset( $_POST['manual_excludes'] ) ? array_map( 'absint', (array) $_POST['manual_excludes'] ) : array(),
             'exclude_patterns' => isset( $_POST['exclude_patterns'] ) ? sanitize_textarea_field( wp_unslash( $_POST['exclude_patterns'] ) ) : '',
@@ -1174,8 +1137,7 @@ final class VigIA {
             'site_name'        => isset( $_POST['site_name'] ) ? sanitize_text_field( wp_unslash( $_POST['site_name'] ) ) : '',
             'site_description' => isset( $_POST['site_description'] ) ? sanitize_textarea_field( wp_unslash( $_POST['site_description'] ) ) : '',
             'post_types'       => isset( $_POST['post_types'] ) ? array_map( 'sanitize_key', (array) $_POST['post_types'] ) : array(),
-            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Sanitized below.
-            'taxonomy_filters' => isset( $_POST['taxonomy_filters'] ) ? $this->sanitize_taxonomy_filters( wp_unslash( $_POST['taxonomy_filters'] ) ) : array(),
+            'taxonomy_filters' => isset( $_POST['taxonomy_filters'] ) ? $this->sanitize_taxonomy_filters( map_deep( wp_unslash( $_POST['taxonomy_filters'] ), 'sanitize_text_field' ) ) : array(),
             'manual_includes'  => isset( $_POST['manual_includes'] ) ? array_map( 'absint', (array) $_POST['manual_includes'] ) : array(),
             'manual_excludes'  => isset( $_POST['manual_excludes'] ) ? array_map( 'absint', (array) $_POST['manual_excludes'] ) : array(),
             'exclude_patterns' => isset( $_POST['exclude_patterns'] ) ? sanitize_textarea_field( wp_unslash( $_POST['exclude_patterns'] ) ) : '',

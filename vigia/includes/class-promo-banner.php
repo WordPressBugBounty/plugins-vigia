@@ -62,7 +62,7 @@ class Vigia_Promo_Banner {
 				'icon'        => 'dashicons-shield',
 				'title'       => __( 'Complete WordPress security', 'vigia' ),
 				'description' => __( 'All-in-one security plugin: firewall, login protection, security headers, 2FA, file integrity monitoring, and activity logging.', 'vigia' ),
-				'button'      => __( 'Install Vigilante', 'vigia' ),
+				'button'      => __( 'Install Vigilant', 'vigia' ),
 			),
 			'gozer'                            => array(
 				'icon'        => 'dashicons-admin-network',
@@ -83,10 +83,10 @@ class Vigia_Promo_Banner {
 				'button'      => __( 'Install AI Content Signals', 'vigia' ),
 			),
 			'wpo-tweaks'                       => array(
-				'icon'        => 'dashicons-performance',
-				'title'       => __( 'Speed up your WordPress', 'vigia' ),
-				'description' => __( 'Comprehensive performance optimizations: critical CSS, lazy loading, cache rules, and 30+ tweaks with zero configuration.', 'vigia' ),
-				'button'      => __( 'Install Zero Config Performance', 'vigia' ),
+				'icon'        => 'dashicons-food',
+				'title'       => __( 'Put WordPress on a diet', 'vigia' ),
+				'description' => __( 'Disable bloat and apply 30+ performance tweaks (critical CSS, lazy loading, cache rules) with zero configuration for a leaner, faster site.', 'vigia' ),
+				'button'      => __( 'Install DietPress', 'vigia' ),
 			),
 			'no-gutenberg'                     => array(
 				'icon'        => 'dashicons-edit-page',
@@ -112,11 +112,11 @@ class Vigia_Promo_Banner {
 				'description' => __( 'Remove millions of completed, failed, and old actions from WooCommerce Action Scheduler. Reduce database size instantly.', 'vigia' ),
 				'button'      => __( 'Install Scheduler Cleaner', 'vigia' ),
 			),
-			'native-sitemap-customizer'        => array(
-				'icon'        => 'dashicons-networking',
-				'title'       => __( 'Customize your sitemap', 'vigia' ),
-				'description' => __( 'Control WordPress native sitemap: exclude post types, taxonomies, specific posts, and authors. No bloat, just options.', 'vigia' ),
-				'button'      => __( 'Install Sitemap Customizer', 'vigia' ),
+			'native-aeo-pack'                  => array(
+				'icon'        => 'dashicons-embed-generic',
+				'title'       => __( 'All-in-one native SEO', 'vigia' ),
+				'description' => __( 'Meta tags, Open Graph, JSON-LD schema, robots directives and native sitemap control in one lightweight plugin built on WordPress core features.', 'vigia' ),
+				'button'      => __( 'Install Native SEO Pack', 'vigia' ),
 			),
 			'post-visibility-control'          => array(
 				'icon'        => 'dashicons-hidden',
@@ -166,23 +166,29 @@ class Vigia_Promo_Banner {
 				'description' => __( 'Display your scheduled and future posts on the frontend to gain and retain visits.', 'vigia' ),
 				'button'      => __( 'Install Scheduled Posts Showcase', 'vigia' ),
 			),
-			'periscope'                        => array(
+			'periscopio'                      => array(
 				'icon'        => 'dashicons-rss',
 				'title'       => __( 'Custom Dashboard News', 'vigia' ),
 				'description' => __( 'Add your own custom feeds and links to the news and events dashboard widget and replace WordPress default one.', 'vigia' ),
 				'button'      => __( 'Install Periscope', 'vigia' ),
-			),
-			'noindexer'                        => array(
-				'icon'        => 'dashicons-editor-unlink',
-				'title'       => __( 'Control search engine indexing', 'vigia' ),
-				'description' => __( 'Mark posts, pages, and custom post types as noindex individually or in bulk. Keep private content out of search engines.', 'vigia' ),
-				'button'      => __( 'Install NoIndexer', 'vigia' ),
 			),
 			'lightbox-images-for-divi'         => array(
 				'icon'        => 'dashicons-format-gallery',
 				'title'       => __( 'Lightbox for Divi', 'vigia' ),
 				'description' => __( 'Add native lightbox functionality to Divi theme images. No jQuery, fast loading, fully customizable.', 'vigia' ),
 				'button'      => __( 'Install Divi Lightbox', 'vigia' ),
+			),
+			'eu-withdrawal-compliance'         => array(
+				'icon'        => 'dashicons-undo',
+				'title'       => __( 'EU withdrawal compliance', 'vigia' ),
+				'description' => __( 'Add the EU online withdrawal function required by Directive 2023/2673 from June 2026. Public form, My Account button, email notice and SHA-256 receipt hash.', 'vigia' ),
+				'button'      => __( 'Install EU Withdrawal', 'vigia' ),
+			),
+			'terms-conditions-consent-log'     => array(
+				'icon'        => 'dashicons-yes-alt',
+				'title'       => __( 'Tamper-evident consent log', 'vigia' ),
+				'description' => __( 'GDPR art. 7.1 audit trail for any acceptance checkbox: WooCommerce checkout, CF7, WPForms, comments and shortcode. Timestamp, IP, version and SHA-256 sealed text.', 'vigia' ),
+				'button'      => __( 'Install Consent Log', 'vigia' ),
 			),
 		);
 	}
