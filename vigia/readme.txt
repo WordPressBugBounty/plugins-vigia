@@ -4,7 +4,7 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.0.3
+Stable tag: 2.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -395,40 +395,27 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
-= 2.0.3 =
-* Improved: Internal security hardening to align with the WordPress.org plugin review guidelines, with no change to behavior.
-* Fix: Prevented a fatal error ("Call to a member function wp_rewrite_rules() on null") that could occur when an AI crawler hit was tracked on `shutdown` during an early-exit request, such as a 301 redirect handled before WordPress initializes its rewrite rules.
-
-= 2.0.2 =
-* Fix: The recent activity table now records the real HTTP status (200, 404, 301, 410…) for each AI crawler hit. Visits were always stored as 200 because the status was read on the `init` hook, before WordPress resolved the request, so 404s and redirects looked like 200s — and not-found hits were mistyped in the Content type column. The status is now captured on `shutdown`, when WordPress has sent the final response. Existing rows keep their stored value; only visits logged from 2.0.2 on carry the corrected status
-* Fix: A crawler request served by a Markdown for Agents `.md` endpoint is no longer recorded twice in the activity table
-
-= 2.0.1 =
-* Fix: Markdown for Agents and llms.txt no longer expose password-protected content. The `.md` endpoints (and `Accept: text/markdown` negotiation) now return 404 for password-protected posts and pages, such posts are dropped from taxonomy term `.md` listings, and they are excluded from llms.txt and llms-full.txt
-* Fix: Hardened deserialization of plugin options and post meta (`unserialize` now runs with `allowed_classes => false`) to guard against PHP object injection
-
-= 2.0.0 =
-* NEW: Markdown for Agents now serves taxonomy archive pages (categories, tags, WooCommerce product categories, custom taxonomies). Frontmatter includes title, description, taxonomy, parent, count, image and lang. Body includes the term description, the list of child terms in hierarchical taxonomies, and an excerpt of the latest posts/products assigned to the term. Disabled by default — opt in per taxonomy in VigIA > Extras > Markdown for Agents
-* NEW: WooCommerce product `.md` endpoints embed schema-like fields in the YAML frontmatter (sku, product_type, price, regular_price, sale_price, currency, availability, stock_quantity, rating, rating_count, review_count). Product listings inside `product_cat` term archives also gain an inline summary with formatted price, "was X" on sale items, star rating and out-of-stock flag
-* NEW: Advanced filters on the recent activity table — multi-select crawler picker, content type filter (post, page, product, category archive, tag archive, date/author archive, feed, sitemap, REST API, file, other), HTTP status filter, configurable date range, and an "Export filtered CSV" button that downloads exactly what the filters return
-* NEW: Two new visible columns on the recent activity table — Content type and HTTP status (color coded by status family). Content type detection distinguishes Home, Post, Page, Product, CPTs, taxonomy archives, Feed, Sitemap, REST API, File, Admin / login attempt (/wp-admin, wp-login.php — useful to spot bots probing the admin), WordPress system (admin-ajax, xmlrpc, wp-cron, wp-comments-post), 404 Not found, and Other
-* NEW: Server-side pagination on the recent activity table with a four-button pager (first, previous, next, last) consistent with the rest of the dashboard tables. The count, navigation and CSV export operate over the full database instead of the last 500 rows
-* NEW: Every CSV export now opens with a metadata banner (site name, site URL, export type, date range, export timestamp, generator string, applied filters). The activity export uses the `vigia-filtered-YYYY-MM-DD.csv` filename when any filter is in effect
-* NEW: `/vigia/v1/recent` and `/vigia/v1/export` accept new query params (crawlers[], category, content_type, http_status, date_from, date_to, page, per_page) and `VigIA_Database::query_visits()` is now public for site builders. The legacy contract — no parameters returns the latest 500 visits as a flat array — is preserved
-* NEW: Filters `vigia_markdown_term_eligible` and `vigia_markdown_term_posts_limit` for site builders to control term markdown output programmatically
-* DB: New `content_type` column on `wp_vigia_visits` (DB version 1.1.0) populated at insert time. Pre-2.0.0 rows are backfilled hourly by the `vigia_backfill_content_type` cron, plus eagerly when the user filters by content_type in the dashboard
-* Changed: Admin menu order restored. *Analytics* is the default landing page again when clicking the VigIA top-level menu, with *AI Visibility* in second position
-* Changed: Per-term noindex settings from Yoast SEO, Rank Math, All in One SEO and SEOPress are honored when "Respect LLMs.txt exclusion filters" is on. Native SEO NoIndexer (AyudaWP) is also recognised for single posts when its `Noindexer_Frontend::is_noindex()` helper is available
-* i18n: CSV export headers, CSV metadata banner labels and every new UI string ship translation-ready
+= 2.1.0 =
+* New: Command Palette actions (Cmd/Ctrl+K, admin-wide since WordPress 6.9): "Regenerate llms.txt now" and "Regenerate llms-full.txt now" rebuild each file from your saved configuration without leaving the current screen. Navigation to VigIA's screens is left to WordPress, which already lists every admin menu page in the palette
+* Improved: The VigIA admin menu now sits at the bottom of the admin menu, separated from the content menus
+* Improved: Refreshed the bundled MCP server libraries (WordPress MCP Adapter and php-mcp-schema) to their latest upstream versions
+* Fix: Markdown for Agents now keeps the anchor text on links and the alt text on images. The final shortcode cleanup was deleting the bracketed label, leaving a bare "(url)" with no text on almost every link
+* Fix: Markdown for Agents now renders nested lists (sub-items keep their bullet/number and indentation), preserves bold and italics inside numbered lists, escapes pipes inside table cells, keeps brackets inside inline code, and detects the language of fenced code blocks
+* Fix: Markdown for Agents no longer misplaces bold/italic markers (** and *) when a post uses the image lightbox or has other elements next to formatted text. Inline formatting was matching the start of unrelated tags (a `<button>`, `<img>` or `<span>` could be mistaken for `<b>`, `<i>` or `<s>`)
+* Fix: Internal security hardening of the JSON-LD output and the Extras tab navigation to align with the WordPress.org plugin review guidelines
 
 For older changelog entries, please check the [changelog.txt](https://plugins.svn.wordpress.org/vigia/trunk/changelog.txt) file
 
 == Upgrade Notice ==
 
-= 2.0.3 =
-Fixes a fatal error that could be triggered when an AI crawler hit a URL handled by an early redirect (e.g. 301) before WordPress finished loading. Recommended for all sites.
+= 2.1.0 =
+Fixes Markdown for Agents: links and images keep their text, and nested lists, bold in numbered lists, tables and code blocks now render correctly. Adds a Command Palette (Cmd/Ctrl+K). Recommended for sites using the .md endpoints.
 
 == Support ==
+
+Need private support or custom development?
+
+Do you need one-on-one help, priority troubleshooting, or a custom feature, integration, or tweak built specifically for your site? I offer private support and custom development. Just [contact me](mailto:vigia@ayudawp.com) and tell me what you need.
 
 Need help or have suggestions?
 

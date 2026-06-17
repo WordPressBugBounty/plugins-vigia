@@ -30,7 +30,7 @@ class VigIA_Admin_Page {
 			'vigia',
 			array( __CLASS__, 'render_page' ),
 			$icon_svg,
-			3
+			999
 		);
 
 		// Rename the first submenu (auto-created by add_menu_page)

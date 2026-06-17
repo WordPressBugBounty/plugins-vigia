@@ -1323,12 +1323,18 @@ class VigIA_Markdown_Endpoints {
 		// Links.
 		$html = preg_replace( '/<a[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)<\/a>/is', '[$2]($1)', $html );
 
-		// Code blocks (pre > code).
+		// Code blocks (pre > code). Capture the attributes of both <pre> and
+		// <code> so a `language-xxx` class on either one is detected. The old
+		// single greedy `<code[^>]*` swallowed the class before the optional
+		// group could capture it, so fences always came out without a language.
 		$html = preg_replace_callback(
-			'/<pre[^>]*>\s*<code[^>]*(?:class=["\'][^"\']*language-([^"\'\s]+)[^"\']*["\'])?[^>]*>(.*?)<\/code>\s*<\/pre>/is',
+			'/<pre([^>]*)>\s*<code([^>]*)>(.*?)<\/code>\s*<\/pre>/is',
 			function ( $matches ) {
-				$lang = ! empty( $matches[1] ) ? $matches[1] : '';
-				$code = html_entity_decode( wp_strip_all_tags( $matches[2] ), ENT_QUOTES, 'UTF-8' );
+				$lang = '';
+				if ( preg_match( '/language-([a-z0-9_+#-]+)/i', $matches[1] . ' ' . $matches[2], $lang_match ) ) {
+					$lang = strtolower( $lang_match[1] );
+				}
+				$code = html_entity_decode( wp_strip_all_tags( $matches[3] ), ENT_QUOTES, 'UTF-8' );
 				return "\n\n```" . $lang . "\n" . trim( $code ) . "\n```\n\n";
 			},
 			$html
@@ -1365,34 +1371,32 @@ class VigIA_Markdown_Endpoints {
 		// Horizontal rules.
 		$html = preg_replace( '/<hr[^>]*\/?>/is', "\n\n---\n\n", $html );
 
-		// Ordered lists.
-		$html = preg_replace_callback(
-			'/<ol[^>]*>(.*?)<\/ol>/is',
-			function ( $matches ) {
-				$items = array();
-				preg_match_all( '/<li[^>]*>(.*?)<\/li>/is', $matches[1], $li_matches );
-				$counter = 1;
-				foreach ( $li_matches[1] as $item ) {
-					$items[] = $counter . '. ' . trim( wp_strip_all_tags( $item ) );
-					$counter++;
-				}
-				return "\n\n" . implode( "\n", $items ) . "\n\n";
-			},
-			$html
-		);
+		// Bold, italic, strikethrough. Done before lists so the list walker
+		// (which reads each <li> as text) sees the markers already in place;
+		// otherwise <strong>/<em> inside an item would be stripped, the way
+		// they used to be lost inside <ol>.
+		//
+		// The \b after the tag name is load-bearing: without it <b> also matches
+		// the start of <button>/<br>/<body>, <i> matches <img>/<iframe>, and <s>
+		// matches <span>/<svg>/<section>. A stray such tag (e.g. the <button> that
+		// Gutenberg's image lightbox injects) would then pair with a later
+		// </strong>/</em> and scatter ** / * markers across the output.
+		$html = preg_replace( '/<(strong|b)\b[^>]*>(.*?)<\/(strong|b)>/is', '**$2**', $html );
+		$html = preg_replace( '/<(em|i)\b[^>]*>(.*?)<\/(em|i)>/is', '*$2*', $html );
+		$html = preg_replace( '/<(del|s|strike)\b[^>]*>(.*?)<\/(del|s|strike)>/is', '~~$2~~', $html );
 
-		// Unordered lists.
-		$html = preg_replace( '/<li[^>]*>(.*?)<\/li>/is', "- $1\n", $html );
-		$html = preg_replace( '/<\/?[ou]l[^>]*>/is', "\n", $html );
+		// Lists (<ul>/<ol>, including nested and mixed). Walked with DOMDocument
+		// so nesting, ordered/unordered markers and indentation survive; the old
+		// flat regexes dropped the first nested item's bullet and all indent.
+		// Each rendered block is parked as a placeholder to shield its per-line
+		// indentation from the whitespace pass further down. $protected is shared
+		// with the code-span protection step below.
+		$protected = array();
+		$html      = self::convert_lists_to_markdown( $html, $protected );
 
 		// Paragraphs and line breaks.
 		$html = preg_replace( '/<p[^>]*>(.*?)<\/p>/is', "$1\n\n", $html );
 		$html = preg_replace( '/<br[^>]*\/?>/is', "  \n", $html );
-
-		// Bold, italic, strikethrough.
-		$html = preg_replace( '/<(strong|b)[^>]*>(.*?)<\/(strong|b)>/is', '**$2**', $html );
-		$html = preg_replace( '/<(em|i)[^>]*>(.*?)<\/(em|i)>/is', '*$2*', $html );
-		$html = preg_replace( '/<(del|s|strike)[^>]*>(.*?)<\/(del|s|strike)>/is', '~~$2~~', $html );
 
 		// Tables.
 		$html = preg_replace_callback(
@@ -1413,8 +1417,23 @@ class VigIA_Markdown_Endpoints {
 		$html = wp_strip_all_tags( $html );
 		$html = html_entity_decode( $html, ENT_QUOTES, 'UTF-8' );
 
-		// Clean up shortcode artifacts.
-		$html = preg_replace( '/\[[a-z][a-z0-9_-]*[^\]]*\]/is', '', $html );
+		// Protect already-generated code spans (fenced blocks and inline code)
+		// from the cleanup and whitespace passes below. Without this, bracketed
+		// text inside code (e.g. $arr[key]) is stripped as if it were a
+		// shortcode, and per-line trimming flattens code-block indentation.
+		// Reuses the same $protected store as the list blocks parked earlier.
+		$protect = function ( $matches ) use ( &$protected ) {
+			$protected[] = $matches[0];
+			return 'VIGIAPLACEHOLDER' . ( count( $protected ) - 1 ) . 'END';
+		};
+		$html = preg_replace_callback( '/```.*?```/s', $protect, $html );
+		$html = preg_replace_callback( '/`[^`\n]+`/', $protect, $html );
+
+		// Clean up artifacts left by unregistered shortcodes. The negative
+		// lookahead (?!\() preserves markdown links [text](url) and images
+		// ![alt](url): their label is bracketed text this pattern would otherwise
+		// delete, leaving a bare "(url)" with no anchor text.
+		$html = preg_replace( '/\[[a-z][a-z0-9_-]*[^\]]*\](?!\()/is', '', $html );
 		$html = preg_replace( '/\[\/[a-z][a-z0-9_-]*\]/is', '', $html );
 
 		// Clean up whitespace.
@@ -1425,7 +1444,153 @@ class VigIA_Markdown_Endpoints {
 		$html  = implode( "\n", $lines );
 		$html  = preg_replace( '/\n{3,}/', "\n\n", $html );
 
+		// Restore the protected list blocks and code spans verbatim, now that the
+		// whitespace pass is done, so nested indentation and inner brackets stay.
+		if ( ! empty( $protected ) ) {
+			$html = preg_replace_callback(
+				'/VIGIAPLACEHOLDER(\d+)END/',
+				function ( $matches ) use ( $protected ) {
+					$index = (int) $matches[1];
+					return isset( $protected[ $index ] ) ? $protected[ $index ] : '';
+				},
+				$html
+			);
+		}
+
 		return trim( $html );
+	}
+
+	/**
+	 * Convert HTML lists to markdown, keeping nested and mixed ul/ol structure.
+	 *
+	 * Top-level lists are matched with a recursive pattern so each block keeps
+	 * its nested sublists, then walked with DOMDocument and rendered with two
+	 * spaces of indentation per level. Inline markup (links, code, bold/italic)
+	 * must already be markdown before this runs: the walk reads items as text.
+	 *
+	 * Each rendered block is parked in $store (returning a placeholder token) so
+	 * the later per-line trim pass cannot flatten the nested indentation.
+	 *
+	 * @param string $html  HTML with inline markup already converted to markdown.
+	 * @param array  $store Reference to the shared placeholder store.
+	 * @return string
+	 */
+	private static function convert_lists_to_markdown( $html, &$store ) {
+		if ( false === stripos( $html, '<ul' ) && false === stripos( $html, '<ol' ) ) {
+			return $html;
+		}
+
+		// Match a top-level <ul>/<ol> with all its (possibly nested, possibly
+		// mixed) content. (?R) keeps balanced nesting together; closing on any
+		// </ul>|</ol> tolerates mixed nesting in well-formed WordPress markup.
+		$pattern = '/<(?:ul|ol)\b[^>]*>(?:[^<]++|<(?!\/?(?:ul|ol)\b)[^<]*+|(?R))*+<\/(?:ul|ol)>/is';
+
+		$result = preg_replace_callback(
+			$pattern,
+			function ( $matches ) use ( &$store ) {
+				$markdown = self::render_html_list( $matches[0] );
+				if ( '' === trim( $markdown ) ) {
+					return '';
+				}
+				$store[] = $markdown;
+				return "\n\nVIGIAPLACEHOLDER" . ( count( $store ) - 1 ) . "END\n\n";
+			},
+			$html
+		);
+
+		// preg_replace_callback returns null on a PCRE failure (e.g. hitting the
+		// backtrack limit on pathological input); fall back to the original HTML
+		// so the rest of the converter still runs.
+		return ( null === $result ) ? $html : $result;
+	}
+
+	/**
+	 * Render one top-level HTML list block to markdown via DOMDocument.
+	 *
+	 * @param string $list_html A single <ul>/<ol>…</…> block.
+	 * @return string
+	 */
+	private static function render_html_list( $list_html ) {
+		if ( ! class_exists( 'DOMDocument' ) ) {
+			// Minimal fallback when ext-dom is unavailable: flat bullets.
+			$flat = preg_replace( '/<li[^>]*>/i', "\n- ", $list_html );
+			return trim( wp_strip_all_tags( $flat ) );
+		}
+
+		$dom      = new DOMDocument();
+		$previous = libxml_use_internal_errors( true );
+		$dom->loadHTML(
+			'<?xml encoding="UTF-8"><div>' . $list_html . '</div>',
+			LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD
+		);
+		libxml_clear_errors();
+		libxml_use_internal_errors( $previous );
+
+		$divs = $dom->getElementsByTagName( 'div' );
+		if ( 0 === $divs->length ) {
+			return '';
+		}
+
+		foreach ( $divs->item( 0 )->childNodes as $node ) {
+			if ( XML_ELEMENT_NODE === $node->nodeType ) {
+				$name = strtolower( $node->nodeName );
+				if ( 'ul' === $name || 'ol' === $name ) {
+					return self::render_list_node( $node, '' );
+				}
+			}
+		}
+
+		return '';
+	}
+
+	/**
+	 * Recursively render a <ul>/<ol> DOM node to an indented markdown list.
+	 *
+	 * @param DOMElement $list   List element.
+	 * @param string     $indent Leading whitespace for this level's items.
+	 * @return string
+	 */
+	private static function render_list_node( $list, $indent ) {
+		$ordered = ( 'ol' === strtolower( $list->nodeName ) );
+		$lines   = array();
+		$counter = 1;
+
+		foreach ( $list->childNodes as $item ) {
+			if ( XML_ELEMENT_NODE !== $item->nodeType || 'li' !== strtolower( $item->nodeName ) ) {
+				continue;
+			}
+
+			// Split each <li> into its own inline text and any nested sublists.
+			$own_text = '';
+			$sublists = array();
+
+			foreach ( $item->childNodes as $child ) {
+				$name = strtolower( $child->nodeName );
+				if ( XML_ELEMENT_NODE === $child->nodeType && ( 'ul' === $name || 'ol' === $name ) ) {
+					$sublists[] = $child;
+				} else {
+					$own_text .= $child->textContent;
+				}
+			}
+
+			$own_text = trim( preg_replace( '/\s+/', ' ', $own_text ) );
+			$marker   = $ordered ? ( $counter . '. ' ) : '- ';
+			$lines[]  = rtrim( $indent . $marker . $own_text );
+
+			// Align sublists with the start of this item's text so CommonMark
+			// keeps them nested (ordered markers need more than two spaces).
+			$child_indent = $indent . str_repeat( ' ', strlen( $marker ) );
+			foreach ( $sublists as $sublist ) {
+				$rendered = self::render_list_node( $sublist, $child_indent );
+				if ( '' !== $rendered ) {
+					$lines[] = $rendered;
+				}
+			}
+
+			$counter++;
+		}
+
+		return implode( "\n", $lines );
 	}
 
 	/**
@@ -1452,7 +1617,11 @@ class VigIA_Markdown_Endpoints {
 
 			if ( ! empty( $cell_matches[2] ) ) {
 				foreach ( $cell_matches[2] as $cell ) {
-					$cells[] = trim( wp_strip_all_tags( $cell ) );
+					$text = trim( wp_strip_all_tags( $cell ) );
+					// Escape pipes and flatten line breaks so a cell's content
+					// can't break out of its column in the markdown table.
+					$text    = str_replace( array( "\r\n", "\n", "\r", '|' ), array( ' ', ' ', ' ', '\\|' ), $text );
+					$cells[] = $text;
 				}
 			}
 

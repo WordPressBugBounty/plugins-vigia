@@ -41,10 +41,8 @@ class VigIA_Extras_Page {
      * Render the extras page
      */
     public static function render_page() {
-        // Get current tab.
-        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Display only, no data processing.
-        $current_tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'robots';
-
+        // Tabs available on the Extras page. This array also acts as the
+        // allowlist that constrains the ?tab= query var read below.
         $tabs = array(
             'robots'   => __( 'Disallow & Blocking', 'vigia' ),
             'llms'     => __( 'LLMs.txt Generator', 'vigia' ),
@@ -53,6 +51,15 @@ class VigIA_Extras_Page {
             'alerts'   => __( 'Email Alerts', 'vigia' ),
             'mcp'      => __( 'MCP', 'vigia' ),
         );
+
+        // Which tab to show. This is read-only navigation with no state change,
+        // so the tab links intentionally carry no nonce: requiring one would
+        // break bookmarks and shared URLs. The requested value is constrained to
+        // the $tabs allowlist, so an arbitrary ?tab= can only ever resolve to a
+        // known tab or fall back to 'robots'.
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only tab navigation validated against the $tabs allowlist; no data processing.
+        $requested_tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
+        $current_tab   = isset( $tabs[ $requested_tab ] ) ? $requested_tab : 'robots';
 
         ?>
         <div class="wrap vigia-wrap vigia-extras-wrap">

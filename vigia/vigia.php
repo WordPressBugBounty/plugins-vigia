@@ -3,7 +3,7 @@
  * Plugin Name: VigIA - AI Visibility, Analytics & Control
  * Plugin URI: https://servicios.ayudawp.com
  * Description: Monitor, control, and optimize how AI systems interact with your WordPress site. Track 55+ AI crawlers, manage access via robots.txt, and boost your AI visibility with llms.txt, JSON-LD, Markdown for Agents, and AI Visibility Score.
- * Version: 2.0.3
+ * Version: 2.1.0
  * Author: Fernando Tellado
  * Author URI: https://ayudawp.com
  * License: GPL v2 or later
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'VIGIA_VERSION', '2.0.3' );
+define( 'VIGIA_VERSION', '2.1.0' );
 define( 'VIGIA_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VIGIA_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'VIGIA_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -119,6 +119,7 @@ final class VigIA {
         require_once VIGIA_PLUGIN_DIR . 'includes/class-promo-banner.php';
         require_once VIGIA_PLUGIN_DIR . 'includes/class-markdown-endpoints.php';
         require_once VIGIA_PLUGIN_DIR . 'includes/class-jsonld-generator.php';
+        require_once VIGIA_PLUGIN_DIR . 'includes/class-command-palette.php';
     }
 
     /**
@@ -158,6 +159,9 @@ final class VigIA {
 
         // JSON-LD structured data.
         add_action( 'wp', array( 'VigIA_JsonLD_Generator', 'init' ) );
+
+        // Command Palette (Cmd/Ctrl+K) navigation and quick actions.
+        VigIA_Command_Palette::init();
 
         // Scheduled tasks.
         add_action( 'vigia_daily_cleanup', array( 'VigIA_Settings', 'run_cleanup' ) );

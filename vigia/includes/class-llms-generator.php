@@ -293,6 +293,51 @@ class VigIA_LLMS_Generator {
     }
 
     /**
+     * Regenerate a single llms file from the saved settings, without touching
+     * the other one. Backs the command palette's quick actions.
+     *
+     * @param string $which 'full' for llms-full.txt, anything else for llms.txt.
+     * @return array|WP_Error Result with url/size/count, or a WP_Error.
+     */
+    public static function regenerate_file( $which ) {
+        $settings = self::normalize_settings( self::get_settings() );
+        $post_ids = self::get_final_post_ids( $settings );
+
+        if ( empty( $post_ids ) ) {
+            return new WP_Error(
+                'no_content',
+                __( 'No content selected. Configure llms.txt in VigIA > Extras > LLMs first.', 'vigia' )
+            );
+        }
+
+        if ( 'full' === $which ) {
+            if ( empty( $settings['generate_full'] ) ) {
+                return new WP_Error(
+                    'full_disabled',
+                    __( 'llms-full.txt is not enabled. Turn it on in VigIA > Extras > LLMs first.', 'vigia' )
+                );
+            }
+            $content = self::generate_llms_full_txt( $settings, $post_ids );
+            $result  = self::write_file( 'llms-full.txt', $content );
+            $url     = home_url( '/llms-full.txt' );
+        } else {
+            $content = self::generate_llms_txt( $settings, $post_ids );
+            $result  = self::write_file( 'llms.txt', $content );
+            $url     = home_url( '/llms.txt' );
+        }
+
+        if ( is_wp_error( $result ) ) {
+            return $result;
+        }
+
+        return array(
+            'url'   => $url,
+            'size'  => strlen( $content ),
+            'count' => count( $post_ids ),
+        );
+    }
+
+    /**
      * Save and generate in one call
      *
      * @param array $settings Settings from form.

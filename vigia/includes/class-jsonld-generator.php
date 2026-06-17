@@ -343,14 +343,20 @@ class VigIA_JsonLD_Generator {
 			return;
 		}
 
-		$json = wp_json_encode( $jsonld, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+		// JSON_HEX_TAG escapes < and > as < / > so a "</script>" that
+		// slips into the data (e.g. a site or organization field) cannot break
+		// out of the inline script. Slashes stay unescaped to keep URLs readable.
+		$json = wp_json_encode( $jsonld, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG );
 
 		if ( ! $json ) {
 			return;
 		}
 
-		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- JSON-LD must be output as valid JSON.
-		echo '<script type="application/ld+json">' . $json . '</script>' . "\n";
+		// wp_print_inline_script_tag() emits the JSON-LD verbatim inside a
+		// <script type="application/ld+json"> with sanitized attributes (and a
+		// CSP nonce when one applies), so no manual escaping is needed here and
+		// the WordPress.Security.EscapeOutput exception is no longer required.
+		wp_print_inline_script_tag( $json, array( 'type' => 'application/ld+json' ) );
 	}
 
 	/**

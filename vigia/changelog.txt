@@ -3,8 +3,17 @@ VigIA — Full changelog
 For each release, see the entries below. The latest version is always at the top.
 The current release notes also live in readme.txt under "== Changelog ==".
 
+= 2.1.0 =
+* New: Command Palette actions. The WordPress command palette (Cmd/Ctrl+K, admin-wide since WP 6.9) gains two VigIA actions — "Regenerate llms.txt now" and "Regenerate llms-full.txt now" — that rebuild each file from your saved configuration without leaving the current screen. Navigation to VigIA's screens is intentionally left to WordPress, which already lists every admin menu page in the palette, so the plugin only adds the actions WordPress can't generate on its own
+* Improved: The VigIA admin menu now sits at the bottom of the admin menu (position 999), separated from the content menus, instead of wedging between the content menus near the top
+* Improved: Refreshed the bundled MCP server libraries — the WordPress MCP Adapter and php-mcp-schema — to their latest upstream versions, so the self-contained MCP server ships current upstream fixes
+* Fix: Markdown for Agents was emitting links as a bare "(url)" with no anchor text, and images as "!(url)" with no alt text. Links and images were converted correctly, but the final "shortcode artifact" cleanup pass matched the bracketed label of every `[text](url)` and `![alt](url)` and deleted it. The cleanup now uses a negative lookahead so it only strips genuine leftover shortcodes, and inline code and code blocks are protected so brackets such as `$arr[key]` survive
+* Fix: Markdown for Agents list and code handling rewritten. Nested lists now keep each sub-item's bullet/number and are indented per level (walked with DOMDocument instead of the old flat regexes that dropped the first nested item's marker and all indentation), bold and italics are preserved inside numbered lists (they used to be stripped, unlike bulleted lists), pipes inside table cells are escaped so a cell can't break its column, and the language of a fenced code block is detected from a `language-xxx` class on either the `<pre>` or the `<code>` element
+* Fix: Markdown for Agents inline formatting no longer leaks stray `**` / `*` markers. The bold/italic/strikethrough conversion matched the start of any tag beginning with the same letter — `<b>` also caught `<button>`/`<br>`, `<i>` caught `<img>`/`<iframe>`, `<s>` caught `<span>`/`<svg>`/`<section>` — so the `<button>` WordPress injects for the image lightbox paired with a later `</strong>` and scattered markers through the output. Tag matching now requires a word boundary after the tag name
+* Fix: Internal security hardening to align with the WordPress.org plugin review guidelines. The JSON-LD is now emitted through `wp_print_inline_script_tag()` (with `<` and `>` escaped in the encoded JSON so data can't break out of the inline script), and the Extras page validates the requested tab against an allowlist
+
 = 2.0.3 =
-* Improved: Internal security hardening to align with the WordPress.org plugin review guidelines, with no change to behavior.
+* Improved: Internal security hardening to align with the WordPress.org plugin review guidelines.
 * Fix: Prevented a fatal error ("Call to a member function wp_rewrite_rules() on null") that could occur when an AI crawler hit was tracked on `shutdown` during an early-exit request, such as a 301 redirect handled before WordPress initializes its rewrite rules.
 
 = 2.0.2 =
