@@ -36,6 +36,11 @@ class VigIA_Crawler_Detector {
             'company'  => 'OpenAI',
             'category' => 'search',
         ),
+        'OAI-AdsBot'          => array(
+            'name'     => 'OAI-AdsBot',
+            'company'  => 'OpenAI',
+            'category' => 'scraper',
+        ),
         'ChatGPT-User'        => array(
             'name'     => 'ChatGPT-User',
             'company'  => 'OpenAI',
@@ -68,6 +73,11 @@ class VigIA_Crawler_Detector {
             'company'  => 'Anthropic',
             'category' => 'assistant',
         ),
+        'Claude-Code'         => array(
+            'name'     => 'Claude-Code',
+            'company'  => 'Anthropic',
+            'category' => 'assistant',
+        ),
         'anthropic-ai'        => array(
             'name'     => 'Anthropic-AI',
             'company'  => 'Anthropic',
@@ -83,12 +93,22 @@ class VigIA_Crawler_Detector {
         'Google-CloudVertexBot' => array(
             'name'     => 'Google-CloudVertexBot',
             'company'  => 'Google',
-            'category' => 'training',
+            'category' => 'scraper',
         ),
         'Gemini-Deep-Research' => array(
             'name'     => 'Gemini-Deep-Research',
             'company'  => 'Google',
-            'category' => 'search',
+            'category' => 'assistant',
+        ),
+        'Google-NotebookLM'   => array(
+            'name'     => 'Google-NotebookLM',
+            'company'  => 'Google',
+            'category' => 'assistant',
+        ),
+        'Google-Read-Aloud'   => array(
+            'name'     => 'Google-Read-Aloud',
+            'company'  => 'Google',
+            'category' => 'assistant',
         ),
         'GoogleOther'         => array(
             'name'     => 'GoogleOther',
@@ -122,14 +142,14 @@ class VigIA_Crawler_Detector {
         'TikTokSpider'        => array(
             'name'     => 'TikTokSpider',
             'company'  => 'ByteDance',
-            'category' => 'scraper',
+            'category' => 'training',
         ),
 
         // Meta / Facebook
         'FacebookBot'         => array(
             'name'     => 'FacebookBot',
             'company'  => 'Meta',
-            'category' => 'scraper',
+            'category' => 'training',
         ),
         'Meta-ExternalAgent'  => array(
             'name'     => 'Meta-ExternalAgent',
@@ -144,7 +164,7 @@ class VigIA_Crawler_Detector {
         'meta-webindexer'     => array(
             'name'     => 'Meta-WebIndexer',
             'company'  => 'Meta',
-            'category' => 'scraper',
+            'category' => 'search',
         ),
 
         // Amazon
@@ -152,6 +172,21 @@ class VigIA_Crawler_Detector {
             'name'     => 'Amazonbot',
             'company'  => 'Amazon',
             'category' => 'training',
+        ),
+        'Amzn-SearchBot'      => array(
+            'name'     => 'Amzn-SearchBot',
+            'company'  => 'Amazon',
+            'category' => 'search',
+        ),
+        'Amzn-User'           => array(
+            'name'     => 'Amzn-User',
+            'company'  => 'Amazon',
+            'category' => 'assistant',
+        ),
+        'bedrockbot'          => array(
+            'name'     => 'bedrockbot',
+            'company'  => 'Amazon',
+            'category' => 'scraper',
         ),
 
         // Apple
@@ -191,7 +226,7 @@ class VigIA_Crawler_Detector {
         'cohere-ai'           => array(
             'name'     => 'Cohere-AI',
             'company'  => 'Cohere',
-            'category' => 'training',
+            'category' => 'assistant',
         ),
         'cohere-training-data-crawler' => array(
             'name'     => 'Cohere Training Crawler',
@@ -206,9 +241,9 @@ class VigIA_Crawler_Detector {
             'category' => 'training',
         ),
 
-        // xAI (Elon Musk)
-        'xAI-Bot'             => array(
-            'name'     => 'xAI-Bot',
+        // xAI (Grok)
+        'GrokBot'             => array(
+            'name'     => 'GrokBot',
             'company'  => 'xAI',
             'category' => 'training',
         ),
@@ -246,18 +281,16 @@ class VigIA_Crawler_Detector {
             'category' => 'search',
         ),
 
-        // Hugging Face
-        'HuggingFace-Bot'     => array(
-            'name'     => 'HuggingFace-Bot',
-            'company'  => 'Hugging Face',
-            'category' => 'training',
-        ),
-
         // Mistral
         'MistralAI-User'      => array(
             'name'     => 'MistralAI-User',
             'company'  => 'Mistral AI',
             'category' => 'assistant',
+        ),
+        'MistralAI-Index'     => array(
+            'name'     => 'MistralAI-Index',
+            'company'  => 'Mistral AI',
+            'category' => 'search',
         ),
 
         // Firecrawl
@@ -271,21 +304,21 @@ class VigIA_Crawler_Detector {
         'TimpiBot'            => array(
             'name'     => 'TimpiBot',
             'company'  => 'Timpi',
-            'category' => 'scraper',
+            'category' => 'training',
         ),
 
-        // Webzio
+        // Webz.io
         'Webzio-Extended'     => array(
             'name'     => 'Webzio-Extended',
-            'company'  => 'Webzio',
+            'company'  => 'Webz.io',
             'category' => 'scraper',
         ),
 
-        // PanguBot (Alibaba)
+        // PanguBot (Huawei)
         'PanguBot'            => array(
             'name'     => 'PanguBot',
-            'company'  => 'Alibaba',
-            'category' => 'training',
+            'company'  => 'Huawei',
+            'category' => 'scraper',
         ),
 
         // Kangaroo Bot
@@ -302,23 +335,11 @@ class VigIA_Crawler_Detector {
             'category' => 'scraper',
         ),
 
-        // Omgili
-        'Omgilibot'           => array(
-            'name'     => 'Omgilibot',
-            'company'  => 'Omgili',
-            'category' => 'scraper',
-        ),
+        // Omgili (Webz.io) — token 'Omgili' also matches the 'omgilibot' UA.
         'Omgili'              => array(
             'name'     => 'Omgili',
-            'company'  => 'Omgili',
+            'company'  => 'Webz.io',
             'category' => 'scraper',
-        ),
-
-        // Groq
-        'Groq-Bot'            => array(
-            'name'     => 'Groq-Bot',
-            'company'  => 'Groq',
-            'category' => 'assistant',
         ),
 
         // Devin (Cognition AI)
@@ -332,7 +353,7 @@ class VigIA_Crawler_Detector {
         'FriendlyCrawler'     => array(
             'name'     => 'FriendlyCrawler',
             'company'  => 'Unknown',
-            'category' => 'scraper',
+            'category' => 'training',
         ),
 
         // img2dataset
@@ -342,10 +363,10 @@ class VigIA_Crawler_Detector {
             'category' => 'training',
         ),
 
-        // ICC-Crawler
+        // ICC-Crawler (NICT)
         'ICC-Crawler'         => array(
             'name'     => 'ICC-Crawler',
-            'company'  => 'Unknown',
+            'company'  => 'NICT',
             'category' => 'scraper',
         ),
 
@@ -363,17 +384,24 @@ class VigIA_Crawler_Detector {
             'category' => 'search',
         ),
 
-        // Together AI
-        'Together-Bot'        => array(
-            'name'     => 'Together-Bot',
-            'company'  => 'Together AI',
+        // SB Intuitions (SoftBank)
+        'SBIntuitionsBot'     => array(
+            'name'     => 'SBIntuitionsBot',
+            'company'  => 'SB Intuitions',
             'category' => 'training',
         ),
 
-        // Replicate
-        'Replicate-Bot'       => array(
-            'name'     => 'Replicate-Bot',
-            'company'  => 'Replicate',
+        // Moonshot AI (Kimi)
+        'Kimi-User'           => array(
+            'name'     => 'Kimi-User',
+            'company'  => 'Moonshot AI',
+            'category' => 'assistant',
+        ),
+
+        // Yandex
+        'YandexAdditional'    => array(
+            'name'     => 'YandexAdditional',
+            'company'  => 'Yandex',
             'category' => 'training',
         ),
 
@@ -381,7 +409,7 @@ class VigIA_Crawler_Detector {
         'Cloudflare-AutoRAG'  => array(
             'name'     => 'Cloudflare-AutoRAG',
             'company'  => 'Cloudflare',
-            'category' => 'scraper',
+            'category' => 'search',
         ),
     );
 

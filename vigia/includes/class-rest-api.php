@@ -134,6 +134,30 @@ class VigIA_Rest_API {
             )
         );
 
+        // Per-page crawler breakdown (expandable row in the pages table)
+        register_rest_route(
+            self::API_NAMESPACE,
+            '/page-crawlers',
+            array(
+                'methods'             => 'GET',
+                'callback'            => array( __CLASS__, 'get_page_crawlers' ),
+                'permission_callback' => array( __CLASS__, 'check_permission' ),
+                'args'                => array_merge(
+                    self::get_date_args(),
+                    array(
+                        'path' => array(
+                            'type'              => 'string',
+                            'required'          => true,
+                            'sanitize_callback' => 'sanitize_text_field',
+                            'validate_callback' => function ( $value ) {
+                                return is_string( $value ) && '' !== $value && strlen( $value ) <= 500;
+                            },
+                        ),
+                    )
+                ),
+            )
+        );
+
         // Recent activity endpoint
         register_rest_route(
             self::API_NAMESPACE,
@@ -466,6 +490,22 @@ class VigIA_Rest_API {
         $crawlers = VigIA_Database::get_visits_by_crawler( $range['start'], $range['end'], $limit, $offset );
         $total    = VigIA_Database::get_crawlers_count( $range['start'], $range['end'] );
 
+        // Pre-format the relative "last visit" string server-side so i18n stays
+        // on the PHP side. get_gmt_from_date() normalizes the stored datetime to
+        // GMT so human_time_diff() (which compares against the UTC time()) is
+        // accurate regardless of the site timezone.
+        foreach ( $crawlers as &$crawler ) {
+            $crawler['last_visit_human'] = '';
+            if ( ! empty( $crawler['last_visit'] ) ) {
+                $ts = strtotime( get_gmt_from_date( $crawler['last_visit'] ) );
+                if ( $ts ) {
+                    /* translators: %s: human-readable time difference (e.g., "2 hours", "3 days"). */
+                    $crawler['last_visit_human'] = sprintf( __( '%s ago', 'vigia' ), human_time_diff( $ts ) );
+                }
+            }
+        }
+        unset( $crawler );
+
         return rest_ensure_response(
             array(
                 'items' => $crawlers,
@@ -575,8 +615,58 @@ class VigIA_Rest_API {
         $limit  = $request->get_param( 'limit' );
         $offset = $request->get_param( 'offset' );
 
-        $pages = VigIA_Database::get_top_pages( $range['start'], $range['end'], $limit, $offset );
+        // Fill any pre-2.0.0 rows in range so the dominant content_type column
+        // is accurate on first view instead of showing "Other" until the hourly
+        // backfill cron drains them (same intent as the recent-activity filter).
+        VigIA_Database::backfill_content_types_in_range( $range['start'], $range['end'], 2000 );
+
+        // Previous period for the per-page trend arrow. Skipped for "all time"
+        // (days = 0), where there is no comparable previous window — those rows
+        // get trend = 'na' and the UI shows no arrow.
+        $prev_start = '';
+        $prev_end   = '';
+        $is_all_time = ( 0 === (int) $request->get_param( 'days' ) && empty( $request->get_param( 'date_from' ) ) );
+
+        if ( ! $is_all_time ) {
+            $period_days = max( 1, (int) round( ( strtotime( $range['end'] ) - strtotime( $range['start'] ) ) / DAY_IN_SECONDS ) );
+            $prev_end    = gmdate( 'Y-m-d', strtotime( $range['start'] . ' -1 day' ) );
+            $prev_start  = gmdate( 'Y-m-d', strtotime( $prev_end . " -{$period_days} days" ) );
+        }
+
+        $pages = VigIA_Database::get_top_pages( $range['start'], $range['end'], $limit, $offset, $prev_start, $prev_end );
         $total = VigIA_Database::get_pages_count( $range['start'], $range['end'] );
+
+        // Derive the trend label/percentage from the current vs previous counts,
+        // then drop the raw prev_visit_count so the response stays tidy.
+        foreach ( $pages as &$page ) {
+            $current = isset( $page['visit_count'] ) ? (int) $page['visit_count'] : 0;
+
+            if ( ! isset( $page['prev_visit_count'] ) ) {
+                $page['trend']      = 'na';
+                $page['trend_pct']  = 0;
+                $page['prev_count'] = null;
+            } else {
+                $previous           = (int) $page['prev_visit_count'];
+                $page['prev_count'] = $previous;
+
+                if ( 0 === $previous ) {
+                    $page['trend']     = $current > 0 ? 'new' : 'flat';
+                    $page['trend_pct'] = 0;
+                } elseif ( $current > $previous ) {
+                    $page['trend']     = 'up';
+                    $page['trend_pct'] = (int) round( ( ( $current - $previous ) / $previous ) * 100 );
+                } elseif ( $current < $previous ) {
+                    $page['trend']     = 'down';
+                    $page['trend_pct'] = (int) round( ( ( $previous - $current ) / $previous ) * 100 );
+                } else {
+                    $page['trend']     = 'flat';
+                    $page['trend_pct'] = 0;
+                }
+            }
+
+            unset( $page['prev_visit_count'] );
+        }
+        unset( $page );
 
         // If AI Share & Summarize is active, add click data per path.
         $aiss_active = class_exists( 'AyudaWP_AISS_Database' );
@@ -599,6 +689,29 @@ class VigIA_Rest_API {
                 'click_data'  => $click_data,
             )
         );
+    }
+
+    /**
+     * Get the per-crawler breakdown for a single page.
+     *
+     * Backs the expandable row in the "Most crawled pages" table. The path is
+     * required, sanitized and length-capped at the route layer; the DB lookup
+     * is a single fully-prepared query filtered by request_path.
+     *
+     * @param WP_REST_Request $request Request object.
+     * @return WP_REST_Response Response with an items array of crawlers.
+     */
+    public static function get_page_crawlers( $request ) {
+        $range = self::get_date_range_from_request( $request );
+        $path  = (string) $request->get_param( 'path' );
+
+        if ( '' === $path ) {
+            return rest_ensure_response( array( 'items' => array() ) );
+        }
+
+        $items = VigIA_Database::get_crawlers_for_path( $path, $range['start'], $range['end'], 50 );
+
+        return rest_ensure_response( array( 'items' => $items ) );
     }
 
     /**

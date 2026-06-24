@@ -4,20 +4,20 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.1.0
+Stable tag: 2.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Monitor 55+ AI crawlers, control access via robots.txt, and boost your AI visibility with llms.txt, JSON-LD, Markdown for Agents & Visibility Score.
+Monitor 60+ AI crawlers, control access via robots.txt, and boost your AI visibility with llms.txt, JSON-LD, Markdown for Agents & Visibility Score.
 
 == Description ==
 
-**VigIA** (Spanish for "lookout" or "watchman", incorporating "IA" - Spanish for "AI") is a complete AI visibility toolkit for WordPress. Monitor 55+ AI crawlers, control access to your content, and optimize how AI systems discover and understand your site.
+**VigIA** (Spanish for "lookout" or "watchman", incorporating "IA" - Spanish for "AI") is a complete AI visibility toolkit for WordPress. Monitor 60+ AI crawlers, control access to your content, and optimize how AI systems discover and understand your site.
 
 = What does VigIA do? =
 
 * **Scores your AI visibility** with a 100-point analyzer covering 20 checks across 5 categories
-* **Tracks AI crawlers** visiting your site (GPTBot, ClaudeBot, PerplexityBot, and 55+ others)
+* **Tracks AI crawlers** visiting your site (GPTBot, ClaudeBot, PerplexityBot, and 60+ others)
 * **Provides detailed analytics** with advanced filters, server-side pagination, and exportable reports with metadata banner
 * **Blocks unwanted crawlers** via PHP (403 response)
 * **Manages robots.txt rules** for AI crawlers with compliance monitoring
@@ -116,16 +116,17 @@ Monitor 55+ AI crawlers, control access via robots.txt, and boost your AI visibi
 * Smart integration with LLMs.txt and Markdown for Agents features
 = Supported AI Crawlers =
 
-VigIA monitors 55+ AI crawlers including:
+VigIA monitors 60+ AI crawlers including:
 
-* **OpenAI**: GPTBot, OAI-SearchBot, ChatGPT-User
-* **Anthropic**: ClaudeBot, Claude-Web, Claude-SearchBot
-* **Google**: Google-Extended, GoogleOther, Gemini-Deep-Research
+* **OpenAI**: GPTBot, OAI-SearchBot, OAI-AdsBot, ChatGPT-User
+* **Anthropic**: ClaudeBot, Claude-SearchBot, Claude-User, Claude-Code
+* **Google**: Google-Extended, GoogleOther, Gemini-Deep-Research, Google-NotebookLM
 * **Perplexity**: PerplexityBot, Perplexity-User
-* **Meta**: Meta-ExternalAgent, FacebookBot
+* **Meta**: Meta-ExternalAgent, FacebookBot, Meta-WebIndexer
+* **Amazon**: Amazonbot, Amzn-SearchBot, bedrockbot
+* **Mistral**: MistralAI-User, MistralAI-Index
 * **Microsoft**: BingBot
 * **ByteDance**: Bytespider
-* **Amazon**: Amazonbot
 * **Apple**: Applebot-Extended
 * **And many more...**
 
@@ -395,21 +396,20 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
-= 2.1.0 =
-* New: Command Palette actions (Cmd/Ctrl+K, admin-wide since WordPress 6.9): "Regenerate llms.txt now" and "Regenerate llms-full.txt now" rebuild each file from your saved configuration without leaving the current screen. Navigation to VigIA's screens is left to WordPress, which already lists every admin menu page in the palette
-* Improved: The VigIA admin menu now sits at the bottom of the admin menu, separated from the content menus
-* Improved: Refreshed the bundled MCP server libraries (WordPress MCP Adapter and php-mcp-schema) to their latest upstream versions
-* Fix: Markdown for Agents now keeps the anchor text on links and the alt text on images. The final shortcode cleanup was deleting the bracketed label, leaving a bare "(url)" with no text on almost every link
-* Fix: Markdown for Agents now renders nested lists (sub-items keep their bullet/number and indentation), preserves bold and italics inside numbered lists, escapes pipes inside table cells, keeps brackets inside inline code, and detects the language of fenced code blocks
-* Fix: Markdown for Agents no longer misplaces bold/italic markers (** and *) when a post uses the image lightbox or has other elements next to formatted text. Inline formatting was matching the start of unrelated tags (a `<button>`, `<img>` or `<span>` could be mistaken for `<b>`, `<i>` or `<s>`)
-* Fix: Internal security hardening of the JSON-LD output and the Extras tab navigation to align with the WordPress.org plugin review guidelines
+= 2.2.0 =
+* New: The "Most crawled pages" table is now an analysis hub for each page: a Content type column (post, page, product, category, feed, sitemap, 404 and so on), a Trend arrow showing how crawler visits changed versus the previous period (with an "Before → Now" tooltip), and an expandable Crawlers column that reveals on demand exactly which bots hit each URL and how many times
+* Improved: The "Top crawlers" table now shows each bot's last visit ("2 hours ago") and a pages/visits ratio, so you can tell whether a crawler is still active and whether it explores your site broadly or keeps hitting the same handful of URLs
+* Improved: Expanded and refreshed the AI crawler catalog to 60+ known crawlers, each checked against the operators' own documentation. Added OAI-AdsBot (OpenAI), Claude-Code (Anthropic), Google-NotebookLM and Google-Read-Aloud, Amzn-SearchBot, Amzn-User and bedrockbot (Amazon), MistralAI-Index, SBIntuitionsBot, Kimi-User and YandexAdditional, and corrected several categories and operators (FacebookBot and TikTokSpider as AI training, Gemini-Deep-Research as an assistant, PanguBot as Huawei, ICC-Crawler as NICT, Omgili and Webzio-Extended as Webz.io)
+* Improved: Refreshed the bundled MCP server library (WordPress MCP Adapter) to its latest upstream, which fixes the validation of MCP tools that take no parameters
+* Fix: Removed four crawler tokens that no operator actually uses (Groq-Bot, Together-Bot, Replicate-Bot, HuggingFace-Bot) and corrected xAI's crawler token from the non-existent "xAI-Bot" to the real "GrokBot"
+* Fix: Hardened the admin dashboard against stored XSS: escapeHtml() now also encodes double and single quotes, closing a vector where a crafted request path could break out of quoted HTML attributes (data-path, title, href) in the dashboard tables
 
 For older changelog entries, please check the [changelog.txt](https://plugins.svn.wordpress.org/vigia/trunk/changelog.txt) file
 
 == Upgrade Notice ==
 
-= 2.1.0 =
-Fixes Markdown for Agents: links and images keep their text, and nested lists, bold in numbered lists, tables and code blocks now render correctly. Adds a Command Palette (Cmd/Ctrl+K). Recommended for sites using the .md endpoints.
+= 2.2.0 =
+Richer analytics: Most Crawled Pages gains content type, a trend arrow and an expandable per-page crawler breakdown; Top Crawlers gains last visit and pages/visits; plus a verified, expanded AI crawler catalog (60+ bots).
 
 == Support ==
 

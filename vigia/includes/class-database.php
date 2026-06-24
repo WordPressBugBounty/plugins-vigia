@@ -230,11 +230,11 @@ class VigIA_Database {
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom analytics table, real-time data
         $results = $wpdb->get_results(
             $wpdb->prepare(
-                'SELECT crawler_name, crawler_category, COUNT(*) as visit_count 
-                FROM %i 
-                WHERE visit_date BETWEEN %s AND %s 
-                GROUP BY crawler_name, crawler_category 
-                ORDER BY visit_count DESC 
+                'SELECT crawler_name, crawler_category, COUNT(*) as visit_count, MAX(visit_date) as last_visit, COUNT(DISTINCT request_path) as unique_pages
+                FROM %i
+                WHERE visit_date BETWEEN %s AND %s
+                GROUP BY crawler_name, crawler_category
+                ORDER BY visit_count DESC
                 LIMIT %d OFFSET %d',
                 $table_name,
                 $start_date . ' 00:00:00',
@@ -340,30 +340,102 @@ class VigIA_Database {
      * @param string $end_date   End date.
      * @param int    $limit      Max results (default 20).
      * @param int    $offset     Offset for pagination (default 0).
+     * @param string $prev_start Optional previous-period start date. When both
+     *                           prev dates are set, each row also carries a
+     *                           `prev_visit_count` for trend calculation.
+     * @param string $prev_end   Optional previous-period end date.
      * @return array Page visit counts.
      */
-    public static function get_top_pages( $start_date, $end_date, $limit = 20, $offset = 0 ) {
+    public static function get_top_pages( $start_date, $end_date, $limit = 20, $offset = 0, $prev_start = '', $prev_end = '' ) {
         global $wpdb;
 
         $table_name = self::get_table_name();
+        $with_trend = ( '' !== $prev_start && '' !== $prev_end );
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom analytics table, real-time data
-        $results = $wpdb->get_results(
-            $wpdb->prepare(
-                'SELECT request_path, COUNT(*) as visit_count, COUNT(DISTINCT crawler_name) as crawler_count 
-                FROM %i 
-                WHERE visit_date BETWEEN %s AND %s 
-                GROUP BY request_path 
-                ORDER BY visit_count DESC 
-                LIMIT %d OFFSET %d',
-                $table_name,
-                $start_date . ' 00:00:00',
-                $end_date . ' 23:59:59',
-                $limit,
-                $offset
-            ),
-            ARRAY_A
-        );
+        // The correlated subquery resolves the *dominant* content_type per
+        // request_path (the most frequent value), not MAX() — a page hit as
+        // both 200 (post) and 404 must show the type it mostly served, and
+        // MAX() would just return the alphabetically-last value. Selecting a
+        // non-grouped content_type in the outer GROUP BY would also break under
+        // ONLY_FULL_GROUP_BY (MySQL 5.7.5+/8.x default), hence the subquery.
+        //
+        // When a previous period is supplied a second correlated subquery adds
+        // prev_visit_count per path for the trend arrow. Both branches are
+        // written as full literal queries (only %i/%s/%d interpolated) so the
+        // data-flow checks in Plugin Check 2.0 stay clean — no dynamic SQL.
+        if ( $with_trend ) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom analytics table, real-time data
+            $results = $wpdb->get_results(
+                $wpdb->prepare(
+                    'SELECT t1.request_path, COUNT(*) as visit_count, COUNT(DISTINCT t1.crawler_name) as crawler_count,
+                        ( SELECT t2.content_type FROM %i t2
+                            WHERE t2.request_path = t1.request_path
+                            AND t2.visit_date BETWEEN %s AND %s
+                            GROUP BY t2.content_type
+                            ORDER BY COUNT(*) DESC
+                            LIMIT 1 ) as content_type,
+                        ( SELECT COUNT(*) FROM %i t3
+                            WHERE t3.request_path = t1.request_path
+                            AND t3.visit_date BETWEEN %s AND %s ) as prev_visit_count
+                    FROM %i t1
+                    WHERE t1.visit_date BETWEEN %s AND %s
+                    GROUP BY t1.request_path
+                    ORDER BY visit_count DESC
+                    LIMIT %d OFFSET %d',
+                    $table_name,
+                    $start_date . ' 00:00:00',
+                    $end_date . ' 23:59:59',
+                    $table_name,
+                    $prev_start . ' 00:00:00',
+                    $prev_end . ' 23:59:59',
+                    $table_name,
+                    $start_date . ' 00:00:00',
+                    $end_date . ' 23:59:59',
+                    $limit,
+                    $offset
+                ),
+                ARRAY_A
+            );
+        } else {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom analytics table, real-time data
+            $results = $wpdb->get_results(
+                $wpdb->prepare(
+                    'SELECT t1.request_path, COUNT(*) as visit_count, COUNT(DISTINCT t1.crawler_name) as crawler_count,
+                        ( SELECT t2.content_type FROM %i t2
+                            WHERE t2.request_path = t1.request_path
+                            AND t2.visit_date BETWEEN %s AND %s
+                            GROUP BY t2.content_type
+                            ORDER BY COUNT(*) DESC
+                            LIMIT 1 ) as content_type
+                    FROM %i t1
+                    WHERE t1.visit_date BETWEEN %s AND %s
+                    GROUP BY t1.request_path
+                    ORDER BY visit_count DESC
+                    LIMIT %d OFFSET %d',
+                    $table_name,
+                    $start_date . ' 00:00:00',
+                    $end_date . ' 23:59:59',
+                    $table_name,
+                    $start_date . ' 00:00:00',
+                    $end_date . ' 23:59:59',
+                    $limit,
+                    $offset
+                ),
+                ARRAY_A
+            );
+        }
+
+        if ( $results ) {
+            // Legacy rows not yet drained by the backfill cron yield '' from the
+            // subquery; surface them as 'other' so the UI always has a valid key
+            // from get_content_type_options().
+            foreach ( $results as &$row ) {
+                if ( empty( $row['content_type'] ) ) {
+                    $row['content_type'] = 'other';
+                }
+            }
+            unset( $row );
+        }
 
         return $results ? $results : array();
     }
@@ -391,6 +463,46 @@ class VigIA_Database {
         );
 
         return absint( $count );
+    }
+
+    /**
+     * Get the per-crawler breakdown for a single page (request_path).
+     *
+     * Powers the expandable row in the "Most crawled pages" table: which bots
+     * hit this exact URL and how many times. Single-path lookup (no IN clause),
+     * fully prepared.
+     *
+     * @param string $request_path The page path to break down.
+     * @param string $start_date   Start date.
+     * @param string $end_date     End date.
+     * @param int    $limit        Max crawlers to return (default 50).
+     * @return array Rows of crawler_name, crawler_category, visit_count.
+     */
+    public static function get_crawlers_for_path( $request_path, $start_date, $end_date, $limit = 50 ) {
+        global $wpdb;
+
+        $table_name = self::get_table_name();
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Custom analytics table, real-time data
+        $results = $wpdb->get_results(
+            $wpdb->prepare(
+                'SELECT crawler_name, crawler_category, COUNT(*) as visit_count
+                FROM %i
+                WHERE request_path = %s
+                AND visit_date BETWEEN %s AND %s
+                GROUP BY crawler_name, crawler_category
+                ORDER BY visit_count DESC
+                LIMIT %d',
+                $table_name,
+                $request_path,
+                $start_date . ' 00:00:00',
+                $end_date . ' 23:59:59',
+                $limit
+            ),
+            ARRAY_A
+        );
+
+        return $results ? $results : array();
     }
 
     /**

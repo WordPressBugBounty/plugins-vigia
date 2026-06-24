@@ -219,11 +219,13 @@ class VigIA_Admin_Page {
                                 <th><?php echo esc_html__( 'Crawler', 'vigia' ); ?></th>
                                 <th><?php echo esc_html__( 'Category', 'vigia' ); ?></th>
                                 <th class="num"><?php echo esc_html__( 'Visits', 'vigia' ); ?></th>
+                                <th class="num"><?php echo esc_html__( 'Last visit', 'vigia' ); ?></th>
+                                <th class="num" title="<?php echo esc_attr__( 'Unique pages / total visits', 'vigia' ); ?>"><?php echo esc_html__( 'Pages / visits', 'vigia' ); ?></th>
                             </tr>
                         </thead>
                         <tbody>
                             <tr class="vigia-no-data">
-                                <td colspan="3" class="vigia-loading"><?php echo esc_html__( 'Loading...', 'vigia' ); ?></td>
+                                <td colspan="5" class="vigia-loading"><?php echo esc_html__( 'Loading...', 'vigia' ); ?></td>
                             </tr>
                         </tbody>
                     </table>
@@ -240,7 +242,9 @@ class VigIA_Admin_Page {
                         <thead>
                             <tr>
                                 <th><?php echo esc_html__( 'URL', 'vigia' ); ?></th>
+                                <th class="vigia-col-content-type"><?php echo esc_html__( 'Content type', 'vigia' ); ?></th>
                                 <th class="num"><?php echo esc_html__( 'Visits', 'vigia' ); ?></th>
+                                <th class="num vigia-col-trend"><?php echo esc_html__( 'Trend', 'vigia' ); ?></th>
                                 <th class="num"><?php echo esc_html__( 'Crawlers', 'vigia' ); ?></th>
                                 <?php if ( class_exists( 'AyudaWP_AISS_Database' ) ) : ?>
                                     <th class="num"><?php echo esc_html__( 'Clicks', 'vigia' ); ?></th>
@@ -249,7 +253,7 @@ class VigIA_Admin_Page {
                         </thead>
                         <tbody>
                             <tr class="vigia-no-data">
-                                <td colspan="<?php echo class_exists( 'AyudaWP_AISS_Database' ) ? '4' : '3'; ?>" class="vigia-loading"><?php echo esc_html__( 'Loading...', 'vigia' ); ?></td>
+                                <td colspan="<?php echo class_exists( 'AyudaWP_AISS_Database' ) ? '6' : '5'; ?>" class="vigia-loading"><?php echo esc_html__( 'Loading...', 'vigia' ); ?></td>
                             </tr>
                         </tbody>
                     </table>

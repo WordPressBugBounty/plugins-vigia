@@ -83,7 +83,10 @@ window.VigiaPaginator = (function($) {
      * Get visible data rows (excludes no-data placeholders).
      */
     Paginator.prototype._getRows = function() {
-        return this.$table.find('tbody tr').not('.vigia-no-data');
+        // Expandable detail rows (the per-page crawler breakdown) are not data
+        // rows: exclude them so they never count toward pagination or get
+        // index-toggled by _render.
+        return this.$table.find('tbody tr').not('.vigia-no-data').not('.vigia-crawlers-drawer');
     };
 
     /**
@@ -808,13 +811,13 @@ window.VigiaPaginator = (function($) {
      */
     function loadCrawlers() {
         var $tbody = $('#vigia-crawlers-table tbody');
-        $tbody.html('<tr class="vigia-no-data"><td colspan="3" class="vigia-loading">' + vigiaData.strings.loading + '</td></tr>');
+        $tbody.html('<tr class="vigia-no-data"><td colspan="5" class="vigia-loading">' + vigiaData.strings.loading + '</td></tr>');
 
         apiRequest('crawlers', { limit: 100, offset: 0 }, function(response) {
             var data = response.items || response;
 
             if (data.length === 0) {
-                $tbody.html('<tr class="vigia-no-data"><td colspan="3" class="vigia-loading">' + vigiaData.strings.noData + '</td></tr>');
+                $tbody.html('<tr class="vigia-no-data"><td colspan="5" class="vigia-loading">' + vigiaData.strings.noData + '</td></tr>');
                 if (crawlersPaginator) {
                     crawlersPaginator.refresh();
                 }
@@ -848,21 +851,52 @@ window.VigiaPaginator = (function($) {
     function renderCrawlerRow(row) {
         var categoryLabel = vigiaDataCategories.labels[row.crawler_category] || row.crawler_category;
         var categoryColor = vigiaDataCategories.colors[row.crawler_category] || '#95a5a6';
+        var uniquePages = parseInt(row.unique_pages, 10) || 0;
+        var totalVisits = parseInt(row.visit_count, 10) || 0;
 
         var html = '<tr>';
         html += '<td><strong>' + escapeHtml(row.crawler_name) + '</strong></td>';
         html += '<td><span class="vigia-category-badge" style="background-color:' + categoryColor + '">' + escapeHtml(categoryLabel) + '</span></td>';
         html += '<td class="num">' + formatNumber(row.visit_count) + '</td>';
+        html += '<td class="num vigia-last-visit">' + escapeHtml(row.last_visit_human || '—') + '</td>';
+        html += '<td class="num vigia-ratio"><strong>' + formatNumber(uniquePages) + '</strong><span class="vigia-ratio-sep">/' + formatNumber(totalVisits) + '</span></td>';
         html += '</tr>';
 
         return html;
     }
 
     /**
+     * Map a content_type key to a WordPress dashicon class.
+     *
+     * @param {string} type content_type key.
+     * @return {string} dashicons-* class.
+     */
+    function contentTypeIcon(type) {
+        var icons = {
+            'home': 'dashicons-admin-home',
+            'post': 'dashicons-admin-post',
+            'page': 'dashicons-admin-page',
+            'product': 'dashicons-cart',
+            'category': 'dashicons-category',
+            'tag': 'dashicons-tag',
+            'archive': 'dashicons-calendar-alt',
+            'feed': 'dashicons-rss',
+            'sitemap': 'dashicons-networking',
+            'api': 'dashicons-rest-api',
+            'file': 'dashicons-media-default',
+            'admin': 'dashicons-lock',
+            'wp-system': 'dashicons-admin-tools',
+            'not-found': 'dashicons-warning',
+            'other': 'dashicons-marker'
+        };
+        return icons[type] || 'dashicons-media-document';
+    }
+
+    /**
      * Load pages table (all results, client-side pagination)
      */
     function loadPages() {
-        var colCount = aissActive ? 4 : 3;
+        var colCount = aissActive ? 6 : 5;
         var $tbody = $('#vigia-pages-table tbody');
         $tbody.html('<tr class="vigia-no-data"><td colspan="' + colCount + '" class="vigia-loading">' + vigiaData.strings.loading + '</td></tr>');
 
@@ -872,7 +906,7 @@ window.VigiaPaginator = (function($) {
             // Update AISS active state from response
             aissActive = response.aiss_active || false;
             var clickData = response.click_data || {};
-            colCount = aissActive ? 4 : 3;
+            colCount = aissActive ? 6 : 5;
 
             // Update table header dynamically
             updatePagesHeader();
@@ -915,12 +949,31 @@ window.VigiaPaginator = (function($) {
         var truncatedPath = path.length > 50 ? path.substring(0, 50) + '...' : path;
         var fullUrl = vigiaData.siteUrl + path;
 
+        var contentType = row.content_type || 'other';
+        var typeLabels = (vigiaData.strings.contentTypeLabels) || {};
+        var contentTypeLabel = typeLabels[contentType] || contentType;
+
+        var crawlerCount = parseInt(row.crawler_count, 10) || 0;
+
         var html = '<tr>';
         html += '<td title="' + escapeHtml(path) + '">';
         html += '<a href="' + escapeHtml(fullUrl) + '" target="_blank" rel="noopener noreferrer"><code>' + escapeHtml(truncatedPath) + '</code></a>';
         html += '</td>';
+        html += '<td class="vigia-content-type vigia-content-type-' + escapeHtml(contentType) + '">';
+        html += '<span class="dashicons ' + contentTypeIcon(contentType) + '" aria-hidden="true"></span> ' + escapeHtml(contentTypeLabel);
+        html += '</td>';
         html += '<td class="num">' + formatNumber(row.visit_count) + '</td>';
-        html += '<td class="num">' + formatNumber(row.crawler_count) + '</td>';
+        html += '<td class="num vigia-trend-cell">' + renderTrendCell(row) + '</td>';
+
+        if (crawlerCount > 0) {
+            html += '<td class="num vigia-crawlers-cell">';
+            html += '<button type="button" class="vigia-expand-crawlers" data-path="' + escapeHtml(path) + '" aria-expanded="false" aria-label="' + escapeHtml(vigiaData.strings.showCrawlers || 'Show crawlers') + '">';
+            html += '<span class="dashicons dashicons-arrow-right-alt2" aria-hidden="true"></span>';
+            html += '<span class="vigia-crawlers-count">' + formatNumber(crawlerCount) + '</span>';
+            html += '</button></td>';
+        } else {
+            html += '<td class="num">' + formatNumber(crawlerCount) + '</td>';
+        }
 
         if (aissActive) {
             var clicks = (clickData && clickData[path]) || 0;
@@ -933,11 +986,100 @@ window.VigiaPaginator = (function($) {
     }
 
     /**
+     * Render the trend cell for a page row (arrow + percentage vs previous period).
+     *
+     * @param {Object} row Page data with trend, trend_pct, prev_count, visit_count.
+     * @return {string} HTML
+     */
+    function renderTrendCell(row) {
+        var trend = row.trend || 'na';
+
+        if (trend === 'na') {
+            return '<span class="vigia-trend vigia-trend-na">—</span>';
+        }
+
+        var prev = (row.prev_count === null || typeof row.prev_count === 'undefined') ? 0 : (parseInt(row.prev_count, 10) || 0);
+        var cur = parseInt(row.visit_count, 10) || 0;
+        var beforeTpl = vigiaData.strings.trendBefore || 'Before: %1$s → Now: %2$s';
+        var tooltip = beforeTpl.replace('%1$s', formatNumber(prev)).replace('%2$s', formatNumber(cur));
+
+        if (trend === 'new') {
+            return '<span class="vigia-trend vigia-trend-up" title="' + escapeHtml(tooltip) + '"><span class="dashicons dashicons-star-filled" aria-hidden="true"></span>' + escapeHtml(vigiaData.strings.trendNew || 'new') + '</span>';
+        }
+
+        if (trend === 'flat') {
+            return '<span class="vigia-trend vigia-trend-flat" title="' + escapeHtml(tooltip) + '"><span class="dashicons dashicons-minus" aria-hidden="true"></span>0%</span>';
+        }
+
+        var pct = parseInt(row.trend_pct, 10) || 0;
+        var cls = trend === 'up' ? 'vigia-trend-up' : 'vigia-trend-down';
+        var icon = trend === 'up' ? 'dashicons-arrow-up-alt' : 'dashicons-arrow-down-alt';
+        var sign = trend === 'up' ? '+' : '−';
+        return '<span class="vigia-trend ' + cls + '" title="' + escapeHtml(tooltip) + '"><span class="dashicons ' + icon + '" aria-hidden="true"></span>' + sign + pct + '%</span>';
+    }
+
+    /**
+     * Collapse and remove all open per-page crawler breakdown rows.
+     * Called when the pages table paginates or reloads so detail rows never
+     * linger out of place on another page.
+     */
+    function collapsePagesDrawers() {
+        $('#vigia-pages-table .vigia-crawlers-drawer').remove();
+        $('#vigia-pages-table .vigia-expand-crawlers[aria-expanded="true"]').each(function() {
+            $(this).attr('aria-expanded', 'false')
+                .find('.dashicons').removeClass('dashicons-arrow-down-alt2').addClass('dashicons-arrow-right-alt2');
+        });
+    }
+
+    // Expand/collapse the per-page crawler breakdown (loaded on demand via REST).
+    $(document).on('click', '#vigia-pages-table .vigia-expand-crawlers', function() {
+        var $btn = $(this);
+        var $row = $btn.closest('tr');
+        var path = $btn.data('path');
+        var $icon = $btn.find('.dashicons');
+        var expanded = $btn.attr('aria-expanded') === 'true';
+        var $drawer = $row.next('.vigia-crawlers-drawer');
+
+        if (expanded) {
+            $btn.attr('aria-expanded', 'false');
+            $icon.removeClass('dashicons-arrow-down-alt2').addClass('dashicons-arrow-right-alt2');
+            $drawer.remove();
+            return;
+        }
+
+        $btn.attr('aria-expanded', 'true');
+        $icon.removeClass('dashicons-arrow-right-alt2').addClass('dashicons-arrow-down-alt2');
+
+        var colspan = $row.children('td').length;
+        var $new = $('<tr class="vigia-crawlers-drawer"><td colspan="' + colspan + '"><div class="vigia-crawlers-breakdown vigia-crawlers-loading">' + escapeHtml(vigiaData.strings.loading || 'Loading...') + '</div></td></tr>');
+        $row.after($new);
+
+        apiRequest('page-crawlers', { path: path }, function(response) {
+            var items = (response && response.items) || [];
+            var inner = '<div class="vigia-crawlers-breakdown">';
+            inner += '<span class="vigia-crawlers-breakdown-label">' + escapeHtml(vigiaData.strings.crawlersOnPage || 'Crawlers on this page') + '</span>';
+            inner += '<div class="vigia-crawler-chips">';
+            if (items.length === 0) {
+                inner += '<span class="vigia-crawler-chip">' + escapeHtml(vigiaData.strings.noData || 'No data') + '</span>';
+            } else {
+                items.forEach(function(it) {
+                    inner += '<span class="vigia-crawler-chip">' + escapeHtml(it.crawler_name) + ' <strong>' + formatNumber(it.visit_count) + '</strong></span>';
+                });
+            }
+            inner += '</div></div>';
+            $new.find('td').html(inner);
+        });
+    });
+
+    // Close any open breakdown rows when the pages table paginates.
+    $(document).on('click', '#vigia-pages-pager .vigia-pager-btn', collapsePagesDrawers);
+
+    /**
      * Update pages table header based on AISS active state
      */
     function updatePagesHeader() {
         var $thead = $('#vigia-pages-table thead tr');
-        var hasClicksCol = $thead.find('th').length > 3;
+        var hasClicksCol = $thead.find('th').length > 5;
 
         if (aissActive && !hasClicksCol) {
             $thead.append('<th class="num">' + (vigiaData.strings.clicks || 'Clicks') + '</th>');
@@ -1575,15 +1717,27 @@ window.VigiaPaginator = (function($) {
     }
 
     /**
-     * Escape HTML entities
+     * Escape a value for safe insertion into HTML, including attribute context.
+     *
+     * Escapes the quote characters too (" and '), not just &/</>, because the
+     * result is interpolated into double-quoted attributes (title, href,
+     * data-path…). A textContent/innerHTML round-trip would leave quotes intact
+     * and allow attribute breakout from attacker-controlled values such as
+     * request_path (taken from REQUEST_URI by the tracker).
      *
      * @param {string} text Text to escape
-     * @return {string} Escaped text
+     * @return {string} Escaped text, safe for both element and attribute context
      */
     function escapeHtml(text) {
-        var div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        if (text === null || typeof text === 'undefined') {
+            return '';
+        }
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     // ==========================================================================

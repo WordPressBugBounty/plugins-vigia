@@ -2,8 +2,8 @@
 /**
  * Plugin Name: VigIA - AI Visibility, Analytics & Control
  * Plugin URI: https://servicios.ayudawp.com
- * Description: Monitor, control, and optimize how AI systems interact with your WordPress site. Track 55+ AI crawlers, manage access via robots.txt, and boost your AI visibility with llms.txt, JSON-LD, Markdown for Agents, and AI Visibility Score.
- * Version: 2.1.0
+ * Description: Monitor, control, and optimize how AI systems interact with your WordPress site. Track 60+ AI crawlers, manage access via robots.txt, and boost your AI visibility with llms.txt, JSON-LD, Markdown for Agents, and AI Visibility Score.
+ * Version: 2.2.0
  * Author: Fernando Tellado
  * Author URI: https://ayudawp.com
  * License: GPL v2 or later
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'VIGIA_VERSION', '2.1.0' );
+define( 'VIGIA_VERSION', '2.2.0' );
 define( 'VIGIA_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VIGIA_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'VIGIA_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -476,6 +476,12 @@ final class VigIA {
                     'showingOf'           => __( 'Showing %1$s of %2$s', 'vigia' ),
                     // AI Share & Summarize integration.
                     'clicks'              => __( 'Clicks', 'vigia' ),
+                    // Most crawled pages: trend column and expandable crawler breakdown.
+                    'showCrawlers'        => __( 'Show crawlers for this page', 'vigia' ),
+                    'crawlersOnPage'      => __( 'Crawlers on this page', 'vigia' ),
+                    'trendNew'            => __( 'new', 'vigia' ),
+                    /* translators: 1: visits in the previous period, 2: visits in the current period */
+                    'trendBefore'         => __( 'Before: %1$s → Now: %2$s', 'vigia' ),
                     // Blocking action labels.
                     'addDisallow'         => __( 'Disallow', 'vigia' ),
                     'blockUA'             => __( 'Block User-Agent', 'vigia' ),

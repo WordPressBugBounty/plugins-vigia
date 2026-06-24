@@ -639,6 +639,141 @@
 .vigia-http-4xx { color: #b32d2e; }
 .vigia-http-5xx { color: #b32d2e; }
 
+/* Most crawled pages — content type column (v2.2.0) */
+#vigia-pages-table .vigia-col-content-type {
+    width: 150px;
+}
+
+#vigia-pages-table td.vigia-content-type {
+    font-size: 12px;
+    color: #50575e;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#vigia-pages-table td.vigia-content-type .dashicons {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    line-height: 1;
+    vertical-align: text-bottom;
+    color: #787c82;
+}
+
+#vigia-pages-table td.vigia-content-type-not-found,
+#vigia-pages-table td.vigia-content-type-not-found .dashicons {
+    color: #b32d2e;
+}
+
+/* Top crawlers — last visit + pages/visits ratio columns (v2.2.0) */
+#vigia-crawlers-table td.vigia-last-visit {
+    color: #50575e;
+    white-space: nowrap;
+}
+
+#vigia-crawlers-table td.vigia-ratio {
+    font-variant-numeric: tabular-nums;
+}
+
+#vigia-crawlers-table td.vigia-ratio .vigia-ratio-sep {
+    color: #787c82;
+}
+
+/* Most crawled pages — trend column (v2.2.0) */
+#vigia-pages-table .vigia-col-trend {
+    width: 100px;
+}
+
+.vigia-trend {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.vigia-trend .dashicons {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    line-height: 1;
+}
+
+.vigia-trend-up { color: #008a20; }
+.vigia-trend-down { color: #b32d2e; }
+.vigia-trend-flat,
+.vigia-trend-na { color: #787c82; }
+
+/* Most crawled pages — expandable crawler breakdown (v2.2.0) */
+.vigia-expand-crawlers {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    color: #2271b1;
+    font-variant-numeric: tabular-nums;
+    font-size: inherit;
+}
+
+.vigia-expand-crawlers:hover {
+    color: #135e96;
+}
+
+.vigia-expand-crawlers .dashicons {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+    line-height: 1;
+}
+
+.vigia-crawlers-drawer td {
+    background: #f6f7f7;
+}
+
+.vigia-crawlers-breakdown {
+    padding: 6px 4px;
+}
+
+.vigia-crawlers-breakdown-label {
+    display: block;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .02em;
+    color: #787c82;
+    margin-bottom: 8px;
+}
+
+.vigia-crawler-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.vigia-crawler-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    border: 1px solid #c3c4c7;
+    border-radius: 3px;
+    background: #fff;
+    font-size: 12px;
+}
+
+.vigia-crawler-chip strong {
+    font-weight: 600;
+}
+
+.vigia-crawlers-loading {
+    color: #787c82;
+    font-style: italic;
+}
+
 /* Activity table — date range picker */
 .vigia-filter-date-range .vigia-date-range-inputs {
     display: inline-flex;
