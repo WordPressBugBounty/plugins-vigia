@@ -47,6 +47,14 @@ class VigIA_Robots_Manager {
             return $output;
         }
 
+        // Cede the robots.txt rules for AI to the Visibility sibling when it
+        // manages them: don't append our block (it owns the robots-for-AI
+        // editor). VigIA keeps its real enforcement, the PHP/403 blocker, which
+        // is a separate subsystem untouched by this. See VigIA_Sibling_Visibility.
+        if ( self::is_ceded_to_visibility() ) {
+            return $output;
+        }
+
         // Normalize: ensure existing content ends with exactly one newline
         // to prevent our sections from merging with previous content.
         $output = rtrim( $output ) . "\n";
@@ -290,6 +298,17 @@ class VigIA_Robots_Manager {
         // Get current rules.
         $rules = self::get_ai_rules();
 
+        // When ceding robots-for-AI to the Visibility sibling, write the file
+        // back WITHOUT our block (the strip above already removed it, and we add
+        // nothing here). This is what keeps the two from fighting over the
+        // physical robots.txt on every save/cron.
+        if ( self::is_ceded_to_visibility() ) {
+            $rules = array(
+                'disallow' => array(),
+                'allow'    => array(),
+            );
+        }
+
         // Build new AI rules section if there are rules.
         if ( ! empty( $rules['disallow'] ) || ! empty( $rules['allow'] ) ) {
             $ai_section = "\n" . self::AI_RULES_MARKER . "\n";
@@ -404,6 +423,42 @@ class VigIA_Robots_Manager {
         $robots = apply_filters( 'robots_txt', $robots, $public );
 
         return $robots;
+    }
+
+    /**
+     * Is VigIA ceding the robots.txt rules for AI to the Visibility sibling?
+     *
+     * @return bool
+     */
+    private static function is_ceded_to_visibility() {
+        return class_exists( 'VigIA_Sibling_Visibility' )
+            && VigIA_Sibling_Visibility::should_defer( 'robots' );
+    }
+
+    /**
+     * Remove VigIA's AI rules block from the physical robots.txt when ceding to
+     * the Visibility sibling, so the two don't fight over the file. No-op when
+     * there is no physical robots.txt (the virtual filter already bails). Called
+     * from the admin reconciler; relies on sync_physical_robots() detecting the
+     * ceded state and writing the file back without our block.
+     *
+     * @return bool|WP_Error
+     */
+    public static function cleanup_for_cession() {
+        if ( ! self::has_physical_robots() ) {
+            return false;
+        }
+
+        // Idempotency guard: only rewrite when our block is actually still in the
+        // file, so we don't rewrite robots.txt on every admin load while ceded.
+        $content = self::get_physical_robots_content();
+        if ( '' === $content || false === strpos( $content, self::AI_RULES_MARKER ) ) {
+            return false;
+        }
+
+        // sync_physical_robots() detects the ceded state and writes the file back
+        // without our block.
+        return self::sync_physical_robots();
     }
 
     /**

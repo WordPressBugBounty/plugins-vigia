@@ -534,17 +534,26 @@ class VigIA_Visibility_Analyzer {
 		// robots.txt analysis.
 		$data['robots'] = self::analyze_robots_txt();
 
-		// llms.txt files.
-		$data['llms_txt_exists']      = file_exists( ABSPATH . 'llms.txt' );
-		$data['llms_full_txt_exists'] = file_exists( ABSPATH . 'llms-full.txt' );
+		// llms.txt files. The Visibility sibling can serve these virtually with no
+		// physical file, so "available" means a physical file OR Visibility
+		// emitting it. Without this, the analyzer would flag llms.txt as missing
+		// and recommend configuring it in VigIA, which has ceded it to Visibility.
+		$visibility_llms      = class_exists( 'VigIA_Sibling_Visibility' ) && VigIA_Sibling_Visibility::emits_llms();
+		$visibility_llms_full = class_exists( 'VigIA_Sibling_Visibility' ) && VigIA_Sibling_Visibility::emits_llms_full();
 
-		// Check llms.txt format.
+		$data['llms_txt_exists']      = file_exists( ABSPATH . 'llms.txt' ) || $visibility_llms;
+		$data['llms_full_txt_exists'] = file_exists( ABSPATH . 'llms-full.txt' ) || $visibility_llms_full;
+
+		// Check llms.txt format. A physical file is sniffed for Markdown; a
+		// Visibility-served llms.txt is Markdown by construction.
 		$data['llms_txt_is_markdown'] = false;
-		if ( $data['llms_txt_exists'] ) {
+		if ( file_exists( ABSPATH . 'llms.txt' ) ) {
 			$content = file_get_contents( ABSPATH . 'llms.txt' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
 			if ( $content && ( preg_match( '/^#\s/m', $content ) || preg_match( '/\[.*\]\(.*\)/', $content ) || preg_match( '/^[-*]\s/m', $content ) ) ) {
 				$data['llms_txt_is_markdown'] = true;
 			}
+		} elseif ( $visibility_llms ) {
+			$data['llms_txt_is_markdown'] = true;
 		}
 
 		// Sitemap detection.
@@ -1348,23 +1357,29 @@ class VigIA_Visibility_Analyzer {
 
 		// 1. Markdown delivery (4 pts).
 		$md_enabled = ! empty( $wp_data['vigia_features']['markdown_enabled'] );
+		// The Visibility sibling can serve Markdown for agents at the same .md
+		// URLs; when it does, VigIA cedes to it, so its delivery counts as
+		// configured too (otherwise the analyzer would recommend setting up
+		// Markdown in VigIA, which has handed it over).
+		$md_sibling = class_exists( 'VigIA_Sibling_Visibility' ) && VigIA_Sibling_Visibility::emits_markdown();
+		$md_site    = $md_enabled || $md_sibling;
 
-		if ( $is_homepage && ( $md_enabled || $page_data['markdown_delivery'] ) ) {
+		if ( $is_homepage && ( $md_site || $page_data['markdown_delivery'] ) ) {
 			$md_pts    = 4;
 			$md_status = 'pass';
-			$md_detail = $md_enabled
-				? __( 'Markdown for Agents is enabled in VigIA (serves content pages)', 'vigia' )
+			$md_detail = $md_site
+				? __( 'Markdown for Agents is enabled site-wide (serves content pages)', 'vigia' )
 				: __( 'Markdown delivery detected', 'vigia' );
 		} elseif ( $is_homepage ) {
 			$md_pts    = 0;
 			$md_status = 'fail';
 			$md_detail = __( 'No Markdown delivery configured for AI agents', 'vigia' );
-		} elseif ( $page_data['markdown_delivery'] || $md_enabled ) {
+		} elseif ( $page_data['markdown_delivery'] || $md_site ) {
 			$md_pts    = 4;
 			$md_status = 'pass';
 			$md_detail = $page_data['markdown_delivery']
 				? __( 'Markdown version or .md link detected', 'vigia' )
-				: __( 'Markdown for Agents is enabled in VigIA', 'vigia' );
+				: __( 'Markdown for Agents is enabled site-wide', 'vigia' );
 		} else {
 			$md_pts    = 0;
 			$md_status = 'fail';

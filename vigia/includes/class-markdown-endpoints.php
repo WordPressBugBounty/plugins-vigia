@@ -51,6 +51,16 @@ class VigIA_Markdown_Endpoints {
 			return;
 		}
 
+		// Cede Markdown for agents to the Visibility sibling when it serves it.
+		// Visibility intercepts on do_parse_request (ahead of our
+		// template_redirect), so it already wins the /{slug}.md collision; bailing
+		// here also stops us advertising a duplicate .md <link> / Link header and
+		// from registering rewrite rules we would never use. See
+		// VigIA_Sibling_Visibility for the emit/observe split.
+		if ( VigIA_Sibling_Visibility::should_defer( 'markdown' ) ) {
+			return;
+		}
+
 		// Register rewrite rules for .md URLs.
 		if ( $settings['enable_md_urls'] ) {
 			add_action( 'init', array( __CLASS__, 'add_rewrite_rules' ), 20 );

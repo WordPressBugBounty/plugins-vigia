@@ -153,6 +153,17 @@ class VigIA_JsonLD_Generator {
 	 * @return bool
 	 */
 	private static function should_output() {
+		// Cede the whole JSON-LD output to the Visibility sibling when it emits
+		// the Site Identity schema. Both build a #website / #identity node on the
+		// same page, so emitting ours too would duplicate the @id graph. This
+		// suppresses the AI Discovery ReadAction pointers as well (they hang off a
+		// #website node): an acceptable, documented loss, since when the user moves
+		// emission to Visibility it owns the identity graph. See
+		// VigIA_Sibling_Visibility for the emit/observe split.
+		if ( VigIA_Sibling_Visibility::should_defer( 'identity' ) ) {
+			return false;
+		}
+
 		$settings = self::get_settings();
 
 		if ( ! $settings['site_identity_enabled'] && ! $settings['ai_discovery_enabled'] ) {

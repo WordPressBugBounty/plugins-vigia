@@ -118,6 +118,45 @@ class VigIA_Extras_Page {
     /**
      * Render robots.txt and blocking tab
      */
+    /**
+     * Print a neutral coexistence notice when the Visibility sibling owns an
+     * emission signal that VigIA has yielded.
+     *
+     * The AyudaWP family splits by nature: Visibility emits the AI/search signals
+     * (identity schema, llms.txt, Markdown, robots-for-AI) and VigIA observes and
+     * controls (analytics, stats, PHP/403 blocking, alerts). When Visibility is
+     * emitting a signal, VigIA steps back to avoid duplicates and shows this
+     * notice so the now-inert controls below make sense. This is coordination
+     * between siblings, not the third-party "duplicate schema" conflict.
+     *
+     * @param string $signal Signal key: identity, llms, markdown, robots.
+     * @param string $detail Sentence describing what Visibility handles and where.
+     */
+    private static function render_visibility_coexistence_notice( $signal, $detail ) {
+        if ( ! class_exists( 'VigIA_Sibling_Visibility' ) || ! VigIA_Sibling_Visibility::should_defer( $signal ) ) {
+            return;
+        }
+        ?>
+        <div class="vigia-notice vigia-notice-info vigia-visibility-coexistence">
+            <p>
+                <span class="dashicons dashicons-info-outline"></span>
+                <?php
+                echo wp_kses(
+                    sprintf(
+                        /* translators: %s: Visibility plugin name, in bold. */
+                        __( '%s is active and now owns this signal, so VigIA has stepped back to avoid duplicates.', 'vigia' ),
+                        '<strong>' . esc_html( VigIA_Sibling_Visibility::name() ) . '</strong>'
+                    ),
+                    array( 'strong' => array() )
+                );
+                echo ' ' . esc_html( $detail ) . ' ';
+                esc_html_e( 'VigIA keeps measuring and controlling: crawler analytics, stats, blocking and alerts are unaffected.', 'vigia' );
+                ?>
+            </p>
+        </div>
+        <?php
+    }
+
     private static function render_robots_tab() {
         $blocked_crawlers = VigIA_Blocker::get_blocked_crawlers();
         $robots_rules     = VigIA_Robots_Manager::get_ai_rules();
@@ -136,6 +175,13 @@ class VigIA_Extras_Page {
             <p class="description">
                 <?php esc_html_e( 'Manage which AI crawlers can access your site via robots.txt. Note: robots.txt is advisory only - crawlers may choose to ignore it.', 'vigia' ); ?>
             </p>
+
+            <?php
+            self::render_visibility_coexistence_notice(
+                'robots',
+                __( 'Manage the robots.txt rules for AI crawlers from Visibility; VigIA still enforces hard blocks via PHP (HTTP 403).', 'vigia' )
+            );
+            ?>
 
             <div class="vigia-robots-container">
                 <!-- Current robots.txt preview -->
@@ -504,6 +550,13 @@ class VigIA_Extras_Page {
                 </a>
             </p>
 
+            <?php
+            self::render_visibility_coexistence_notice(
+                'llms',
+                __( 'Manage llms.txt and llms-full.txt from Visibility; VigIA has removed its own physical copies so they do not shadow it.', 'vigia' )
+            );
+            ?>
+
             <!-- Current files status -->
             <div class="vigia-llms-status">
                 <h3><?php esc_html_e( 'Current files', 'vigia' ); ?></h3>
@@ -819,6 +872,13 @@ class VigIA_Extras_Page {
                 </a>
             </p>
 
+            <?php
+            self::render_visibility_coexistence_notice(
+                'markdown',
+                __( 'Markdown for agents is served by Visibility at the same .md URLs, so VigIA no longer intercepts them.', 'vigia' )
+            );
+            ?>
+
             <!-- How it works -->
             <div class="vigia-markdown-howto">
                 <h3><?php esc_html_e( 'How it works', 'vigia' ); ?></h3>
@@ -1011,7 +1071,14 @@ class VigIA_Extras_Page {
                 </a>
             </p>
 
-            <?php if ( $conflicts ) : ?>
+            <?php
+            self::render_visibility_coexistence_notice(
+                'identity',
+                __( 'Manage your Site Identity schema (Organization/Person and WebSite) from Visibility.', 'vigia' )
+            );
+            ?>
+
+            <?php if ( $conflicts && ! ( class_exists( 'VigIA_Sibling_Visibility' ) && VigIA_Sibling_Visibility::should_defer( 'identity' ) ) ) : ?>
             <div class="vigia-notice vigia-notice-warning vigia-jsonld-conflict">
                 <p>
                     <span class="dashicons dashicons-warning"></span>

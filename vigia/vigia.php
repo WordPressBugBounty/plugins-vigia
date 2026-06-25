@@ -3,7 +3,7 @@
  * Plugin Name: VigIA - AI Visibility, Analytics & Control
  * Plugin URI: https://servicios.ayudawp.com
  * Description: Monitor, control, and optimize how AI systems interact with your WordPress site. Track 60+ AI crawlers, manage access via robots.txt, and boost your AI visibility with llms.txt, JSON-LD, Markdown for Agents, and AI Visibility Score.
- * Version: 2.2.0
+ * Version: 2.3.0
  * Author: Fernando Tellado
  * Author URI: https://ayudawp.com
  * License: GPL v2 or later
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'VIGIA_VERSION', '2.2.0' );
+define( 'VIGIA_VERSION', '2.3.0' );
 define( 'VIGIA_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VIGIA_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'VIGIA_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -101,6 +101,7 @@ final class VigIA {
             }
         }
 
+        require_once VIGIA_PLUGIN_DIR . 'includes/class-sibling-visibility.php';
         require_once VIGIA_PLUGIN_DIR . 'includes/class-database.php';
         require_once VIGIA_PLUGIN_DIR . 'includes/class-settings.php';
         require_once VIGIA_PLUGIN_DIR . 'includes/class-crawler-detector.php';
@@ -172,6 +173,13 @@ final class VigIA {
         // Run schema migrations on every admin request — idempotent, only
         // touches dbDelta when DB_VERSION is newer than the stored version.
         add_action( 'admin_init', array( 'VigIA_Database', 'maybe_upgrade_schema' ) );
+
+        // Reconcile ceded emission with the Visibility sibling: when Visibility
+        // owns a signal, drop VigIA's now-shadowing physical artifacts so the two
+        // don't fight over the file (a physical llms.txt / robots block at the
+        // site root would shadow Visibility's virtual output). Idempotent and
+        // cheap: only touches disk when a file is actually there to remove.
+        add_action( 'admin_init', array( $this, 'reconcile_visibility_cession' ) );
 
         // Settings link in plugins page.
         add_filter( 'plugin_action_links_' . VIGIA_PLUGIN_BASENAME, array( $this, 'add_settings_link' ) );
@@ -280,6 +288,34 @@ final class VigIA {
      */
     public function run_content_type_backfill() {
         VigIA_Database::backfill_content_types( 500 );
+    }
+
+    /**
+     * Reconcile ceded emission with the Visibility sibling.
+     *
+     * Runs on admin_init. When Visibility owns a signal that VigIA writes to a
+     * physical file (llms.txt / llms-full.txt and the robots.txt AI block), VigIA
+     * removes its own artifact so a stale physical file at the site root does not
+     * shadow Visibility's virtual output. The runtime emitters already bail via
+     * VigIA_Sibling_Visibility::should_defer(); this is the on-disk cleanup that
+     * the bail alone cannot do. Both helpers are idempotent and only touch disk
+     * when there is actually something of VigIA's to remove.
+     */
+    public function reconcile_visibility_cession() {
+        // Touches the filesystem (removes VigIA's own llms.txt / robots block),
+        // so gate on the same capability that manages these settings. Both
+        // helpers are otherwise idempotent and cheap when there is nothing to do.
+        if ( ! current_user_can( 'manage_options' ) ) {
+            return;
+        }
+
+        if ( VigIA_Sibling_Visibility::should_defer( 'llms' ) ) {
+            VigIA_LLMS_Generator::cleanup_for_cession();
+        }
+
+        if ( VigIA_Sibling_Visibility::should_defer( 'robots' ) ) {
+            VigIA_Robots_Manager::cleanup_for_cession();
+        }
     }
 
     /**

@@ -4,7 +4,7 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.2.0
+Stable tag: 2.3.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -396,20 +396,16 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
-= 2.2.0 =
-* New: The "Most crawled pages" table is now an analysis hub for each page: a Content type column (post, page, product, category, feed, sitemap, 404 and so on), a Trend arrow showing how crawler visits changed versus the previous period (with an "Before → Now" tooltip), and an expandable Crawlers column that reveals on demand exactly which bots hit each URL and how many times
-* Improved: The "Top crawlers" table now shows each bot's last visit ("2 hours ago") and a pages/visits ratio, so you can tell whether a crawler is still active and whether it explores your site broadly or keeps hitting the same handful of URLs
-* Improved: Expanded and refreshed the AI crawler catalog to 60+ known crawlers, each checked against the operators' own documentation. Added OAI-AdsBot (OpenAI), Claude-Code (Anthropic), Google-NotebookLM and Google-Read-Aloud, Amzn-SearchBot, Amzn-User and bedrockbot (Amazon), MistralAI-Index, SBIntuitionsBot, Kimi-User and YandexAdditional, and corrected several categories and operators (FacebookBot and TikTokSpider as AI training, Gemini-Deep-Research as an assistant, PanguBot as Huawei, ICC-Crawler as NICT, Omgili and Webzio-Extended as Webz.io)
-* Improved: Refreshed the bundled MCP server library (WordPress MCP Adapter) to its latest upstream, which fixes the validation of MCP tools that take no parameters
-* Fix: Removed four crawler tokens that no operator actually uses (Groq-Bot, Together-Bot, Replicate-Bot, HuggingFace-Bot) and corrected xAI's crawler token from the non-existent "xAI-Bot" to the real "GrokBot"
-* Fix: Hardened the admin dashboard against stored XSS: escapeHtml() now also encodes double and single quotes, closing a vector where a crafted request path could break out of quoted HTML attributes (data-path, title, href) in the dashboard tables
+= 2.3.0 =
+* New: Coexistence with Visibility, the AyudaWP sibling that now generates the AI and search signals. When Visibility is active and emitting a signal, VigIA automatically steps back from emitting the same one to avoid duplicates: Site Identity schema (Organization/Person + WebSite), llms.txt and llms-full.txt, Markdown for agents, and the robots.txt rules for AI crawlers. The handover is per signal (if Visibility has one turned off, VigIA keeps emitting it, so nothing is ever dropped by both), and each overlapping screen shows a neutral notice explaining who handles what. When it cedes, VigIA also removes its own physical llms.txt and robots.txt block so a leftover file can't shadow Visibility (it never touches a file Visibility wrote). VigIA's core is unaffected: analytics, stats, PHP/403 blocking, alerts and the MCP server keep working, and PHP/403 enforcement stays with VigIA even when the robots.txt editor for AI moves to Visibility
+* New: Developer filter vigia_defer_emission_to_visibility to keep VigIA's own emission even when Visibility is active and emitting a signal
 
 For older changelog entries, please check the [changelog.txt](https://plugins.svn.wordpress.org/vigia/trunk/changelog.txt) file
 
 == Upgrade Notice ==
 
-= 2.2.0 =
-Richer analytics: Most Crawled Pages gains content type, a trend arrow and an expandable per-page crawler breakdown; Top Crawlers gains last visit and pages/visits; plus a verified, expanded AI crawler catalog (60+ bots).
+= 2.3.0 =
+Plays nicely with Visibility: when that sibling is active and emitting AI signals (identity schema, llms.txt, Markdown, robots for AI), VigIA steps back to avoid duplicates and keeps doing the analytics, stats and blocking. No setup needed.
 
 == Support ==
 
