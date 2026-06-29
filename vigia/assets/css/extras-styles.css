@@ -96,6 +96,50 @@
     border-bottom: 1px solid #c3c4c7;
 }
 
+/* A duplicated Extras tab that Visibility now owns: dimmed but kept clickable
+   (the tab still shows the coexistence notice), with a small pointer icon. Never
+   removed, so a site without Visibility sees the tab in full. */
+.vigia-tab-ceded {
+    opacity: 0.55;
+}
+
+.vigia-tab-ceded:hover,
+.vigia-tab-ceded:focus {
+    opacity: 0.8;
+}
+
+.vigia-tab-ceded-badge.dashicons {
+    font-size: 14px;
+    width: 14px;
+    height: 14px;
+    line-height: 1.4;
+    vertical-align: text-top;
+    margin-left: 3px;
+    opacity: 0.7;
+}
+
+/* Ceded tab content: all native form controls are disabled via <fieldset
+   disabled>, so nothing can be marked or saved while Visibility manages it. Reset
+   the fieldset box model so it does not alter the layout, and make any non-form
+   action links (<a class="button">) inert too, while keeping the coexistence
+   notice's own links clickable. */
+.vigia-ceded-fieldset {
+    border: 0;
+    margin: 0;
+    padding: 0;
+    min-width: 0;
+}
+
+.vigia-ceded-fieldset a.button {
+    pointer-events: none;
+    opacity: 0.5;
+}
+
+.vigia-ceded-fieldset .vigia-notice a {
+    pointer-events: auto;
+    opacity: 1;
+}
+
 .vigia-extras-content {
     background: #fff;
     border: 1px solid #c3c4c7;
@@ -332,6 +376,23 @@
 .vigia-notice-info p {
     margin: 0;
     color: #1d4ed8;
+}
+
+/* Orange promotion notice: shown on the signal tabs (llms.txt, Markdown, JSON-LD)
+   when Visibility is NOT active, to recommend it (the blue info notice is used
+   when Visibility is active). */
+.vigia-notice-promo {
+    background: #fff4e5;
+    border-color: #e8842c;
+}
+
+.vigia-notice-promo p {
+    margin: 0 0 8px;
+    color: #ad5800;
+}
+
+.vigia-notice-promo p:last-child {
+    margin-bottom: 0;
 }
 
 /* Soft info panel: same look as the LLMs "estimated content" summary

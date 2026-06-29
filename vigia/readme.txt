@@ -4,7 +4,7 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.3.0
+Stable tag: 2.4.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -396,16 +396,17 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
-= 2.3.0 =
-* New: Coexistence with Visibility, the AyudaWP sibling that now generates the AI and search signals. When Visibility is active and emitting a signal, VigIA automatically steps back from emitting the same one to avoid duplicates: Site Identity schema (Organization/Person + WebSite), llms.txt and llms-full.txt, Markdown for agents, and the robots.txt rules for AI crawlers. The handover is per signal (if Visibility has one turned off, VigIA keeps emitting it, so nothing is ever dropped by both), and each overlapping screen shows a neutral notice explaining who handles what. When it cedes, VigIA also removes its own physical llms.txt and robots.txt block so a leftover file can't shadow Visibility (it never touches a file Visibility wrote). VigIA's core is unaffected: analytics, stats, PHP/403 blocking, alerts and the MCP server keep working, and PHP/403 enforcement stays with VigIA even when the robots.txt editor for AI moves to Visibility
-* New: Developer filter vigia_defer_emission_to_visibility to keep VigIA's own emission even when Visibility is active and emitting a signal
+= 2.4.0 =
+* Improved: With Visibility active, VigIA's overlapping Extras tabs (LLMs.txt, Markdown and JSON-LD) are dimmed and their controls disabled, with a pointer to Visibility where you configure them, so the same signal is never edited in two places. They are never removed: a site without Visibility sees them in full. The Disallow & Blocking tab stays active because its compliance monitor and 403 blocking remain VigIA's.
+* Improved: The robots.txt rules for AI now read from Visibility when it owns them. VigIA's compliance monitor and 403 escalation check against the crawlers Visibility disallows, and VigIA's own rule editor turns read-only while ceded, so the two never disagree on which bots should be blocked.
+* Improved: Each signal tab and the recommendations now point to Visibility, the sibling SEO and AI plugin that pairs natively with VigIA, instead of competing SEO plugins. You get a complementarity note when both are active, and a clear reason to switch (lightweight and native, no bloat) when another SEO plugin is running without Visibility.
 
 For older changelog entries, please check the [changelog.txt](https://plugins.svn.wordpress.org/vigia/trunk/changelog.txt) file
 
 == Upgrade Notice ==
 
-= 2.3.0 =
-Plays nicely with Visibility: when that sibling is active and emitting AI signals (identity schema, llms.txt, Markdown, robots for AI), VigIA steps back to avoid duplicates and keeps doing the analytics, stats and blocking. No setup needed.
+= 2.4.0 =
+With Visibility active, VigIA disables its duplicated Extras tabs (kept, not removed), reads Visibility's robots rules for its compliance monitor and 403 blocking, and points its tabs and recommendations to Visibility. Without Visibility, everything works exactly as before. No setup needed.
 
 == Support ==
 

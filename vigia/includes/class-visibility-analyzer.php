@@ -735,9 +735,12 @@ class VigIA_Visibility_Analyzer {
 	/**
 	 * Detect active SEO plugin.
 	 *
+	 * Public so the Extras page can reuse the same detection for its
+	 * Visibility-promotion notices, keeping a single source for the SEO list.
+	 *
 	 * @return string|false Plugin key or false.
 	 */
-	private static function detect_seo_plugin() {
+	public static function detect_seo_plugin() {
 		if ( ! function_exists( 'is_plugin_active' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/plugin.php';
 		}
@@ -1730,24 +1733,42 @@ class VigIA_Visibility_Analyzer {
 			);
 		}
 
-		// Tier 4: SEO plugin recommendation (only if no SEO plugin and missing Schema/OG/meta).
-		$needs_seo = isset( $failed['jsonld'] ) || isset( $failed['open_graph'] ) || isset( $failed['meta_description'] );
-		if ( $needs_seo && ! $seo && $features['jsonld_enabled'] === false ) {
+		// Visibility (native-aeo-pack) is VigIA's sibling in the AyudaWP family:
+		// Visibility emits the AI/search signals, VigIA measures and enforces them.
+		// Promote that pairing based on the current setup, rather than recommending
+		// a competing SEO plugin.
+		$visibility_active = class_exists( 'VigIA_Sibling_Visibility' ) && VigIA_Sibling_Visibility::is_active();
+		$needs_seo         = isset( $failed['jsonld'] ) || isset( $failed['open_graph'] ) || isset( $failed['meta_description'] );
+
+		if ( $visibility_active ) {
+			// Already paired: an informative complementarity note (no action button).
+			$recs[] = array(
+				'tier'   => 0,
+				'check'  => 'visibility_complement',
+				'text'   => __( 'Visibility and VigIA are working together. Visibility emits your AI and search signals (Site Identity schema, llms.txt, Markdown for agents, robots-for-AI) and VigIA measures and enforces them (crawler analytics, blocking and alerts). You have the complete SEO + AI stack.', 'vigia' ),
+				'action' => 'info',
+			);
+		} elseif ( $seo ) {
+			// Another SEO plugin is running but Visibility is not: the native SEO + AI
+			// integration with VigIA is missing. Recommend switching to Visibility.
+			$recs[] = array(
+				'tier'   => 2,
+				'check'  => 'visibility_promo',
+				'text'   => __( 'You are running another SEO plugin, so you are missing the native SEO + AI integration with VigIA. Visibility is a lightweight, no-bloat SEO plugin built for AI visibility (llms.txt, Markdown for agents, Site Identity schema and a robots-for-AI editor) that pairs natively with VigIA: it emits the signals, VigIA measures and enforces them. Switch to Visibility for the full stack.', 'vigia' ),
+				'action' => 'thickbox',
+				'slug'   => 'native-aeo-pack',
+				'label'  => __( 'Get Visibility', 'vigia' ),
+			);
+		} elseif ( $needs_seo && $features['jsonld_enabled'] === false ) {
+			// No SEO plugin at all and structured data/OG/meta missing: recommend
+			// Visibility, the sibling that also integrates with VigIA.
 			$recs[] = array(
 				'tier'   => 4,
 				'check'  => 'seo_plugin',
-				'text'   => __( 'Consider installing an SEO plugin to automatically generate structured data, Open Graph tags, and meta descriptions.', 'vigia' ),
-				'action' => 'thickbox_pair',
-				'plugins' => array(
-					array(
-						'slug'  => 'wp-seopress',
-						'label' => 'SEOPress',
-					),
-					array(
-						'slug'  => 'autodescription',
-						'label' => 'The SEO Framework',
-					),
-				),
+				'text'   => __( 'No SEO plugin is generating your structured data, Open Graph and meta descriptions. Visibility is a lightweight SEO plugin built for AI visibility that pairs natively with VigIA: it emits the signals (schema, llms.txt, Markdown, robots-for-AI), VigIA measures and enforces them.', 'vigia' ),
+				'action' => 'thickbox',
+				'slug'   => 'native-aeo-pack',
+				'label'  => __( 'Get Visibility', 'vigia' ),
 			);
 		}
 

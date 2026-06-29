@@ -3,6 +3,11 @@ VigIA — Full changelog
 For each release, see the entries below. The latest version is always at the top.
 The current release notes also live in readme.txt under "== Changelog ==".
 
+= 2.4.0 =
+* Improved: With Visibility active, VigIA's overlapping Extras tabs (LLMs.txt, Markdown and JSON-LD) are dimmed and their controls disabled, with a pointer to Visibility where you configure them, so the same signal is never edited in two places. They are never removed: a site without Visibility sees them in full. The Disallow & Blocking tab stays active because its compliance monitor and 403 blocking remain VigIA's.
+* Improved: The robots.txt rules for AI now read from Visibility when it owns them. VigIA's compliance monitor and 403 escalation check against the crawlers Visibility disallows, and VigIA's own rule editor turns read-only while ceded, so the two never disagree on which bots should be blocked.
+* Improved: Each signal tab and the recommendations now point to Visibility, the sibling SEO and AI plugin that pairs natively with VigIA, instead of competing SEO plugins. You get a complementarity note when both are active, and a clear reason to switch (lightweight and native, no bloat) when another SEO plugin is running without Visibility.
+
 = 2.3.0 =
 * New: Coexistence with Visibility, the AyudaWP sibling that, from its 1.7.0, generates the AI and search signals (reusing VigIA's code). The family splits by nature, not by topic: Visibility emits, VigIA observes and controls. When Visibility is active and emitting a signal, VigIA automatically steps back from emitting the same one to avoid duplicates, across all four overlap points: Site Identity schema (JSON-LD Organization/Person + WebSite), llms.txt and llms-full.txt, Markdown for agents (/{slug}.md), and the robots.txt rules for AI crawlers. Detection is read from Visibility's own settings, so the handover is per signal: if Visibility has a given signal turned off, VigIA keeps emitting it, so a signal is never dropped by both at once
 * New: Each overlapping admin screen (JSON-LD, LLMs.txt, Markdown, Disallow & Blocking) shows a neutral coexistence notice explaining who handles what, instead of the third-party "duplicate schema" warning, which is reserved for SEO plugins that duplicate without coordinating

@@ -61,6 +61,13 @@ class VigIA_Extras_Page {
         $requested_tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
         $current_tab   = isset( $tabs[ $requested_tab ] ) ? $requested_tab : 'robots';
 
+        // Tabs fully owned by Visibility when it is active and emitting that signal:
+        // their nav tab is dimmed and their controls are disabled (a <fieldset
+        // disabled> wrap below), so nothing in them can be edited while Visibility
+        // manages it. Never removed: a site without Visibility sees them in full.
+        $vigia_ceded_tabs    = self::ceded_tabs();
+        $vigia_current_ceded = isset( $vigia_ceded_tabs[ $current_tab ] );
+
         ?>
         <div class="wrap vigia-wrap vigia-extras-wrap">
             <h1>
@@ -73,15 +80,32 @@ class VigIA_Extras_Page {
             <div class="vigia-extras-layout">
                 <div class="vigia-extras-main">
                     <nav class="nav-tab-wrapper vigia-nav-tabs">
-                        <?php foreach ( $tabs as $tab_id => $tab_name ) : ?>
-                            <a href="<?php echo esc_url( admin_url( 'admin.php?page=vigia-extras&tab=' . $tab_id ) ); ?>" 
-                               class="nav-tab <?php echo $current_tab === $tab_id ? 'nav-tab-active' : ''; ?>">
+                        <?php
+                        // The robots tab is never ceded: it keeps VigIA's compliance
+                        // monitor and 403 blocking; only its rule editor delegates.
+                        foreach ( $tabs as $tab_id => $tab_name ) :
+                            $vigia_is_ceded  = isset( $vigia_ceded_tabs[ $tab_id ] );
+                            $vigia_tab_class = 'nav-tab';
+                            if ( $current_tab === $tab_id ) {
+                                $vigia_tab_class .= ' nav-tab-active';
+                            }
+                            if ( $vigia_is_ceded ) {
+                                $vigia_tab_class .= ' vigia-tab-ceded';
+                            }
+                            ?>
+                            <a href="<?php echo esc_url( admin_url( 'admin.php?page=vigia-extras&tab=' . $tab_id ) ); ?>"
+                               class="<?php echo esc_attr( $vigia_tab_class ); ?>"
+                               <?php if ( $vigia_is_ceded ) : ?>title="<?php echo esc_attr__( 'Managed by Visibility — configure it on the Visibility settings screen.', 'vigia' ); ?>"<?php endif; ?>>
                                 <?php echo esc_html( $tab_name ); ?>
+                                <?php if ( $vigia_is_ceded ) : ?><span class="vigia-tab-ceded-badge dashicons dashicons-external" aria-hidden="true"></span><?php endif; ?>
                             </a>
                         <?php endforeach; ?>
                     </nav>
 
-                    <div class="vigia-extras-content">
+                    <div class="vigia-extras-content<?php echo $vigia_current_ceded ? ' vigia-extras-content--ceded' : ''; ?>">
+                        <?php if ( $vigia_current_ceded ) : ?>
+                        <fieldset class="vigia-ceded-fieldset" disabled>
+                        <?php endif; ?>
                         <?php
                         switch ( $current_tab ) {
                             case 'llms':
@@ -104,6 +128,9 @@ class VigIA_Extras_Page {
                                 break;
                         }
                         ?>
+                        <?php if ( $vigia_current_ceded ) : ?>
+                        </fieldset>
+                        <?php endif; ?>
                     </div>
                 </div>
 
@@ -113,6 +140,34 @@ class VigIA_Extras_Page {
             </div>
         </div>
         <?php
+    }
+
+    /**
+     * Extras tabs fully owned by Visibility when it is actively emitting that
+     * signal, as tab_id => signal. Used to dim the duplicated tabs (llms,
+     * Markdown, JSON-LD) without removing them, so a site without Visibility still
+     * sees them in full. The robots tab is excluded on purpose: VigIA keeps the
+     * compliance monitor and 403 blocking there, and only its rule editor reads
+     * from Visibility.
+     *
+     * @return array<string,string>
+     */
+    private static function ceded_tabs() {
+        if ( ! class_exists( 'VigIA_Sibling_Visibility' ) ) {
+            return array();
+        }
+        $map   = array(
+            'llms'     => 'llms',
+            'markdown' => 'markdown',
+            'jsonld'   => 'identity',
+        );
+        $ceded = array();
+        foreach ( $map as $tab_id => $signal ) {
+            if ( VigIA_Sibling_Visibility::should_defer( $signal ) ) {
+                $ceded[ $tab_id ] = $signal;
+            }
+        }
+        return $ceded;
     }
 
     /**
@@ -152,6 +207,109 @@ class VigIA_Extras_Page {
                 echo ' ' . esc_html( $detail ) . ' ';
                 esc_html_e( 'VigIA keeps measuring and controlling: crawler analytics, stats, blocking and alerts are unaffected.', 'vigia' );
                 ?>
+            </p>
+        </div>
+        <?php
+    }
+
+    /**
+     * Always-on notice for a Visibility-managed signal tab (llms.txt, Markdown,
+     * JSON-LD). One of three messages, two colours:
+     *   - Visibility active and emitting this signal -> blue: it owns it (the tab's
+     *     controls are disabled separately, see render_page()).
+     *   - Visibility active but this signal off       -> blue: enable it there.
+     *   - Visibility not active                        -> orange promotion, with a
+     *     different pitch depending on whether another SEO plugin is running, plus a
+     *     one-click Get Visibility button.
+     *
+     * @param string $signal       Signal key: identity, llms, markdown.
+     * @param string $ceded_detail Sentence for the blue "owns it" case.
+     * @param string $what         Short feature label, e.g. "llms.txt".
+     */
+    private static function render_visibility_signal_notice( $signal, $ceded_detail, $what ) {
+        $has    = class_exists( 'VigIA_Sibling_Visibility' );
+        $active = $has && VigIA_Sibling_Visibility::is_active();
+        $ceding = $has && VigIA_Sibling_Visibility::should_defer( $signal );
+        $name   = $has ? VigIA_Sibling_Visibility::name() : 'Visibility';
+
+        if ( $ceding ) {
+            ?>
+            <div class="vigia-notice vigia-notice-info vigia-visibility-coexistence">
+                <p>
+                    <span class="dashicons dashicons-info-outline"></span>
+                    <?php
+                    echo wp_kses(
+                        sprintf(
+                            /* translators: %s: Visibility plugin name, in bold. */
+                            __( '%s is active and now owns this signal, so VigIA has stepped back to avoid duplicates.', 'vigia' ),
+                            '<strong>' . esc_html( $name ) . '</strong>'
+                        ),
+                        array( 'strong' => array() )
+                    );
+                    echo ' ' . esc_html( $ceded_detail ) . ' ';
+                    esc_html_e( 'VigIA keeps measuring and controlling: crawler analytics, stats, blocking and alerts are unaffected.', 'vigia' );
+                    ?>
+                </p>
+            </div>
+            <?php
+            return;
+        }
+
+        if ( $active ) {
+            ?>
+            <div class="vigia-notice vigia-notice-info">
+                <p>
+                    <span class="dashicons dashicons-info-outline"></span>
+                    <?php
+                    echo wp_kses(
+                        sprintf(
+                            /* translators: 1: Visibility plugin name in bold; 2: feature label, e.g. llms.txt. */
+                            __( '%1$s is active. Turn on %2$s there to manage it from one coordinated place; VigIA keeps measuring and enforcing.', 'vigia' ),
+                            '<strong>' . esc_html( $name ) . '</strong>',
+                            esc_html( $what )
+                        ),
+                        array( 'strong' => array() )
+                    );
+                    ?>
+                </p>
+            </div>
+            <?php
+            return;
+        }
+
+        // Visibility not active: orange promotion, with a different pitch depending
+        // on whether another SEO plugin is running. Reuses the analyzer's SEO
+        // detector so the plugin list lives in one place.
+        if ( ! class_exists( 'VigIA_Visibility_Analyzer' ) && defined( 'VIGIA_PLUGIN_DIR' ) ) {
+            require_once VIGIA_PLUGIN_DIR . 'includes/class-visibility-analyzer.php';
+        }
+        $other_seo = ( class_exists( 'VigIA_Visibility_Analyzer' ) && method_exists( 'VigIA_Visibility_Analyzer', 'detect_seo_plugin' ) )
+            ? ( false !== VigIA_Visibility_Analyzer::detect_seo_plugin() )
+            : false;
+
+        $install_url = admin_url( 'plugin-install.php?tab=plugin-information&plugin=native-aeo-pack&TB_iframe=true&width=772&height=618' );
+        ?>
+        <div class="vigia-notice vigia-notice-promo">
+            <p>
+                <span class="dashicons dashicons-visibility"></span>
+                <?php
+                if ( $other_seo ) {
+                    printf(
+                        /* translators: %s: feature label, e.g. llms.txt. */
+                        esc_html__( 'You are running another SEO plugin, but with Visibility the SEO and AI integration is far tighter: a coordinated schema graph, llms.txt, Markdown for agents and a robots-for-AI editor that VigIA reads and enforces. Visibility also does everything your SEO plugin does, but lightweight and native, no bloat, all muscle. Manage %s with Visibility.', 'vigia' ),
+                        esc_html( $what )
+                    );
+                } else {
+                    printf(
+                        /* translators: %s: feature label, e.g. llms.txt. */
+                        esc_html__( 'Reinforce your SEO and AI visibility: let Visibility manage %s (plus llms.txt, Markdown, schema and a robots-for-AI editor). It is the lightweight AyudaWP sibling that pairs natively with VigIA, Visibility emits the signals and VigIA measures and enforces them.', 'vigia' ),
+                        esc_html( $what )
+                    );
+                }
+                ?>
+            </p>
+            <p>
+                <a href="<?php echo esc_url( $install_url ); ?>" class="button button-primary thickbox"><?php esc_html_e( 'Get Visibility', 'vigia' ); ?></a>
             </p>
         </div>
         <?php
@@ -551,9 +709,10 @@ class VigIA_Extras_Page {
             </p>
 
             <?php
-            self::render_visibility_coexistence_notice(
+            self::render_visibility_signal_notice(
                 'llms',
-                __( 'Manage llms.txt and llms-full.txt from Visibility; VigIA has removed its own physical copies so they do not shadow it.', 'vigia' )
+                __( 'Manage llms.txt and llms-full.txt from Visibility; VigIA has removed its own physical copies so they do not shadow it.', 'vigia' ),
+                __( 'llms.txt', 'vigia' )
             );
             ?>
 
@@ -873,9 +1032,10 @@ class VigIA_Extras_Page {
             </p>
 
             <?php
-            self::render_visibility_coexistence_notice(
+            self::render_visibility_signal_notice(
                 'markdown',
-                __( 'Markdown for agents is served by Visibility at the same .md URLs, so VigIA no longer intercepts them.', 'vigia' )
+                __( 'Markdown for agents is served by Visibility at the same .md URLs, so VigIA no longer intercepts them.', 'vigia' ),
+                __( 'Markdown for agents', 'vigia' )
             );
             ?>
 
@@ -1072,9 +1232,10 @@ class VigIA_Extras_Page {
             </p>
 
             <?php
-            self::render_visibility_coexistence_notice(
+            self::render_visibility_signal_notice(
                 'identity',
-                __( 'Manage your Site Identity schema (Organization/Person and WebSite) from Visibility.', 'vigia' )
+                __( 'Manage your Site Identity schema (Organization/Person and WebSite) from Visibility.', 'vigia' ),
+                __( 'your Site Identity schema', 'vigia' )
             );
             ?>
 

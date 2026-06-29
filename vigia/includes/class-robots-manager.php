@@ -130,6 +130,14 @@ class VigIA_Robots_Manager {
      * @return array
      */
     public static function get_ai_rules() {
+        // Delegate to Visibility when it owns the robots-for-AI rules, so the
+        // compliance monitor and the read-only editor reflect the rules actually
+        // served. The robots.txt write paths cede separately (see the is_ceded
+        // checks in filter_robots_txt() and sync_physical_robots()).
+        if ( self::is_ceded_to_visibility() ) {
+            return self::visibility_ai_rules();
+        }
+
         $rules = get_option(
             self::OPTION_NAME,
             array(
@@ -150,12 +158,54 @@ class VigIA_Robots_Manager {
     }
 
     /**
+     * The AI-crawler disallow list Visibility is serving, mapped to VigIA's rules
+     * shape, so the compliance monitor checks against the rules actually in effect
+     * when VigIA has ceded the robots-for-AI editor. Read via Visibility's public
+     * helper when available, with a raw-settings fallback; any bot named in its
+     * custom robots lines is folded in too. Allow is always empty (Visibility's
+     * model is a disallow list).
+     *
+     * @return array{disallow:array<int,string>,allow:array<int,string>}
+     */
+    private static function visibility_ai_rules() {
+        $disallow = array();
+
+        if ( (bool) VigIA_Sibling_Visibility::setting( 'noindex', 'robots_block_ai', false ) ) {
+            if ( class_exists( 'Native_AEO_Pack_Settings' ) && method_exists( 'Native_AEO_Pack_Settings', 'get_robots_ai_agents' ) ) {
+                $disallow = (array) Native_AEO_Pack_Settings::get_robots_ai_agents();
+            } else {
+                $agents   = VigIA_Sibling_Visibility::setting( 'noindex', 'robots_ai_agents', array() );
+                $disallow = is_array( $agents ) ? $agents : array();
+            }
+        }
+
+        // Fold in any User-agent named in Visibility's custom robots lines.
+        $custom = (string) VigIA_Sibling_Visibility::setting( 'noindex', 'robots_custom', '' );
+        foreach ( preg_split( '/\r\n|\r|\n/', $custom ) as $line ) {
+            if ( preg_match( '/^\s*User-agent:\s*(.+?)\s*$/i', (string) $line, $matches ) && '*' !== $matches[1] ) {
+                $disallow[] = $matches[1];
+            }
+        }
+
+        $disallow = array_values( array_unique( array_filter( array_map( 'sanitize_text_field', $disallow ) ) ) );
+
+        return array(
+            'disallow' => $disallow,
+            'allow'    => array(),
+        );
+    }
+
+    /**
      * Add disallow rule for crawler
      *
      * @param string $crawler_name Crawler name/User-Agent.
      * @return bool
      */
     public static function add_disallow( $crawler_name ) {
+        // Read-only while Visibility owns the rules: it is the source of truth.
+        if ( self::is_ceded_to_visibility() ) {
+            return false;
+        }
         $rules    = self::get_ai_rules();
         $crawler  = sanitize_text_field( $crawler_name );
 
@@ -182,6 +232,10 @@ class VigIA_Robots_Manager {
      * @return bool
      */
     public static function remove_disallow( $crawler_name ) {
+        // Read-only while Visibility owns the rules: it is the source of truth.
+        if ( self::is_ceded_to_visibility() ) {
+            return false;
+        }
         $rules   = self::get_ai_rules();
         $crawler = sanitize_text_field( $crawler_name );
 
@@ -202,6 +256,10 @@ class VigIA_Robots_Manager {
      * @return bool
      */
     public static function add_allow( $crawler_name ) {
+        // Read-only while Visibility owns the rules: it is the source of truth.
+        if ( self::is_ceded_to_visibility() ) {
+            return false;
+        }
         $rules   = self::get_ai_rules();
         $crawler = sanitize_text_field( $crawler_name );
 
@@ -228,6 +286,10 @@ class VigIA_Robots_Manager {
      * @return bool
      */
     public static function remove_allow( $crawler_name ) {
+        // Read-only while Visibility owns the rules: it is the source of truth.
+        if ( self::is_ceded_to_visibility() ) {
+            return false;
+        }
         $rules   = self::get_ai_rules();
         $crawler = sanitize_text_field( $crawler_name );
 
