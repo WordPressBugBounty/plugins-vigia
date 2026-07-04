@@ -296,20 +296,18 @@ class VigIA_Extras_Page {
                 if ( $other_seo ) {
                     printf(
                         /* translators: %s: feature label, e.g. llms.txt. */
-                        esc_html__( 'You are running another SEO plugin, but with Visibility the SEO and AI integration is far tighter: a coordinated schema graph, llms.txt, Markdown for agents and a robots-for-AI editor that VigIA reads and enforces. Visibility also does everything your SEO plugin does, but lightweight and native, no bloat, all muscle. Manage %s with Visibility.', 'vigia' ),
+                        esc_html__( 'Visibility does everything your SEO plugin does, but generates %s natively while VigIA measures and enforces it: one coordinated SEO and AI stack, for more traffic and authority from search and AI.', 'vigia' ),
                         esc_html( $what )
                     );
                 } else {
                     printf(
                         /* translators: %s: feature label, e.g. llms.txt. */
-                        esc_html__( 'Reinforce your SEO and AI visibility: let Visibility manage %s (plus llms.txt, Markdown, schema and a robots-for-AI editor). It is the lightweight AyudaWP sibling that pairs natively with VigIA, Visibility emits the signals and VigIA measures and enforces them.', 'vigia' ),
+                        esc_html__( 'Let Visibility generate %s natively while VigIA measures and enforces it: the complete SEO and AI stack.', 'vigia' ),
                         esc_html( $what )
                     );
                 }
                 ?>
-            </p>
-            <p>
-                <a href="<?php echo esc_url( $install_url ); ?>" class="button button-primary thickbox"><?php esc_html_e( 'Get Visibility', 'vigia' ); ?></a>
+                <a href="<?php echo esc_url( $install_url ); ?>" class="thickbox">&rarr; <?php esc_html_e( 'Get Visibility', 'vigia' ); ?></a>
             </p>
         </div>
         <?php

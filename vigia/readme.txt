@@ -4,7 +4,7 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.4.0
+Stable tag: 2.4.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -396,6 +396,11 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
+= 2.4.1 =
+* Improved: The Visibility recommendation now shows across the three Extras tabs (LLMs.txt, Markdown and JSON-LD) and the AI Visibility analyzer whenever Visibility is not active, with broader SEO plugin detection and clearer copy about the traffic and authority you gain. The call to action is now an inline link instead of an intrusive button.
+* Improved: The Monitored AI crawlers list is now grouped by crawler type, so the coloured category badges cluster together instead of scattering across the grid. The analytics tables (top crawlers, recent activity) keep their by-visits order.
+* Fix: The analyzer no longer offers to install NoIndexer or Native Sitemap Customizer, which are no longer in the WordPress.org directory (their install modal opened empty).
+
 = 2.4.0 =
 * Improved: With Visibility active, VigIA's overlapping Extras tabs (LLMs.txt, Markdown and JSON-LD) are dimmed and their controls disabled, with a pointer to Visibility where you configure them, so the same signal is never edited in two places. They are never removed: a site without Visibility sees them in full. The Disallow & Blocking tab stays active because its compliance monitor and 403 blocking remain VigIA's.
 * Improved: The robots.txt rules for AI now read from Visibility when it owns them. VigIA's compliance monitor and 403 escalation check against the crawlers Visibility disallows, and VigIA's own rule editor turns read-only while ceded, so the two never disagree on which bots should be blocked.
@@ -405,8 +410,8 @@ For older changelog entries, please check the [changelog.txt](https://plugins.sv
 
 == Upgrade Notice ==
 
-= 2.4.0 =
-With Visibility active, VigIA disables its duplicated Extras tabs (kept, not removed), reads Visibility's robots rules for its compliance monitor and 403 blocking, and points its tabs and recommendations to Visibility. Without Visibility, everything works exactly as before. No setup needed.
+= 2.4.1 =
+Clearer, always-on Visibility recommendations across the Extras tabs and the AI analyzer, the crawler list grouped by type, and no more dead install links for retired plugins.
 
 == Support ==
 

@@ -151,7 +151,7 @@ class Vigia_Promo_Banner {
 			'multiple-sale-prices-scheduler'   => array(
 				'icon'        => 'dashicons-calendar-alt',
 				'title'       => __( 'Schedule sale prices', 'vigia' ),
-				'description' => __( 'Set multiple future sale prices for WooCommerce products. Plan promotions in advance with start and end dates.', 'vigia' ),
+				'description' => __( 'Set multiple future sale prices for WooCommerce products, down to the exact start and end time. Plan Black Friday, flash sales and seasonal promotions in advance.', 'vigia' ),
 				'button'      => __( 'Install Sale Scheduler', 'vigia' ),
 			),
 			'easy-store-management-ayudawp'    => array(

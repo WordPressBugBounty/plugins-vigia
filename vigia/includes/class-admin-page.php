@@ -368,6 +368,15 @@ class VigIA_Admin_Page {
                     <div class="vigia-crawler-grid">
                         <?php
                         $crawlers = VigIA_Crawler_Detector::get_crawler_list();
+                        // Group the static catalog by category (then name) so the coloured
+                        // category badges cluster together instead of scattering across the grid.
+                        usort(
+                            $crawlers,
+                            static function ( $a, $b ) {
+                                $by_cat = strcmp( (string) $a['category'], (string) $b['category'] );
+                                return 0 !== $by_cat ? $by_cat : strcmp( (string) $a['name'], (string) $b['name'] );
+                            }
+                        );
                         foreach ( $crawlers as $crawler ) :
                             $category_label = isset( $category_labels[ $crawler['category'] ] ) ? $category_labels[ $crawler['category'] ] : $crawler['category'];
                             $category_color = isset( $category_colors[ $crawler['category'] ] ) ? $category_colors[ $crawler['category'] ] : '#95a5a6';
