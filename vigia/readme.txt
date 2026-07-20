@@ -4,7 +4,7 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.4.1
+Stable tag: 2.4.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -46,7 +46,7 @@ Monitor 60+ AI crawlers, control access via robots.txt, and boost your AI visibi
 * Timeline chart with daily breakdown
 * Category distribution (AI Training, AI Search, AI Assistant, Data Scraper)
 * Top crawlers and most crawled pages tables with paginated navigation
-* [AI Share & Summarize](https://wordpress.org/plugins/ai-share-summarize/) integration: see share button clicks per page
+* [Share Buttons & AI-powered Summaries](https://wordpress.org/plugins/ai-share-summarize/) integration: see share button clicks per page
 * Recent activity log with content type and HTTP status columns (color coded by status family)
 * Advanced filters: multi-select crawler picker, content type, HTTP status code, and configurable date range
 * Server-side pagination with four-button pager (first, previous, next, last) — operates over the full database, not just the latest 500 rows
@@ -396,6 +396,10 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
+= 2.4.2 =
+* Improved: When Visibility manages the robots.txt rules for AI crawlers, the Disallow & Blocking tab no longer shows the inert Add rule form and Remove buttons: the rules list is read-only while the compliance monitor and the PHP (403) blocking stay fully active.
+* Fix: The "Markdown for Agents" pointer in the AI Discovery JSON-LD now declares its URL pattern as an EntryPoint urlTemplate (with text/markdown contentType) instead of a plain target string, so crawlers no longer fetch the literal {slug}.md placeholder and Google Search Console stops reporting it as a 404.
+
 = 2.4.1 =
 * Improved: The Visibility recommendation now shows across the three Extras tabs (LLMs.txt, Markdown and JSON-LD) and the AI Visibility analyzer whenever Visibility is not active, with broader SEO plugin detection and clearer copy about the traffic and authority you gain. The call to action is now an inline link instead of an intrusive button.
 * Improved: The Monitored AI crawlers list is now grouped by crawler type, so the coloured category badges cluster together instead of scattering across the grid. The analytics tables (top crawlers, recent activity) keep their by-visits order.
@@ -410,8 +414,8 @@ For older changelog entries, please check the [changelog.txt](https://plugins.sv
 
 == Upgrade Notice ==
 
-= 2.4.1 =
-Clearer, always-on Visibility recommendations across the Extras tabs and the AI analyzer, the crawler list grouped by type, and no more dead install links for retired plugins.
+= 2.4.2 =
+Fixes the AI Discovery schema so Search Console no longer reports a 404 for the literal {slug}.md URL pattern. Cleaner Disallow & Blocking tab when Visibility manages the rules, and the promo banner now shows AyudaWP services.
 
 == Support ==
 

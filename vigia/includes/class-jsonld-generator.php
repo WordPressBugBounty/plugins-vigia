@@ -290,13 +290,21 @@ class VigIA_JsonLD_Generator {
 				);
 			}
 
-			// Markdown endpoints pointer.
+			// Markdown endpoints pointer. The target is a URL pattern, not a real
+			// URL, so it must go inside an EntryPoint as an RFC 6570 urlTemplate
+			// (same shape as the SearchAction above). As a bare string target,
+			// consumers treat "/{slug}.md" as a literal crawlable URL and report
+			// it as a 404 (seen in Google Search Console).
 			if ( $settings['ai_discovery_markdown'] ) {
 				$md_settings = get_option( 'vigia_markdown_settings', array() );
 				if ( ! empty( $md_settings['enabled'] ) ) {
 					$ai_actions[] = array(
 						'@type'       => 'ReadAction',
-						'target'      => $site_url . '/{slug}.md',
+						'target'      => array(
+							'@type'       => 'EntryPoint',
+							'urlTemplate' => $site_url . '/{slug}.md',
+							'contentType' => 'text/markdown',
+						),
 						'name'        => 'Markdown for Agents',
 						'description' => 'Individual posts served as optimized markdown via .md URL endpoints',
 					);

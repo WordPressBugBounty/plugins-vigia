@@ -153,7 +153,7 @@ class VigIA_Visibility_Page {
 				<aside class="vigia-vis-sidebar">
 					<?php
 					if ( class_exists( 'Vigia_Promo_Banner' ) ) {
-						$promo_banner = new Vigia_Promo_Banner( 'vigia', 'vigia', 'vigia' );
+						$promo_banner = new Vigia_Promo_Banner( 'vigia' );
 						$promo_banner->render( 'vertical' );
 					}
 					?>

@@ -509,8 +509,8 @@ class VigIA_Admin_Page {
             </div>
 
             <?php
-            // Render promotional banner with random plugins and services.
-            $promo_banner = new Vigia_Promo_Banner( 'vigia', 'vigia', 'vigia' );
+            // Render promotional banner (AyudaWP services).
+            $promo_banner = new Vigia_Promo_Banner( 'vigia' );
             $promo_banner->render( 'horizontal' );
             ?>
 

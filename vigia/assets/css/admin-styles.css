@@ -1081,13 +1081,6 @@
     margin-top: 10px;
 }
 
-.vigia-promo-notice > h4 {
-    margin: 0 0 20px;
-    font-size: 15px;
-    font-weight: 600;
-    color: #1d2327;
-}
-
 .vigia-promo-columns {
     display: grid;
     grid-template-columns: repeat(3, 1fr);

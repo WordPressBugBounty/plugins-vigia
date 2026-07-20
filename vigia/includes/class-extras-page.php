@@ -321,6 +321,13 @@ class VigIA_Extras_Page {
         $category_labels  = VigIA_Crawler_Detector::get_category_labels();
         $category_colors  = VigIA_Crawler_Detector::get_category_colors();
 
+        // When Visibility owns the robots-for-AI signal, the rule CRUD is a
+        // no-op (see VigIA_Robots_Manager, ceded in 2.4.0): the rules listed
+        // here come from Visibility and are read-only. Hide the Add form and
+        // the Remove buttons; the preview, the compliance monitor and the PHP
+        // blocking below stay fully functional.
+        $rules_ceded = class_exists( 'VigIA_Sibling_Visibility' ) && VigIA_Sibling_Visibility::should_defer( 'robots' );
+
         // Detect if physical robots.txt exists or use virtual.
         $physical_robots = ABSPATH . 'robots.txt';
         $robots_url      = file_exists( $physical_robots ) ? home_url( '/robots.txt' ) : home_url( '/?robots=1' );
@@ -367,7 +374,9 @@ class VigIA_Extras_Page {
                                 <tr>
                                     <th><?php esc_html_e( 'Crawler', 'vigia' ); ?></th>
                                     <th><?php esc_html_e( 'Status', 'vigia' ); ?></th>
-                                    <th><?php esc_html_e( 'Actions', 'vigia' ); ?></th>
+                                    <?php if ( ! $rules_ceded ) : ?>
+                                        <th><?php esc_html_e( 'Actions', 'vigia' ); ?></th>
+                                    <?php endif; ?>
                                 </tr>
                             </thead>
                             <tbody>
@@ -377,12 +386,14 @@ class VigIA_Extras_Page {
                                         <td>
                                             <span class="vigia-status vigia-status-disallow"><?php esc_html_e( 'Disallow', 'vigia' ); ?></span>
                                         </td>
-                                        <td>
-                                            <button type="button" class="button button-small vigia-remove-robots-rule" 
-                                                    data-crawler="<?php echo esc_attr( $crawler ); ?>" data-action="disallow">
-                                                <?php esc_html_e( 'Remove', 'vigia' ); ?>
-                                            </button>
-                                        </td>
+                                        <?php if ( ! $rules_ceded ) : ?>
+                                            <td>
+                                                <button type="button" class="button button-small vigia-remove-robots-rule"
+                                                        data-crawler="<?php echo esc_attr( $crawler ); ?>" data-action="disallow">
+                                                    <?php esc_html_e( 'Remove', 'vigia' ); ?>
+                                                </button>
+                                            </td>
+                                        <?php endif; ?>
                                     </tr>
                                 <?php endforeach; ?>
                             </tbody>
@@ -391,25 +402,27 @@ class VigIA_Extras_Page {
                         <p class="vigia-no-rules"><?php esc_html_e( 'No robots.txt rules configured for AI crawlers.', 'vigia' ); ?></p>
                     <?php endif; ?>
 
-                    <!-- Add rule form -->
-                    <div class="vigia-add-rule-form">
-                        <h4><?php esc_html_e( 'Add robots.txt rule', 'vigia' ); ?></h4>
-                        <div class="vigia-form-row">
-                            <select id="vigia-robots-crawler">
-                                <option value=""><?php esc_html_e( 'Select crawler...', 'vigia' ); ?></option>
-                                <?php foreach ( $all_crawlers as $pattern => $crawler ) : ?>
-                                    <?php if ( ! in_array( $crawler['name'], $robots_rules['disallow'], true ) ) : ?>
-                                        <option value="<?php echo esc_attr( $crawler['name'] ); ?>">
-                                            <?php echo esc_html( $crawler['name'] . ' (' . $crawler['company'] . ')' ); ?>
-                                        </option>
-                                    <?php endif; ?>
-                                <?php endforeach; ?>
-                            </select>
-                            <button type="button" id="vigia-add-disallow" class="button button-secondary">
-                                <?php esc_html_e( 'Add Disallow', 'vigia' ); ?>
-                            </button>
+                    <?php if ( ! $rules_ceded ) : ?>
+                        <!-- Add rule form -->
+                        <div class="vigia-add-rule-form">
+                            <h4><?php esc_html_e( 'Add robots.txt rule', 'vigia' ); ?></h4>
+                            <div class="vigia-form-row">
+                                <select id="vigia-robots-crawler">
+                                    <option value=""><?php esc_html_e( 'Select crawler...', 'vigia' ); ?></option>
+                                    <?php foreach ( $all_crawlers as $pattern => $crawler ) : ?>
+                                        <?php if ( ! in_array( $crawler['name'], $robots_rules['disallow'], true ) ) : ?>
+                                            <option value="<?php echo esc_attr( $crawler['name'] ); ?>">
+                                                <?php echo esc_html( $crawler['name'] . ' (' . $crawler['company'] . ')' ); ?>
+                                            </option>
+                                        <?php endif; ?>
+                                    <?php endforeach; ?>
+                                </select>
+                                <button type="button" id="vigia-add-disallow" class="button button-secondary">
+                                    <?php esc_html_e( 'Add Disallow', 'vigia' ); ?>
+                                </button>
+                            </div>
                         </div>
-                    </div>
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -1944,11 +1957,12 @@ class VigIA_Extras_Page {
      * Render sidebar promotional boxes
      */
     private static function render_sidebar_promos() {
-        // Add Thickbox support for plugin install popups.
+        // Thickbox is no longer used by the banner (services-only since 2.4.2),
+        // but the Get Visibility notice on this page still opens the wp.org
+        // install modal with it.
         add_thickbox();
 
-        // Render promotional banner with random plugins and services.
-        $promo_banner = new Vigia_Promo_Banner( 'vigia', 'vigia', 'vigia' );
+        $promo_banner = new Vigia_Promo_Banner( 'vigia' );
         $promo_banner->render( 'vertical' );
     }
 }
