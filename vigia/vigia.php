@@ -3,7 +3,7 @@
  * Plugin Name: VigIA - AI Visibility, Analytics & Control
  * Plugin URI: https://servicios.ayudawp.com
  * Description: Monitor, control, and optimize how AI systems interact with your WordPress site. Track 60+ AI crawlers, manage access via robots.txt, and boost your AI visibility with llms.txt, JSON-LD, Markdown for Agents, and AI Visibility Score.
- * Version: 2.4.2
+ * Version: 2.4.3
  * Author: Fernando Tellado
  * Author URI: https://ayudawp.com
  * License: GPL v2 or later
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'VIGIA_VERSION', '2.4.2' );
+define( 'VIGIA_VERSION', '2.4.3' );
 define( 'VIGIA_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VIGIA_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'VIGIA_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -232,7 +232,7 @@ final class VigIA {
         // JSON-LD.
         add_action( 'wp_ajax_vigia_save_jsonld_settings', array( $this, 'ajax_save_jsonld_settings' ) );
 
-        // AI Share & Summarize tip.
+        // Share Buttons & AI-powered Summaries tip.
         add_action( 'wp_ajax_vigia_dismiss_aiss_tip', array( $this, 'ajax_dismiss_aiss_tip' ) );
 
         // AI Visibility analyzer (v1.8.0).
@@ -494,6 +494,10 @@ final class VigIA {
                 'extrasUrl'  => admin_url( 'admin.php?page=vigia-extras' ),
                 'siteUrl'    => untrailingslashit( home_url() ),
                 'aissActive' => class_exists( 'AyudaWP_AISS_Database' ) ? '1' : '0',
+                // Category colours and labels for the crawler chips of the "Most
+                // crawled pages" breakdown, which groups them by category.
+                'categoryColors' => VigIA_Crawler_Detector::get_category_colors(),
+                'categoryLabels' => VigIA_Crawler_Detector::get_category_labels(),
                 'strings'    => array(
                     'loading'             => __( 'Loading...', 'vigia' ),
                     'error'               => __( 'Error loading data', 'vigia' ),
@@ -510,7 +514,7 @@ final class VigIA {
                     'confirmRemove'       => __( 'Are you sure you want to remove this custom crawler?', 'vigia' ),
                     /* translators: 1: number of items shown, 2: total number of items */
                     'showingOf'           => __( 'Showing %1$s of %2$s', 'vigia' ),
-                    // AI Share & Summarize integration.
+                    // Share Buttons & AI-powered Summaries integration.
                     'clicks'              => __( 'Clicks', 'vigia' ),
                     // Most crawled pages: trend column and expandable crawler breakdown.
                     'showCrawlers'        => __( 'Show crawlers for this page', 'vigia' ),
@@ -740,7 +744,7 @@ final class VigIA {
     }
 
     /**
-     * Dismiss AI Share & Summarize tip via AJAX
+     * Dismiss Share Buttons & AI-powered Summaries tip via AJAX
      */
     public function ajax_dismiss_aiss_tip() {
         check_ajax_referer( 'vigia_ajax_nonce', 'nonce' );

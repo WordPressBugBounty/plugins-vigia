@@ -9,7 +9,7 @@
  * truth). Plugin cross-promotion was dropped in 2.4.2: the banner shows only
  * services, so there is no host/sibling plugin to exclude and no
  * wordpress.org install modal (Thickbox) to load for it. VigIA still loads
- * Thickbox elsewhere for its contextual promos (AI Share & Summarize on the
+ * Thickbox elsewhere for its contextual promos (Share Buttons & AI-powered Summaries on the
  * dashboard, the analyzer recommendations, the Get Visibility notice).
  *
  * @package VigIA

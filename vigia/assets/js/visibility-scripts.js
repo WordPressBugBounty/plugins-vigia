@@ -477,13 +477,18 @@
 		return '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
 	}
 
+	// Escapes quotes as well as angle brackets, because callers use this in
+	// attribute position (href="...", label inside a button) and not only in text
+	// nodes. The textContent/innerHTML trick alone leaves " and ' untouched, which
+	// is safe between tags but would break out of an attribute. Mirrors what
+	// escapeHtml() in admin-scripts.js already does since 2.2.0.
 	function escHtml( str ) {
-		if ( typeof str !== 'string' ) {
-			return String( str );
-		}
-		var div = document.createElement( 'div' );
-		div.textContent = str;
-		return div.innerHTML;
+		return String( null === str || 'undefined' === typeof str ? '' : str )
+			.replace( /&/g, '&amp;' )
+			.replace( /</g, '&lt;' )
+			.replace( />/g, '&gt;' )
+			.replace( /"/g, '&quot;' )
+			.replace( /'/g, '&#39;' );
 	}
 
 })( jQuery );

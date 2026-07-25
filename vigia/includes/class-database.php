@@ -1112,7 +1112,7 @@ class VigIA_Database {
     }
 
     /**
-     * Get click data per path from AI Share & Summarize (if active)
+     * Get click data per path from Share Buttons & AI-powered Summaries (if active)
      *
      * Queries the AISS clicks table to get click counts for crawled paths.
      * Resolves request_path to post_id via url_to_postid(), so only

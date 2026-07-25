@@ -668,7 +668,7 @@ class VigIA_Rest_API {
         }
         unset( $page );
 
-        // If AI Share & Summarize is active, add click data per path.
+        // If Share Buttons & AI-powered Summaries is active, add click data per path.
         $aiss_active = class_exists( 'AyudaWP_AISS_Database' );
         $click_data  = array();
 
@@ -710,6 +710,24 @@ class VigIA_Rest_API {
         }
 
         $items = VigIA_Database::get_crawlers_for_path( $path, $range['start'], $range['end'], 50 );
+
+        // Group the chips by category, and by visits within each category, so the
+        // coloured categories cluster together instead of scattering across the
+        // breakdown. Same criterion 2.4.1 applied to "Top crawlers" and to the
+        // monitored crawler list. Presentation only: the query still picks the 50
+        // most visited crawlers for the path, this just reorders that selection.
+        usort(
+            $items,
+            static function ( $a, $b ) {
+                $by_category = strcmp( (string) $a['crawler_category'], (string) $b['crawler_category'] );
+
+                if ( 0 !== $by_category ) {
+                    return $by_category;
+                }
+
+                return (int) $b['visit_count'] - (int) $a['visit_count'];
+            }
+        );
 
         return rest_ensure_response( array( 'items' => $items ) );
     }

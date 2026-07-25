@@ -337,6 +337,38 @@ class VigIA_Markdown_Endpoints {
 	}
 
 	/**
+	 * Is this post the page assigned as the static front page?
+	 *
+	 * @param WP_Post $the_post Post object.
+	 * @return bool
+	 */
+	private static function is_front_page_post( $the_post ) {
+		if ( 'page' !== get_option( 'show_on_front' ) ) {
+			return false;
+		}
+
+		$front_id = (int) get_option( 'page_on_front' );
+
+		return $front_id > 0 && $front_id === (int) $the_post->ID;
+	}
+
+	/**
+	 * Is this post the page assigned as the posts page (blog index)?
+	 *
+	 * @param WP_Post $the_post Post object.
+	 * @return bool
+	 */
+	private static function is_posts_page( $the_post ) {
+		if ( 'page' !== get_option( 'show_on_front' ) ) {
+			return false;
+		}
+
+		$posts_page_id = (int) get_option( 'page_for_posts' );
+
+		return $posts_page_id > 0 && $posts_page_id === (int) $the_post->ID;
+	}
+
+	/**
 	 * Check if a post is eligible for markdown serving
 	 *
 	 * @param WP_Post $the_post Post object.
@@ -356,6 +388,14 @@ class VigIA_Markdown_Endpoints {
 		$post_types = ! empty( $settings['post_types'] ) ? $settings['post_types'] : array( 'post', 'page' );
 
 		if ( ! in_array( $the_post->post_type, $post_types, true ) ) {
+			return false;
+		}
+
+		// The page assigned as "Posts page" in Settings > Reading never renders its
+		// own content: WordPress shows the blog loop there instead. Serving its
+		// post_content as markdown would hand agents something the site itself
+		// never displays, and that content is empty on most installs.
+		if ( self::is_posts_page( $the_post ) ) {
 			return false;
 		}
 
@@ -1712,12 +1752,27 @@ class VigIA_Markdown_Endpoints {
 			return false;
 		}
 
+		$the_post = get_post( $the_post );
+
+		if ( ! $the_post instanceof WP_Post ) {
+			return false;
+		}
+
 		$permalink = get_permalink( $the_post );
 		$home_url  = home_url( '/' );
 		$path      = str_replace( $home_url, '', $permalink );
 		$path      = trim( $path, '/' );
 
-		if ( empty( $path ) ) {
+		if ( '' === $path ) {
+			// A static front page has no path of its own: its permalink IS the home
+			// URL, so there is nothing to suffix with .md. Fall back to the page
+			// slug, an URL that serve_markdown_by_path() already resolves through
+			// get_page_by_path(). The markdown response declares the home URL as
+			// its canonical, so the agent still knows this is the front page.
+			if ( self::is_front_page_post( $the_post ) && '' !== $the_post->post_name ) {
+				return home_url( '/' . $the_post->post_name . '.md' );
+			}
+
 			return false;
 		}
 

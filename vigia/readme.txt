@@ -4,7 +4,7 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.4.2
+Stable tag: 2.4.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -396,6 +396,11 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
+= 2.4.3 =
+* Improved: The crawler breakdown of the Most Crawled Pages table now groups its chips by crawler type, each carrying the category colour used elsewhere in the dashboard, so the categories cluster together instead of scattering. Within each category the chips keep their by-visits order.
+* Fix: A static front page now advertises its Markdown version. Its permalink is the site home, so there was no path left to suffix with .md and neither the <link rel="alternate"> tag nor the Link header were emitted; both now point to the page slug endpoint, which was already serving that markdown.
+* Fix: The page assigned as the Posts page in Settings > Reading no longer serves markdown. WordPress renders the blog loop there instead of the page content, so its .md endpoint returned something the site never displays, and on most installs it was empty.
+
 = 2.4.2 =
 * Improved: When Visibility manages the robots.txt rules for AI crawlers, the Disallow & Blocking tab no longer shows the inert Add rule form and Remove buttons: the rules list is read-only while the compliance monitor and the PHP (403) blocking stay fully active.
 * Fix: The "Markdown for Agents" pointer in the AI Discovery JSON-LD now declares its URL pattern as an EntryPoint urlTemplate (with text/markdown contentType) instead of a plain target string, so crawlers no longer fetch the literal {slug}.md placeholder and Google Search Console stops reporting it as a 404.
@@ -414,8 +419,8 @@ For older changelog entries, please check the [changelog.txt](https://plugins.sv
 
 == Upgrade Notice ==
 
-= 2.4.2 =
-Fixes the AI Discovery schema so Search Console no longer reports a 404 for the literal {slug}.md URL pattern. Cleaner Disallow & Blocking tab when Visibility manages the rules, and the promo banner now shows AyudaWP services.
+= 2.4.3 =
+A static front page now advertises its Markdown version, which was silently missing. The Posts page no longer serves an empty .md, and the crawler chips of the Most Crawled Pages table are grouped by type with their category colour.
 
 == Support ==
 

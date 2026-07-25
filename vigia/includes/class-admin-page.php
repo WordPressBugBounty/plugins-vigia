@@ -77,14 +77,14 @@ class VigIA_Admin_Page {
             </h1>
 
             <?php
-            // Show AI Share & Summarize tip if not installed and not dismissed.
+            // Show Share Buttons & AI-powered Summaries tip if not installed and not dismissed.
             $show_aiss_tip = ! class_exists( 'AyudaWP_AISS_Database' ) && ! get_option( 'vigia_aiss_tip_dismissed', false );
             if ( $show_aiss_tip ) :
                 ?>
                 <div class="notice notice-info is-dismissible vigia-aiss-tip" id="vigia-aiss-tip">
                     <p>
                         <strong><?php echo esc_html__( 'Tip:', 'vigia' ); ?></strong>
-                        <?php echo esc_html__( 'Install AI Share & Summarize to see share button clicks per page in the Most Crawled Pages table.', 'vigia' ); ?>
+                        <?php echo esc_html__( 'Install Share Buttons & AI-powered Summaries to see share clicks per page in the Most Crawled Pages table.', 'vigia' ); ?>
                         <a href="<?php echo esc_url( admin_url( 'plugin-install.php?tab=plugin-information&plugin=ai-share-summarize&TB_iframe=true&width=772&height=618' ) ); ?>" class="thickbox">
                             <?php echo esc_html__( 'Learn more', 'vigia' ); ?>
                         </a>

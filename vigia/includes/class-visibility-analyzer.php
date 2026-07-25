@@ -1670,24 +1670,24 @@ class VigIA_Visibility_Analyzer {
 			}
 		}
 
-		// AI Share & Summarize: recommend whenever plugin is not active.
-		// On homepage the check is N/A (info) so it won't appear in $failed,
-		// but users still benefit from having the plugin on content pages.
+		// Share Buttons & AI-powered Summaries: recommend whenever plugin is not
+		// active. On homepage the check is N/A (info) so it won't appear in
+		// $failed, but users still benefit from having the plugin on content pages.
 		$aiss_status = isset( $plugins['ai-share-summarize'] ) ? $plugins['ai-share-summarize'] : 'not_installed';
 		if ( 'not_installed' === $aiss_status ) {
 			$recs[] = array(
 				'tier'   => 2,
 				'check'  => 'ai_share',
-				'text'   => __( 'Install AI Share & Summarize to add share/summarize buttons for major AI platforms to your content.', 'vigia' ),
+				'text'   => __( 'Install Share Buttons & AI-powered Summaries to let readers share and summarize your content on major AI platforms.', 'vigia' ),
 				'action' => 'thickbox',
 				'slug'   => 'ai-share-summarize',
-				'label'  => __( 'Install AI Share & Summarize', 'vigia' ),
+				'label'  => __( 'Install plugin', 'vigia' ),
 			);
 		} elseif ( 'installed' === $aiss_status ) {
 			$recs[] = array(
 				'tier'   => 3,
 				'check'  => 'ai_share',
-				'text'   => __( 'AI Share & Summarize is installed but not active.', 'vigia' ),
+				'text'   => __( 'Share Buttons & AI-powered Summaries is installed but not active.', 'vigia' ),
 				'action' => 'thickbox',
 				'slug'   => 'ai-share-summarize',
 				'label'  => __( 'Activate plugin', 'vigia' ),

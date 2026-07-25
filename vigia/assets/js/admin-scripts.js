@@ -185,7 +185,7 @@ window.VigiaPaginator = (function($) {
     let recentPaginator = null;
     let customCrawlersPaginator = null;
 
-    // AI Share & Summarize integration
+    // Share Buttons & AI-powered Summaries integration
     let aissActive = false;
 
     /**
@@ -370,7 +370,7 @@ window.VigiaPaginator = (function($) {
             });
         }
 
-        // AI Share & Summarize tip dismiss handler
+        // Share Buttons & AI-powered Summaries tip dismiss handler
         $(document).on('click', '.vigia-aiss-tip .notice-dismiss', function() {
             $.ajax({
                 url: vigiaData.ajaxUrl,
@@ -1062,8 +1062,18 @@ window.VigiaPaginator = (function($) {
             if (items.length === 0) {
                 inner += '<span class="vigia-crawler-chip">' + escapeHtml(vigiaData.strings.noData || 'No data') + '</span>';
             } else {
+                // Chips arrive grouped by category from the endpoint. Each one gets
+                // the category colour used elsewhere in the dashboard, so the
+                // grouping reads as grouping instead of an arbitrary order.
+                var categoryColors = vigiaData.categoryColors || {};
+                var categoryLabels = vigiaData.categoryLabels || {};
                 items.forEach(function(it) {
-                    inner += '<span class="vigia-crawler-chip">' + escapeHtml(it.crawler_name) + ' <strong>' + formatNumber(it.visit_count) + '</strong></span>';
+                    var category = it.crawler_category || 'unknown';
+                    var color = categoryColors[category] || categoryColors.unknown || '#95a5a6';
+                    var label = categoryLabels[category] || category;
+                    inner += '<span class="vigia-crawler-chip" title="' + escapeHtml(label) + '">' +
+                        '<span class="vigia-crawler-chip-dot" style="background-color: ' + escapeHtml(color) + ';"></span>' +
+                        escapeHtml(it.crawler_name) + ' <strong>' + formatNumber(it.visit_count) + '</strong></span>';
                 });
             }
             inner += '</div></div>';
