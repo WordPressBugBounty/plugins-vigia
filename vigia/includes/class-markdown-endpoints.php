@@ -319,6 +319,19 @@ class VigIA_Markdown_Endpoints {
 		$settings   = self::get_settings();
 		$post_types = ! empty( $settings['post_types'] ) ? $settings['post_types'] : array( 'post', 'page' );
 
+		// Drop the types whose gating lives in their plugin's templates, so a
+		// selection saved before this check existed cannot resolve one of them.
+		$post_types = array_values(
+			array_filter(
+				$post_types,
+				array( 'VigIA_Content_Access', 'is_servable_type' )
+			)
+		);
+
+		if ( empty( $post_types ) ) {
+			return null;
+		}
+
 		$posts = get_posts(
 			array(
 				'name'         => $slug,
@@ -375,12 +388,11 @@ class VigIA_Markdown_Endpoints {
 	 * @return bool
 	 */
 	private static function is_post_eligible( $the_post ) {
-		if ( 'publish' !== $the_post->post_status ) {
-			return false;
-		}
-
-		// Never serve password-protected posts as markdown; that would bypass the password form.
-		if ( '' !== $the_post->post_password ) {
+		// Status, password, and whatever the LMS and membership plugins on this
+		// site have to say about this entry. A `.md` is a second representation of
+		// the page, so it answers to the same access rules the page does; rebuilt
+		// outside the template, none of them apply unless we ask on purpose.
+		if ( ! VigIA_Content_Access::is_public( $the_post ) ) {
 			return false;
 		}
 
@@ -388,6 +400,12 @@ class VigIA_Markdown_Endpoints {
 		$post_types = ! empty( $settings['post_types'] ) ? $settings['post_types'] : array( 'post', 'page' );
 
 		if ( ! in_array( $the_post->post_type, $post_types, true ) ) {
+			return false;
+		}
+
+		// A type whose gating lives in its plugin's templates is withheld even if
+		// it is still ticked in the settings from before this check existed.
+		if ( VigIA_Content_Access::is_gated_type( $the_post->post_type ) ) {
 			return false;
 		}
 
@@ -659,7 +677,7 @@ class VigIA_Markdown_Endpoints {
 	 */
 	private static function serve_markdown_response( $the_post ) {
 		self::send_markdown_response(
-			self::generate_post_markdown( $the_post ),
+			self::build_as_anonymous( array( __CLASS__, 'generate_post_markdown' ), $the_post ),
 			get_permalink( $the_post )
 		);
 	}
@@ -677,9 +695,36 @@ class VigIA_Markdown_Endpoints {
 		}
 
 		self::send_markdown_response(
-			self::generate_term_markdown( $term ),
+			self::build_as_anonymous( array( __CLASS__, 'generate_term_markdown' ), $term ),
 			$link
 		);
+	}
+
+	/**
+	 * Build a markdown document as a logged-out visitor.
+	 *
+	 * The document is the same for everybody who asks for the URL, so it is built
+	 * as the visitor everybody has in common. Two things depend on it: the access
+	 * gate answers "can anybody read this?" rather than "can the one asking?",
+	 * and `the_content` runs anonymous, so the membership plugins that gate by
+	 * filtering it withhold the body on their own without VigIA knowing them.
+	 *
+	 * Without this an administrator, who Sensei grants every lesson through
+	 * `sensei_all_access()`, would be handed the full body of a paid lesson at its
+	 * `.md` URL while the HTML page still showed them the not-enrolled notice.
+	 *
+	 * @param callable $builder Generator to run.
+	 * @param mixed    $subject Post or term to pass to it.
+	 * @return string Markdown document.
+	 */
+	private static function build_as_anonymous( $builder, $subject ) {
+		VigIA_Content_Access::begin_anonymous_context();
+
+		try {
+			return (string) call_user_func( $builder, $subject );
+		} finally {
+			VigIA_Content_Access::end_anonymous_context();
+		}
 	}
 
 	/**
@@ -1234,6 +1279,14 @@ class VigIA_Markdown_Endpoints {
 		$lines = array( '## ' . $heading, '' );
 
 		foreach ( $query->posts as $entry ) {
+			// The query above is `post_type => any`, so a term shared with a gated
+			// type lists its entries too. Their excerpts would be the opening of a
+			// body nobody outside the membership is entitled to read.
+			if ( ! VigIA_Content_Access::is_public( $entry )
+				|| VigIA_Content_Access::is_gated_type( $entry->post_type ) ) {
+				continue;
+			}
+
 			$permalink = get_permalink( $entry );
 			$title     = get_the_title( $entry );
 			$excerpt   = self::get_clean_excerpt( $entry );
@@ -1244,6 +1297,12 @@ class VigIA_Markdown_Endpoints {
 			}
 			$line   .= self::product_summary_inline( $entry );
 			$lines[] = $line;
+		}
+
+		// Nothing survived the access check: no heading for an empty list.
+		if ( count( $lines ) < 3 ) {
+			wp_reset_postdata();
+			return '';
 		}
 
 		$total = (int) $query->found_posts;
@@ -1282,6 +1341,16 @@ class VigIA_Markdown_Endpoints {
 			return wp_strip_all_tags( $the_post->post_excerpt );
 		}
 
+		// With no hand-written excerpt the description would be the opening of the
+		// body, which must not be published for an entry the visitor cannot read:
+		// a membership-gated page would otherwise have its first 200 characters
+		// sitting in the frontmatter, and in the term listings, for anyone to
+		// read. A manual excerpt above is different: the author wrote it to be
+		// shown.
+		if ( ! VigIA_Content_Access::is_public( $the_post ) ) {
+			return '';
+		}
+
 		$content = wp_strip_all_tags( strip_shortcodes( $the_post->post_content ) );
 		$content = preg_replace( '/\s+/', ' ', trim( $content ) );
 
@@ -1300,10 +1369,12 @@ class VigIA_Markdown_Endpoints {
 	 * @return string
 	 */
 	private static function get_clean_content( $the_post ) {
-		$content          = $the_post->post_content;
-		$original_content = $content;
+		$content = $the_post->post_content;
 
-		// Save and set up post context for shortcodes.
+		// Save and set up post context for shortcodes. This is also what lets the
+		// membership plugins that gate by filtering `the_content` recognise which
+		// entry they are being asked about: without it they see no post, conclude
+		// there is nothing to protect and hand over the whole body.
 		global $post;
 		$original_post   = $post;
 		$GLOBALS['post'] = $the_post; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
@@ -1325,9 +1396,17 @@ class VigIA_Markdown_Endpoints {
 			wp_reset_postdata();
 		}
 
-		// Fall back to raw extraction if shortcodes remain unprocessed.
+		// Fall back to text extraction if shortcodes remain unprocessed, which
+		// happens with page builders in a context where their plugin never
+		// registered them.
+		//
+		// Extraction runs on the filtered content rather than on the raw body: a
+		// membership plugin that replaced the body has no shortcodes left for this
+		// branch to catch, but one that left a teaser does, and reading the raw
+		// body there would hand over the very text it just withheld. In a context
+		// with no filters at all the two are the same string anyway.
 		if ( preg_match( '/\[[a-z][a-z0-9_-]*[\s\]]/i', $content ) ) {
-			$content = self::extract_text_from_shortcodes( $original_content );
+			$content = self::extract_text_from_shortcodes( $content );
 		}
 
 		$content = strip_shortcodes( $content );

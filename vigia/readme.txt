@@ -4,7 +4,7 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.4.3
+Stable tag: 2.4.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -348,11 +348,11 @@ Blocking AI training crawlers (like GPTBot or ClaudeBot) will not affect traditi
 
 Markdown for Agents is a standard for serving web content as clean markdown to AI agents. Instead of processing full HTML, agents receive lightweight markdown with structured metadata. VigIA supports both dedicated .md URLs and Accept: text/markdown content negotiation. Enable it in VigIA > Extras > Markdown for Agents.
 
-Since VigIA 2.0.0 the feature also covers taxonomy archives (categories, tags, WooCommerce product categories, custom taxonomies) and WooCommerce products. Term archives include the term description, the list of child terms in hierarchical taxonomies and an excerpt of the latest entries; product `.md` endpoints embed schema-like data (price, sale price, SKU, stock status, rating) directly in the YAML frontmatter.
+This feature also covers taxonomy archives (categories, tags, WooCommerce product categories, custom taxonomies) and WooCommerce products. Term archives include the term description, the list of child terms in hierarchical taxonomies and an excerpt of the latest entries; product `.md` endpoints embed schema-like data (price, sale price, SKU, stock status, rating) directly in the YAML frontmatter.
 
 = Which content types does the activity table classify? =
 
-VigIA 2.0.0 classifies each crawler hit into one of these buckets, indexed in the database so filters and CSV exports are instant: Home (the `/` path), Post, Page, Product, any other public custom post type, Category archive, Tag archive, Date/Author archive, Feed, Sitemap, REST API, File (PDFs, images, downloads), Admin/login attempt (`/wp-admin`, `wp-login.php` — useful to spot bots probing the admin), WordPress system (admin-ajax, xmlrpc, wp-cron, wp-comments-post), 404 Not found, and Other.
+VigIA classifies each crawler hit into one of these buckets, indexed in the database so filters and CSV exports are instant: Home (the `/` path), Post, Page, Product, any other public custom post type, Category archive, Tag archive, Date/Author archive, Feed, Sitemap, REST API, File (PDFs, images, downloads), Admin/login attempt (`/wp-admin`, `wp-login.php` — useful to spot bots probing the admin), WordPress system (admin-ajax, xmlrpc, wp-cron, wp-comments-post), 404 Not found, and Other.
 
 = Can I add custom crawlers to monitor? =
 
@@ -396,6 +396,12 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
+= 2.4.4 =
+* Improved: Refinements to how Markdown for agents and llms.txt pick which entries they publish, and to the summaries derived from an entry's body.
+* Improved: The content type pickers for Markdown for agents and llms.txt now offer only the types these files can actually serve. Types with no address of their own on the front end are gone from the list, and so are the course and membership types whose own plugin decides who may read them, with a note on screen explaining why.
+* Improved: A new `vigia_content_is_public` filter lets a plugin or theme decide, per entry, whether it may appear on these files at all.
+* Fix: llms.txt and llms-full.txt are rebuilt during the update, instead of keeping whatever was already on disk until the next scheduled run.
+
 = 2.4.3 =
 * Improved: The crawler breakdown of the Most Crawled Pages table now groups its chips by crawler type, each carrying the category colour used elsewhere in the dashboard, so the categories cluster together instead of scattering. Within each category the chips keep their by-visits order.
 * Fix: A static front page now advertises its Markdown version. Its permalink is the site home, so there was no path left to suffix with .md and neither the <link rel="alternate"> tag nor the Link header were emitted; both now point to the page slug endpoint, which was already serving that markdown.
@@ -419,8 +425,8 @@ For older changelog entries, please check the [changelog.txt](https://plugins.sv
 
 == Upgrade Notice ==
 
-= 2.4.3 =
-A static front page now advertises its Markdown version, which was silently missing. The Posts page no longer serves an empty .md, and the crawler chips of the Most Crawled Pages table are grouped by type with their category colour.
+= 2.4.4 =
+Refinements to how Markdown for agents and llms.txt choose what they publish, and to the summaries taken from an entry's body. Both files are rebuilt during the update, so your site picks up the change straight away.
 
 == Support ==
 

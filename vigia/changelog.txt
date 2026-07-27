@@ -3,6 +3,12 @@ VigIA — Full changelog
 For each release, see the entries below. The latest version is always at the top.
 The current release notes also live in readme.txt under "== Changelog ==".
 
+= 2.4.4 =
+* Improved: Refinements to how Markdown for agents and llms.txt pick which entries they publish, and to the summaries derived from an entry's body.
+* Improved: The content type pickers for Markdown for agents and llms.txt now offer only the types these files can actually serve. Types with no address of their own on the front end are gone from the list, and so are the course and membership types whose own plugin decides who may read them, with a note on screen explaining why.
+* Improved: A new `vigia_content_is_public` filter lets a plugin or theme decide, per entry, whether it may appear on these files at all.
+* Fix: llms.txt and llms-full.txt are rebuilt during the update, instead of keeping whatever was already on disk until the next scheduled run.
+
 = 2.4.3 =
 * Improved: The crawler breakdown of the Most Crawled Pages table now groups its chips by crawler type, each carrying the category colour used elsewhere in the dashboard, so the categories cluster together instead of scattering. Within each category the chips keep their by-visits order.
 * Fix: A static front page now advertises its Markdown version. Its permalink is the site home, so there was no path left to suffix with .md and neither the <link rel="alternate"> tag nor the Link header were emitted; both now point to the page slug endpoint, which was already serving that markdown.

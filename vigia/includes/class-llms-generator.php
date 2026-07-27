@@ -255,6 +255,28 @@ class VigIA_LLMS_Generator {
         }
 
         $settings = self::normalize_settings( $settings );
+
+        // Both files are written to the site root and served by the web server to
+        // everybody, but they are built by whoever pressed the button in wp-admin.
+        // Build them as a logged-out visitor so what goes in is what a logged-out
+        // visitor may read. See VigIA_Content_Access::begin_anonymous_context().
+        VigIA_Content_Access::begin_anonymous_context();
+
+        try {
+            return self::build_and_write( $settings );
+        } finally {
+            VigIA_Content_Access::end_anonymous_context();
+        }
+    }
+
+    /**
+     * Build both files and write them out. Always called inside the anonymous
+     * context set up by generate().
+     *
+     * @param array $settings Normalized settings.
+     * @return array|WP_Error
+     */
+    private static function build_and_write( $settings ) {
         $post_ids = self::get_final_post_ids( $settings );
 
         if ( empty( $post_ids ) ) {
@@ -320,6 +342,26 @@ class VigIA_LLMS_Generator {
         }
 
         $settings = self::normalize_settings( self::get_settings() );
+
+        // Same reasoning as generate(): built by an admin, read by everybody.
+        VigIA_Content_Access::begin_anonymous_context();
+
+        try {
+            return self::rebuild_one( $settings, $which );
+        } finally {
+            VigIA_Content_Access::end_anonymous_context();
+        }
+    }
+
+    /**
+     * Rebuild a single llms file. Always called inside the anonymous context set
+     * up by regenerate_file().
+     *
+     * @param array  $settings Normalized settings.
+     * @param string $which    'full' for llms-full.txt, anything else for llms.txt.
+     * @return array|WP_Error
+     */
+    private static function rebuild_one( $settings, $which ) {
         $post_ids = self::get_final_post_ids( $settings );
 
         if ( empty( $post_ids ) ) {
@@ -473,8 +515,18 @@ class VigIA_LLMS_Generator {
         $post_types = get_post_types( array( 'public' => true ), 'objects' );
         $result     = array();
 
+        // The types these surfaces may serve at all: addressable on the front end
+        // and not gated by an LMS or membership plugin. Reading the list from one
+        // place keeps the checkboxes on offer and the entries actually published
+        // from drifting apart. See VigIA_Content_Access::servable_post_types().
+        $servable = VigIA_Content_Access::servable_post_types();
+
         foreach ( $post_types as $pt ) {
             if ( 'attachment' === $pt->name ) {
+                continue;
+            }
+
+            if ( ! in_array( $pt->name, $servable, true ) ) {
                 continue;
             }
 
@@ -771,7 +823,18 @@ class VigIA_LLMS_Generator {
         $filtered = array();
         foreach ( $post_ids as $id ) {
             $post = get_post( $id );
-            if ( ! $post || 'publish' !== $post->post_status || '' !== $post->post_password ) {
+            if ( ! $post ) {
+                continue;
+            }
+
+            // Status, password, and whatever the LMS and membership plugins on
+            // this site have to say about the entry. These files are written to
+            // the site root and served by the web server without WordPress ever
+            // running, so anything that gets in here is public to everyone, for
+            // as long as the file lives. A per-post "include in llms.txt" flag is
+            // not consent to publish content the visitor cannot read.
+            if ( ! VigIA_Content_Access::is_public( $post )
+                || VigIA_Content_Access::is_gated_type( $post->post_type ) ) {
                 continue;
             }
 
@@ -899,6 +962,15 @@ class VigIA_LLMS_Generator {
         if ( ! empty( $the_post->post_excerpt ) ) {
             $excerpt = $the_post->post_excerpt;
         } else {
+            // With no hand-written excerpt the summary is the opening of the body,
+            // and this one is read straight from the database: `the_content` never
+            // runs here, so a membership plugin that gates by filtering it has no
+            // say. Entries the visitor cannot read get no summary at all. A manual
+            // excerpt above is different: the author wrote it to be shown.
+            if ( ! VigIA_Content_Access::is_public( $the_post ) ) {
+                return '';
+            }
+
             // Process shortcodes first for page builders.
             $content          = $the_post->post_content;
             $original_content = $content;
@@ -1298,10 +1370,13 @@ class VigIA_LLMS_Generator {
      * @return string
      */
     private static function get_clean_content( $the_post ) {
-        $content          = $the_post->post_content;
-        $original_content = $content;
+        $content = $the_post->post_content;
 
-        // Save current global post and set up new one for shortcode context.
+        // Save current global post and set up new one for shortcode context. This
+        // is also what lets the membership plugins that gate by filtering
+        // `the_content` recognise which entry they are being asked about: without
+        // it they see no post, conclude there is nothing to protect and hand over
+        // the whole body.
         // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited
         global $post;
         $original_post   = $post;
@@ -1331,8 +1406,12 @@ class VigIA_LLMS_Generator {
         $has_unprocessed_shortcodes = preg_match( '/\[[a-z][a-z0-9_-]*[\s\]]/i', $content );
 
         if ( $has_unprocessed_shortcodes ) {
-            // Use fallback: extract text from shortcodes manually.
-            $content = self::extract_text_from_shortcodes( $original_content );
+            // Use fallback: extract text from what the filters returned, not from
+            // the raw body. A membership plugin that replaced the body leaves no
+            // shortcodes for this branch to catch, but one that left a teaser
+            // does, and reading the raw body there would hand over the very text
+            // it just withheld. With no filters at all the two are the same string.
+            $content = self::extract_text_from_shortcodes( $content );
         }
 
         // ALWAYS run strip_shortcodes as final safety net.

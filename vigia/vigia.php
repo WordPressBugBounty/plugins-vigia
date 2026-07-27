@@ -3,7 +3,7 @@
  * Plugin Name: VigIA - AI Visibility, Analytics & Control
  * Plugin URI: https://servicios.ayudawp.com
  * Description: Monitor, control, and optimize how AI systems interact with your WordPress site. Track 60+ AI crawlers, manage access via robots.txt, and boost your AI visibility with llms.txt, JSON-LD, Markdown for Agents, and AI Visibility Score.
- * Version: 2.4.3
+ * Version: 2.4.4
  * Author: Fernando Tellado
  * Author URI: https://ayudawp.com
  * License: GPL v2 or later
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'VIGIA_VERSION', '2.4.3' );
+define( 'VIGIA_VERSION', '2.4.4' );
 define( 'VIGIA_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VIGIA_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'VIGIA_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -102,6 +102,9 @@ final class VigIA {
         }
 
         require_once VIGIA_PLUGIN_DIR . 'includes/class-sibling-visibility.php';
+        // Before the surfaces that consult it: Markdown for agents, llms.txt and
+        // the admin screens all gate what they publish through this class.
+        require_once VIGIA_PLUGIN_DIR . 'includes/class-content-access.php';
         require_once VIGIA_PLUGIN_DIR . 'includes/class-database.php';
         require_once VIGIA_PLUGIN_DIR . 'includes/class-settings.php';
         require_once VIGIA_PLUGIN_DIR . 'includes/class-crawler-detector.php';
@@ -173,6 +176,9 @@ final class VigIA {
         // Run schema migrations on every admin request — idempotent, only
         // touches dbDelta when DB_VERSION is newer than the stored version.
         add_action( 'admin_init', array( 'VigIA_Database', 'maybe_upgrade_schema' ) );
+
+        // Rebuild the generated files after an update, on the same terms.
+        add_action( 'admin_init', array( $this, 'maybe_upgrade_version' ) );
 
         // Reconcile ceded emission with the Visibility sibling: when Visibility
         // owns a signal, drop VigIA's now-shadowing physical artifacts so the two
@@ -316,6 +322,48 @@ final class VigIA {
         if ( VigIA_Sibling_Visibility::should_defer( 'robots' ) ) {
             VigIA_Robots_Manager::cleanup_for_cession();
         }
+    }
+
+    /**
+     * Carry a site over to the running version, once per update.
+     *
+     * llms.txt and llms-full.txt are written to disk, so a site that upgrades
+     * keeps serving whatever was in them until something regenerates them.
+     * Refinements to which entries go in therefore only reach an existing site
+     * if the update rebuilds the files itself, rather than waiting for the next
+     * scheduled run, which may be a month out or turned off entirely.
+     *
+     * Runs on `admin_init`, so the version only advances once someone with the
+     * capability to manage these files loads a page. A regeneration failure
+     * leaves the stored version alone and is retried on the next pageload.
+     */
+    public function maybe_upgrade_version() {
+        $stored = get_option( 'vigia_version', '0.0.0' );
+
+        if ( version_compare( $stored, VIGIA_VERSION, '>=' ) ) {
+            return;
+        }
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            return;
+        }
+
+        // A file on disk is the signal: the llms generator has no on/off flag of
+        // its own, it either has written the files or it has not. Nothing to
+        // rebuild otherwise, and the generator declines the job anyway when
+        // llms.txt is ceded to Visibility.
+        if ( VigIA_LLMS_Generator::llms_exists() || VigIA_LLMS_Generator::llms_full_exists() ) {
+            $result = VigIA_LLMS_Generator::generate( VigIA_LLMS_Generator::get_settings() );
+
+            // Nothing to regenerate from, or the sibling owns the file now: both
+            // are settled states, not something a later pageload would fix.
+            if ( is_wp_error( $result )
+                && ! in_array( $result->get_error_code(), array( 'no_content', 'ceded_to_visibility' ), true ) ) {
+                return;
+            }
+        }
+
+        update_option( 'vigia_version', VIGIA_VERSION );
     }
 
     /**

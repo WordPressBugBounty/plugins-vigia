@@ -313,6 +313,38 @@ class VigIA_Extras_Page {
         <?php
     }
 
+    /**
+     * Explain the content types missing from the picker above.
+     *
+     * Courses, lessons and memberships are withheld while their plugin is
+     * running: they are gated in its own templates, and these files are built
+     * without one. Printing nothing when no such plugin is installed keeps the
+     * screen quiet on the sites this never affects.
+     */
+    private static function render_gated_types_notice() {
+        $labels = VigIA_Content_Access::gated_type_labels();
+
+        if ( empty( $labels ) ) {
+            return;
+        }
+        ?>
+        <div class="vigia-notice vigia-notice-info">
+            <p>
+                <span class="dashicons dashicons-info-outline"></span>
+                <?php
+                echo esc_html(
+                    sprintf(
+                        /* translators: %s: comma-separated list of content type names, e.g. "Courses, Lessons". */
+                        __( 'Not listed: %s. Your course or membership plugin decides who reads these, and it does that when the page is built. These files are built without one, so VigIA cannot tell an open entry from a paid one and leaves them out.', 'vigia' ),
+                        implode( ', ', $labels )
+                    )
+                );
+                ?>
+            </p>
+        </div>
+        <?php
+    }
+
     private static function render_robots_tab() {
         $blocked_crawlers = VigIA_Blocker::get_blocked_crawlers();
         $robots_rules     = VigIA_Robots_Manager::get_ai_rules();
@@ -818,6 +850,8 @@ class VigIA_Extras_Page {
                         <?php endforeach; ?>
                     </div>
 
+                    <?php self::render_gated_types_notice(); ?>
+
                     <!-- Taxonomy filters (dynamic) -->
                     <div class="vigia-taxonomy-filters" id="vigia-taxonomy-filters" style="display: none;">
                         <h5><?php esc_html_e( 'Filter by taxonomy', 'vigia' ); ?></h5>
@@ -1142,6 +1176,7 @@ class VigIA_Extras_Page {
                                     <br>
                                 <?php endforeach; ?>
                             </fieldset>
+                            <?php self::render_gated_types_notice(); ?>
                         </td>
                     </tr>
                     <?php
