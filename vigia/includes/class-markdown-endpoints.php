@@ -1331,6 +1331,89 @@ class VigIA_Markdown_Endpoints {
 	}
 
 	/**
+	 * Collapse any run of whitespace into single spaces.
+	 *
+	 * @param string $string Text.
+	 * @return string
+	 */
+	private static function one_line( $string ) {
+		return trim( (string) preg_replace( '/\s+/', ' ', (string) $string ) );
+	}
+
+	/**
+	 * HTML down to readable plain text, for the summaries that are not the
+	 * document body (the frontmatter description).
+	 *
+	 * Stripping tags on their own glues together text the markup kept apart, so a
+	 * pricing table reads as `PlanPriceBasic10 €Pro20 €`; a space in place of each
+	 * tag keeps the words separated.
+	 *
+	 * @param string $html Raw HTML.
+	 * @return string
+	 */
+	private static function plain_text( $html ) {
+		$text = (string) preg_replace( '#<(script|style)\b[^>]*>.*?</\1>#is', ' ', (string) $html );
+		$text = str_replace( '<', ' <', $text );
+
+		return self::one_line( wp_strip_all_tags( $text ) );
+	}
+
+	/**
+	 * Remove the shortcode tags a page builder leaves behind when its own
+	 * shortcodes are not registered in this request, keeping the text between
+	 * them.
+	 *
+	 * Deliberately narrower than dropping every `[word]`: bracketed prose ([sic],
+	 * a [1] footnote, [updated]) reads the same as a bare shortcode, so a bare tag
+	 * is only removed when the document also carried its closing tag. Markdown
+	 * link and image labels are left alone by the lookahead, which would otherwise
+	 * delete the anchor text and leave a bare "(url)".
+	 *
+	 * @param string $markdown Markdown.
+	 * @return string
+	 */
+	private static function strip_shortcode_leftovers( $markdown ) {
+		if ( false === strpos( $markdown, '[' ) ) {
+			return $markdown;
+		}
+
+		$paired = array();
+		if ( preg_match_all( '#\[/([a-z][a-z0-9_-]*)\]#i', $markdown, $found ) ) {
+			$paired = array_unique( array_map( 'strtolower', $found[1] ) );
+		}
+
+		// Closing tags: nobody writes [/something] in prose.
+		$markdown = (string) preg_replace( '#\[/[a-z][a-z0-9_-]*\]#i', '', $markdown );
+
+		// Opening tags carrying attributes: [et_pb_section fb_built="1"].
+		$markdown = (string) preg_replace( '#\[[a-z][a-z0-9_-]*\s[^\]]*\](?!\()#i', '', $markdown );
+
+		// Bare opening tags, only for names seen closing above.
+		foreach ( $paired as $name ) {
+			$markdown = (string) preg_replace( '#\[' . preg_quote( $name, '#' ) . '\](?!\()#i', '', $markdown );
+		}
+
+		return $markdown;
+	}
+
+	/**
+	 * Decode entities in a summary, then strip tags again.
+	 *
+	 * Decoding is what turns a stored `&#8217;` into the apostrophe the author
+	 * wrote. Stripping afterwards is not redundant: an entity-encoded
+	 * `&lt;script&gt;` survives the first strip untouched and decoding would put
+	 * a real tag back into the document. These summaries reach a Markdown list
+	 * line with no further escaping, and Markdown passes inline HTML straight
+	 * through to whatever renders it.
+	 *
+	 * @param string $text Summary text.
+	 * @return string
+	 */
+	private static function decode_entities( $text ) {
+		return self::one_line( wp_strip_all_tags( html_entity_decode( (string) $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
+	}
+
+	/**
 	 * Get clean post excerpt
 	 *
 	 * @param WP_Post $the_post Post object.
@@ -1338,7 +1421,7 @@ class VigIA_Markdown_Endpoints {
 	 */
 	private static function get_clean_excerpt( $the_post ) {
 		if ( ! empty( $the_post->post_excerpt ) ) {
-			return wp_strip_all_tags( $the_post->post_excerpt );
+			return self::decode_entities( self::plain_text( $the_post->post_excerpt ) );
 		}
 
 		// With no hand-written excerpt the description would be the opening of the
@@ -1351,12 +1434,23 @@ class VigIA_Markdown_Endpoints {
 			return '';
 		}
 
-		$content = wp_strip_all_tags( strip_shortcodes( $the_post->post_content ) );
-		$content = preg_replace( '/\s+/', ' ', trim( $content ) );
+		// strip_shortcodes() only knows the ones registered in this request, so a
+		// page builder's tags survive it and would otherwise be the description an
+		// agent reads as the summary of the page.
+		$content = self::strip_shortcode_leftovers( strip_shortcodes( $the_post->post_content ) );
+		$content = self::decode_entities( self::plain_text( $content ) );
 
-		if ( strlen( $content ) > 200 ) {
-			$content = substr( $content, 0, 200 );
-			$content = substr( $content, 0, strrpos( $content, ' ' ) ) . '...';
+		// Trimmed by characters, not bytes: strlen()/substr() cut an accented
+		// character in half, and when the first 200 bytes held no space at all the
+		// strrpos() fallback returned false and the description came out empty.
+		if ( mb_strlen( $content ) > 200 ) {
+			$content = rtrim( wp_trim_words( $content, 40, '' ) );
+
+			if ( mb_strlen( $content ) > 200 ) {
+				$content = rtrim( mb_substr( $content, 0, 200 ) );
+			}
+
+			$content .= '...';
 		}
 
 		return $content;
@@ -1421,13 +1515,14 @@ class VigIA_Markdown_Endpoints {
 	 * @return string
 	 */
 	private static function extract_text_from_shortcodes( $content ) {
-		// Remove self-closing shortcodes.
-		$content = preg_replace( '/\[[a-z][a-z0-9_-]*[^\]]*\/\]/is', '', $content );
+		// Remove self-closing shortcodes, with or without the space: [gallery /].
+		$content = preg_replace( '#\[[a-z][a-z0-9_-]*[^\]]*/\]#is', '', $content );
 
-		// Remove opening and closing shortcode tags, keep content between them.
-		$content = preg_replace( '/\[\/?[a-z][a-z0-9_-]*[^\]]*\]/is', '', $content );
-
-		return $content;
+		// Everything else goes through the same conservative cleanup the Markdown
+		// pass uses. Deleting every [word] here would take bracketed prose with it,
+		// and this is the branch that runs on exactly the pages where it matters:
+		// the ones a page builder left full of its own tags.
+		return self::strip_shortcode_leftovers( $content );
 	}
 
 	/**
@@ -1510,9 +1605,23 @@ class VigIA_Markdown_Endpoints {
 		// matches <span>/<svg>/<section>. A stray such tag (e.g. the <button> that
 		// Gutenberg's image lightbox injects) would then pair with a later
 		// </strong>/</em> and scatter ** / * markers across the output.
-		$html = preg_replace( '/<(strong|b)\b[^>]*>(.*?)<\/(strong|b)>/is', '**$2**', $html );
-		$html = preg_replace( '/<(em|i)\b[^>]*>(.*?)<\/(em|i)>/is', '*$2*', $html );
-		$html = preg_replace( '/<(del|s|strike)\b[^>]*>(.*?)<\/(del|s|strike)>/is', '~~$2~~', $html );
+		// An empty element gets dropped rather than marked up: a themed icon is an
+		// empty <i> (the Font Awesome `<i class="fa fa-star"></i>` that countless
+		// themes and page builders emit), and wrapping nothing in markers leaves a
+		// stray ** or * sitting mid-sentence.
+		$emphasis = static function ( $pattern, $marker, $subject ) {
+			return (string) preg_replace_callback(
+				$pattern,
+				static function ( $matches ) use ( $marker ) {
+					return '' === trim( wp_strip_all_tags( $matches[2] ) ) ? '' : $marker . $matches[2] . $marker;
+				},
+				$subject
+			);
+		};
+
+		$html = $emphasis( '/<(strong|b)\b[^>]*>(.*?)<\/(strong|b)>/is', '**', $html );
+		$html = $emphasis( '/<(em|i)\b[^>]*>(.*?)<\/(em|i)>/is', '*', $html );
+		$html = $emphasis( '/<(del|s|strike)\b[^>]*>(.*?)<\/(del|s|strike)>/is', '~~', $html );
 
 		// Lists (<ul>/<ol>, including nested and mixed). Walked with DOMDocument
 		// so nesting, ordered/unordered markers and indentation survive; the old
@@ -1558,12 +1667,8 @@ class VigIA_Markdown_Endpoints {
 		$html = preg_replace_callback( '/```.*?```/s', $protect, $html );
 		$html = preg_replace_callback( '/`[^`\n]+`/', $protect, $html );
 
-		// Clean up artifacts left by unregistered shortcodes. The negative
-		// lookahead (?!\() preserves markdown links [text](url) and images
-		// ![alt](url): their label is bracketed text this pattern would otherwise
-		// delete, leaving a bare "(url)" with no anchor text.
-		$html = preg_replace( '/\[[a-z][a-z0-9_-]*[^\]]*\](?!\()/is', '', $html );
-		$html = preg_replace( '/\[\/[a-z][a-z0-9_-]*\]/is', '', $html );
+		// Clean up artifacts left by unregistered shortcodes.
+		$html = self::strip_shortcode_leftovers( $html );
 
 		// Clean up whitespace.
 		$html = preg_replace( '/\n{3,}/', "\n\n", $html );

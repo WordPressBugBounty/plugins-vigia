@@ -4,7 +4,7 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.4.4
+Stable tag: 2.4.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -396,11 +396,18 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
+= 2.4.5 =
+* Fix: The llms.txt references in robots.txt could end up duplicated, with a stray "Disallow: /" left in front of the old block, when another plugin rewrote the file and joined two of its lines. Because that leftover sits inside whichever User-agent group precedes it, it could tell every crawler to stay away from the whole site. VigIA now recognises its own markers even when another plugin has glued them to the line above, and repairs an affected robots.txt during the update.
+* Fix: robots.txt is now always left with a single newline at the end, so the next plugin that appends to it starts on its own line instead of running into VigIA's last one.
+* Fix: The AI crawler rules block is now closed with an end marker. Without it, rules another plugin wrote immediately after the block could be removed along with it.
+* Fix: An empty themed icon, such as the ones many themes and page builders emit, no longer leaves a stray ** or * in the middle of a sentence in the Markdown for agents output.
+* Fix: Bracketed prose such as [sic] or a [1] footnote is no longer mistaken for a leftover shortcode and deleted from the Markdown output. Tags left behind by a page builder are still removed.
+* Fix: The description in the Markdown frontmatter no longer runs words together on tables and lists, now decodes typographic punctuation instead of showing it as entities, and no longer comes out empty on long accented text.
+
 = 2.4.4 =
-* Improved: Refinements to how Markdown for agents and llms.txt pick which entries they publish, and to the summaries derived from an entry's body.
 * Improved: The content type pickers for Markdown for agents and llms.txt now offer only the types these files can actually serve. Types with no address of their own on the front end are gone from the list, and so are the course and membership types whose own plugin decides who may read them, with a note on screen explaining why.
 * Improved: A new `vigia_content_is_public` filter lets a plugin or theme decide, per entry, whether it may appear on these files at all.
-* Fix: llms.txt and llms-full.txt are rebuilt during the update, instead of keeping whatever was already on disk until the next scheduled run.
+* Fix: Markdown for agents and llms.txt could serve content that a course or membership plugin keeps behind its gate. Both rebuild an entry's content outside the normal template, where the access rules those plugins enforce in their own templates never run, so an anonymous visitor could read through the .md file what the HTML page withheld. Entries are now checked against the access rules before they are published on any of these surfaces, and the content types whose plugin decides who may read them are withheld unless you opt them in. Your llms.txt and llms-full.txt are rebuilt during the update.
 
 = 2.4.3 =
 * Improved: The crawler breakdown of the Most Crawled Pages table now groups its chips by crawler type, each carrying the category colour used elsewhere in the dashboard, so the categories cluster together instead of scattering. Within each category the chips keep their by-visits order.
@@ -425,8 +432,8 @@ For older changelog entries, please check the [changelog.txt](https://plugins.sv
 
 == Upgrade Notice ==
 
-= 2.4.4 =
-Refinements to how Markdown for agents and llms.txt choose what they publish, and to the summaries taken from an entry's body. Both files are rebuilt during the update, so your site picks up the change straight away.
+= 2.4.5 =
+Fixes a robots.txt problem: another plugin rewriting the file could duplicate VigIA's llms.txt block and leave a stray "Disallow: /" that blocked crawling of the whole site. Affected files are repaired during the update. Also fixes three issues in the Markdown for agents output.
 
 == Support ==
 

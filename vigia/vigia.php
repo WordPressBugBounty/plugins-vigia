@@ -3,7 +3,7 @@
  * Plugin Name: VigIA - AI Visibility, Analytics & Control
  * Plugin URI: https://servicios.ayudawp.com
  * Description: Monitor, control, and optimize how AI systems interact with your WordPress site. Track 60+ AI crawlers, manage access via robots.txt, and boost your AI visibility with llms.txt, JSON-LD, Markdown for Agents, and AI Visibility Score.
- * Version: 2.4.4
+ * Version: 2.4.5
  * Author: Fernando Tellado
  * Author URI: https://ayudawp.com
  * License: GPL v2 or later
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'VIGIA_VERSION', '2.4.4' );
+define( 'VIGIA_VERSION', '2.4.5' );
 define( 'VIGIA_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VIGIA_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'VIGIA_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -347,6 +347,12 @@ final class VigIA {
         if ( ! current_user_can( 'manage_options' ) ) {
             return;
         }
+
+        // Repair a physical robots.txt whose markers another plugin glued to the
+        // line above. It does not heal on its own: the glued marker used to be
+        // invisible to our cleanup, so the broken line stayed and every save
+        // appended one more copy of the block. No-op when there is nothing glued.
+        VigIA_Robots_Manager::repair_physical_robots();
 
         // A file on disk is the signal: the llms generator has no on/off flag of
         // its own, it either has written the files or it has not. Nothing to

@@ -29,6 +29,26 @@ class VigIA_Robots_Manager {
     const AI_RULES_MARKER = '# VigIA - AI Crawler Rules';
 
     /**
+     * Closing marker for the AI crawler rules section.
+     *
+     * Written since 2.4.5. Without it the only way to know where our block ended
+     * was to keep eating every line that looked like ours, which swallowed the
+     * rules of whichever plugin wrote right after us.
+     */
+    const AI_RULES_END_MARKER = '# End VigIA - AI Crawler Rules';
+
+    /**
+     * Marker for the llms.txt references section.
+     */
+    const LLMS_REFS_MARKER = '# VigIA LLMs';
+
+    /**
+     * Legacy markers for the llms.txt references section (pre 1.2.9).
+     */
+    const LLMS_LEGACY_START = '# VigIA LLMs.txt references';
+    const LLMS_LEGACY_END   = '# End VigIA LLMs.txt references';
+
+    /**
      * Initialize robots manager hooks
      */
     public static function init() {
@@ -63,25 +83,7 @@ class VigIA_Robots_Manager {
 
         // Add AI crawler rules section.
         if ( ! empty( $rules['disallow'] ) || ! empty( $rules['allow'] ) ) {
-            $ai_section = "\n" . self::AI_RULES_MARKER . "\n";
-
-            // Add disallow rules.
-            if ( ! empty( $rules['disallow'] ) ) {
-                foreach ( $rules['disallow'] as $crawler ) {
-                    $ai_section .= "User-agent: {$crawler}\n";
-                    $ai_section .= "Disallow: /\n\n";
-                }
-            }
-
-            // Add allow rules (explicit allow after global disallow).
-            if ( ! empty( $rules['allow'] ) ) {
-                foreach ( $rules['allow'] as $crawler ) {
-                    $ai_section .= "User-agent: {$crawler}\n";
-                    $ai_section .= "Allow: /\n\n";
-                }
-            }
-
-            $output .= $ai_section;
+            $output .= "\n" . self::build_ai_section( $rules );
         }
 
         // Add LLMs.txt references if enabled AND files exist.
@@ -106,22 +108,12 @@ class VigIA_Robots_Manager {
         $has_full_ref  = ! empty( $llms_settings['robots_llms_full'] ) && ! empty( $llms_settings['generate_full'] ) && file_exists( ABSPATH . 'llms-full.txt' );
 
         if ( $has_llms_ref || $has_full_ref ) {
-            $llms_section = "\n# VigIA LLMs\n";
-
-            if ( $has_llms_ref ) {
-                $llms_section .= 'LLMs: ' . home_url( '/llms.txt' ) . "\n";
-            }
-
-            if ( $has_full_ref ) {
-                $llms_section .= 'LLMs-full: ' . home_url( '/llms-full.txt' ) . "\n";
-            }
-
-            $output .= $llms_section;
+            $output .= "\n" . self::build_llms_section( $has_llms_ref, $has_full_ref );
         }
 
         // Normalize output: ensure it ends with exactly one newline
         // so plugins hooked after us don't merge with our content.
-        return rtrim( $output ) . "\n";
+        return self::normalize( $output );
     }
 
     /**
@@ -354,6 +346,11 @@ class VigIA_Robots_Manager {
             return new WP_Error( 'read_error', __( 'Could not read robots.txt file.', 'vigia' ) );
         }
 
+        // Repair markers glued to the line above before anything else, so a rule
+        // change also clears a broken llms marker this writer does not otherwise
+        // touch.
+        $content = self::repair_glued_markers( $content );
+
         // Remove existing VigIA AI Crawler Rules section.
         $content = self::remove_ai_rules_section( $content );
 
@@ -373,26 +370,12 @@ class VigIA_Robots_Manager {
 
         // Build new AI rules section if there are rules.
         if ( ! empty( $rules['disallow'] ) || ! empty( $rules['allow'] ) ) {
-            $ai_section = "\n" . self::AI_RULES_MARKER . "\n";
-
-            // Add disallow rules.
-            if ( ! empty( $rules['disallow'] ) ) {
-                foreach ( $rules['disallow'] as $crawler ) {
-                    $ai_section .= "User-agent: {$crawler}\n";
-                    $ai_section .= "Disallow: /\n\n";
-                }
-            }
-
-            // Add allow rules.
-            if ( ! empty( $rules['allow'] ) ) {
-                foreach ( $rules['allow'] as $crawler ) {
-                    $ai_section .= "User-agent: {$crawler}\n";
-                    $ai_section .= "Allow: /\n\n";
-                }
-            }
-
-            $content = rtrim( $content ) . "\n" . $ai_section;
+            $content = rtrim( $content ) . "\n\n" . self::build_ai_section( $rules );
         }
+
+        // Always leave exactly one newline at the end, including when there are
+        // no rules left and nothing was appended above.
+        $content = self::normalize( $content );
 
         // Write back using WP_Filesystem.
         global $wp_filesystem;
@@ -417,42 +400,253 @@ class VigIA_Robots_Manager {
     }
 
     /**
+     * Build the AI crawler rules block, opening and closing markers included.
+     *
+     * Single source for the virtual filter and the physical writer, so both
+     * always emit the closing marker that bounds the block.
+     *
+     * @param array $rules Rules array with 'disallow' and 'allow' keys.
+     * @return string Block ending in a single newline.
+     */
+    private static function build_ai_section( $rules ) {
+        $section = self::AI_RULES_MARKER . "\n";
+
+        if ( ! empty( $rules['disallow'] ) ) {
+            foreach ( $rules['disallow'] as $crawler ) {
+                $section .= "User-agent: {$crawler}\n";
+                $section .= "Disallow: /\n\n";
+            }
+        }
+
+        if ( ! empty( $rules['allow'] ) ) {
+            foreach ( $rules['allow'] as $crawler ) {
+                $section .= "User-agent: {$crawler}\n";
+                $section .= "Allow: /\n\n";
+            }
+        }
+
+        return $section . self::AI_RULES_END_MARKER . "\n";
+    }
+
+    /**
+     * Build the llms.txt references block.
+     *
+     * @param bool $add_llms      Include the llms.txt reference.
+     * @param bool $add_llms_full Include the llms-full.txt reference.
+     * @return string Block ending in a single newline.
+     */
+    private static function build_llms_section( $add_llms, $add_llms_full ) {
+        $section = self::LLMS_REFS_MARKER . "\n";
+
+        if ( $add_llms ) {
+            $section .= 'LLMs: ' . home_url( '/llms.txt' ) . "\n";
+        }
+
+        if ( $add_llms_full ) {
+            $section .= 'LLMs-full: ' . home_url( '/llms-full.txt' ) . "\n";
+        }
+
+        return $section;
+    }
+
+    /**
+     * Locate one of our markers in a line, tolerating a marker another plugin
+     * has glued to the end of the previous line.
+     *
+     * robots.txt is a shared file: several plugins rewrite it, and one of them
+     * removing its own block can join the line before it with the line after.
+     * Matching the marker with `===` meant a glued marker became invisible, so
+     * the block was never cleaned up and a fresh copy was appended on every
+     * regeneration. Reported on a live site in July 2026, where the join had
+     * produced `Disallow: /# VigIA LLMs` sitting inside the `User-agent: *`
+     * group, a site-wide Disallow nobody had written.
+     *
+     * @param string $line   Line to inspect.
+     * @param string $marker Marker to look for.
+     * @return string|false Text that preceded the marker (trimmed, '' when the
+     *                      marker was alone on the line), or false if not found.
+     */
+    private static function marker_prefix( $line, $marker ) {
+        $pattern = '/^(.*?)' . preg_quote( $marker, '/' ) . '\s*$/i';
+
+        if ( ! preg_match( $pattern, trim( (string) $line ), $matches ) ) {
+            return false;
+        }
+
+        return trim( $matches[1] );
+    }
+
+    /**
+     * Is this the tail of one of our own directives, glued in front of a marker?
+     *
+     * Our AI rules block emits nothing but `Disallow: /` and `Allow: /`, so a
+     * fragment like that in front of a marker is our own leftover and goes away
+     * with the block. Anything else belongs to another plugin and is preserved.
+     *
+     * @param string $prefix Text found in front of the marker.
+     * @return bool
+     */
+    private static function is_own_leftover( $prefix ) {
+        return (bool) preg_match( '#^(?:Disallow|Allow):\s*/?$#i', $prefix );
+    }
+
+    /**
+     * Leave the file with no leading blank lines, no runs of blank lines, and
+     * exactly one newline at the end.
+     *
+     * The trailing newline matters as much as the rest: writing a bare rtrim()
+     * is what lets the next plugin appending to robots.txt glue its first line
+     * onto our last one.
+     *
+     * @param string $content Robots.txt content.
+     * @return string
+     */
+    private static function normalize( $content ) {
+        $content = (string) preg_replace( "/\n{3,}/", "\n\n", (string) $content );
+
+        return rtrim( ltrim( $content, "\n" ) ) . "\n";
+    }
+
+    /**
+     * Put every marker another plugin glued to the line above back on its own
+     * line, without touching the blocks themselves.
+     *
+     * Runs first in both physical writers, so any write repairs the damage no
+     * matter which one it came through. The block-level cleanups are not enough
+     * on their own: sync_physical_robots() only strips the AI rules block, so a
+     * glued llms marker would survive a rule change untouched, and with it the
+     * orphaned `Disallow: /` that is the actual danger.
+     *
+     * @param string $content Robots.txt content.
+     * @return string
+     */
+    private static function repair_glued_markers( $content ) {
+        $markers   = array( self::LLMS_REFS_MARKER, self::AI_RULES_END_MARKER, self::AI_RULES_MARKER );
+        $new_lines = array();
+
+        foreach ( explode( "\n", (string) $content ) as $line ) {
+            foreach ( $markers as $marker ) {
+                $prefix = self::marker_prefix( $line, $marker );
+
+                if ( false === $prefix || '' === $prefix ) {
+                    continue;
+                }
+
+                // Our own leftover goes away with the block it came from; a third
+                // party's line is kept, on a line of its own.
+                if ( ! self::is_own_leftover( $prefix ) ) {
+                    $new_lines[] = $prefix;
+                }
+
+                $line = $marker;
+                break;
+            }
+
+            $new_lines[] = $line;
+        }
+
+        return implode( "\n", $new_lines );
+    }
+
+    /**
      * Remove AI rules section from robots.txt content
      *
      * @param string $content Robots.txt content.
      * @return string Content without AI rules section.
      */
     private static function remove_ai_rules_section( $content ) {
-        $lines     = explode( "\n", $content );
-        $new_lines = array();
+        $lines      = explode( "\n", $content );
+        $new_lines  = array();
         $in_section = false;
 
         foreach ( $lines as $line ) {
             $trimmed = trim( $line );
 
-            // Check if we're entering the AI rules section.
-            if ( $trimmed === self::AI_RULES_MARKER ) {
-                $in_section = true;
+            if ( ! $in_section ) {
+                $prefix = self::marker_prefix( $line, self::AI_RULES_MARKER );
+
+                if ( false !== $prefix ) {
+                    $in_section = true;
+
+                    // Keep whatever another plugin glued in front of our marker,
+                    // on its own line, unless it is our own leftover.
+                    if ( '' !== $prefix && ! self::is_own_leftover( $prefix ) ) {
+                        $new_lines[] = $prefix;
+                    }
+
+                    continue;
+                }
+
+                $new_lines[] = $line;
                 continue;
             }
 
-            // If in section, skip User-agent, Disallow, and Allow lines for our rules.
-            if ( $in_section ) {
-                // Check if this line is part of our section (User-agent, Disallow, Allow, or empty).
-                if ( empty( $trimmed ) ||
-                     preg_match( '/^User-agent:\s/i', $trimmed ) ||
-                     preg_match( '/^Disallow:\s*\/?\s*$/i', $trimmed ) ||
-                     preg_match( '/^Allow:\s*\/?\s*$/i', $trimmed ) ) {
-                    continue;
-                }
-                // If we hit something else, we've left our section.
+            // Inside our block. The closing marker ends it precisely.
+            if ( false !== self::marker_prefix( $line, self::AI_RULES_END_MARKER ) ) {
                 $in_section = false;
+                continue;
             }
 
+            // Files written before 2.4.5 carry no closing marker, so fall back to
+            // consuming only the shapes our own writer emits and stop at anything
+            // else, which is what keeps a neighbouring plugin's rules alive. The
+            // first sync after upgrading rewrites the block with its closing
+            // marker and this branch stops being needed.
+            if ( '' === $trimmed
+                || preg_match( '/^User-agent:\s/i', $trimmed )
+                || preg_match( '#^Disallow:\s*/?$#i', $trimmed )
+                || preg_match( '#^Allow:\s*/?$#i', $trimmed ) ) {
+                continue;
+            }
+
+            $in_section  = false;
             $new_lines[] = $line;
         }
 
-        return rtrim( implode( "\n", $new_lines ) );
+        return implode( "\n", $new_lines );
+    }
+
+    /**
+     * Remove the llms.txt references section from robots.txt content, in both
+     * the current and the legacy format, and repair a marker another plugin has
+     * glued to the previous line.
+     *
+     * @param string $content Robots.txt content.
+     * @return string Content without our llms.txt references.
+     */
+    private static function remove_llms_section( $content ) {
+        // Legacy start/end format. Replaced with a newline, never with an empty
+        // string: the trailing \s* eats the line breaks after the block, so an
+        // empty replacement would join the lines around it.
+        $pattern = '/' . preg_quote( self::LLMS_LEGACY_START, '/' ) . '.*?' . preg_quote( self::LLMS_LEGACY_END, '/' ) . '\s*/s';
+        $content = (string) preg_replace( $pattern, "\n", (string) $content );
+
+        $lines     = explode( "\n", $content );
+        $new_lines = array();
+        $skip      = false;
+
+        foreach ( $lines as $line ) {
+            $prefix = self::marker_prefix( $line, self::LLMS_REFS_MARKER );
+
+            if ( false !== $prefix ) {
+                $skip = true;
+
+                if ( '' !== $prefix && ! self::is_own_leftover( $prefix ) ) {
+                    $new_lines[] = $prefix;
+                }
+
+                continue;
+            }
+
+            if ( $skip && preg_match( '/^LLMs(-full)?:\s/i', trim( $line ) ) ) {
+                continue;
+            }
+
+            $skip        = false;
+            $new_lines[] = $line;
+        }
+
+        return implode( "\n", $new_lines );
     }
 
     /**
@@ -524,6 +718,69 @@ class VigIA_Robots_Manager {
     }
 
     /**
+     * Does the file carry one of our markers glued to the end of another line?
+     *
+     * @param string $content Robots.txt content.
+     * @return bool
+     */
+    private static function has_glued_marker( $content ) {
+        $markers = array( self::LLMS_REFS_MARKER, self::AI_RULES_MARKER, self::AI_RULES_END_MARKER );
+
+        foreach ( explode( "\n", (string) $content ) as $line ) {
+            foreach ( $markers as $marker ) {
+                $prefix = self::marker_prefix( $line, $marker );
+
+                if ( false !== $prefix && '' !== $prefix ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Repair a physical robots.txt whose markers were glued to the line above by
+     * another plugin's rewrite.
+     *
+     * A site already damaged does not heal on its own: until 2.4.5 the glued
+     * marker was invisible to the cleanup, so toggling the settings only ever
+     * appended one more copy of the block while the broken line stayed put, and
+     * with it a `Disallow: /` orphaned inside whatever User-agent group preceded
+     * it. Called once per update from the version upgrade routine.
+     *
+     * Both writers strip every copy of their own block through the tolerant
+     * removal, which is what repairs the glued line, and then re-emit a single
+     * one from current settings, so calling them is the repair.
+     *
+     * @return bool True when the file needed repairing and was rewritten.
+     */
+    public static function repair_physical_robots() {
+        if ( ! self::has_physical_robots() ) {
+            return false;
+        }
+
+        $content = self::get_physical_robots_content();
+
+        // Idempotency guard: nothing glued means nothing to fix, so an updated
+        // site never rewrites a robots.txt that was already fine.
+        if ( '' === $content || ! self::has_glued_marker( $content ) ) {
+            return false;
+        }
+
+        self::sync_physical_robots();
+
+        $llms_settings = class_exists( 'VigIA_LLMS_Generator' ) ? VigIA_LLMS_Generator::get_settings() : array();
+
+        self::update_physical_robots_llms(
+            ! empty( $llms_settings['robots_llms'] ),
+            ! empty( $llms_settings['robots_llms_full'] ) && ! empty( $llms_settings['generate_full'] )
+        );
+
+        return true;
+    }
+
+    /**
      * Check if physical robots.txt file exists
      *
      * @return bool
@@ -584,34 +841,9 @@ class VigIA_Robots_Manager {
             return new WP_Error( 'read_error', __( 'Could not read robots.txt file.', 'vigia' ) );
         }
 
-        // Markers for our section (current and legacy).
-        $start_marker        = '# VigIA LLMs';
-        $legacy_start_marker = '# VigIA LLMs.txt references';
-        $legacy_end_marker   = '# End VigIA LLMs.txt references';
-
-        // First, remove legacy format with start/end markers.
-        $pattern = '/' . preg_quote( $legacy_start_marker, '/' ) . '.*?' . preg_quote( $legacy_end_marker, '/' ) . '\s*/s';
-        $content = preg_replace( $pattern, '', $content );
-
-        // Remove current format (marker line + following LLMs lines).
-        $lines     = explode( "\n", $content );
-        $new_lines = array();
-        $skip      = false;
-
-        foreach ( $lines as $line ) {
-            $trimmed = trim( $line );
-            if ( $trimmed === $start_marker ) {
-                $skip = true;
-                continue;
-            }
-            if ( $skip && preg_match( '/^LLMs(-full)?:\s/i', $trimmed ) ) {
-                continue;
-            }
-            $skip        = false;
-            $new_lines[] = $line;
-        }
-
-        $content = rtrim( implode( "\n", $new_lines ) );
+        // Remove our section in both formats, repairing a marker another plugin
+        // has glued to the previous line.
+        $content = rtrim( self::remove_llms_section( self::repair_glued_markers( $content ) ) );
 
         // Only add references if files actually exist.
         $add_llms      = $add_llms && file_exists( ABSPATH . 'llms.txt' );
@@ -619,18 +851,12 @@ class VigIA_Robots_Manager {
 
         // Build new section if needed.
         if ( $add_llms || $add_llms_full ) {
-            $llms_section = "\n\n{$start_marker}\n";
-
-            if ( $add_llms ) {
-                $llms_section .= 'LLMs: ' . home_url( '/llms.txt' ) . "\n";
-            }
-
-            if ( $add_llms_full ) {
-                $llms_section .= 'LLMs-full: ' . home_url( '/llms-full.txt' ) . "\n";
-            }
-
-            $content .= $llms_section;
+            $content .= "\n\n" . self::build_llms_section( $add_llms, $add_llms_full );
         }
+
+        // Always leave exactly one newline at the end, including when both
+        // references are off and nothing was appended above.
+        $content = self::normalize( $content );
 
         // Write back using WP_Filesystem.
         global $wp_filesystem;
