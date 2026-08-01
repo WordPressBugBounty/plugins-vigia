@@ -301,6 +301,7 @@ window.VigiaPaginator = (function($) {
         // Settings handlers
         $('#vigia-save-settings').on('click', saveSettings);
         $('#vigia-delete-all-data').on('click', deleteAllData);
+        $('#vigia-optimize-indexes').on('click', optimizeIndexes);
 
         // Custom crawlers handlers
         $('#vigia-add-custom-crawler').on('click', addCustomCrawler);
@@ -484,6 +485,58 @@ window.VigiaPaginator = (function($) {
                 showNotice(vigiaData.strings.error, 'error');
             },
             complete: function() {
+                $button.prop('disabled', false).text(originalText);
+            }
+        });
+    }
+
+    /**
+     * Build the analytics indexes on demand via AJAX.
+     *
+     * The background job normally handles this, but sites with WP-Cron
+     * disabled would never get it, so the button stays available until the
+     * indexes are confirmed in place.
+     *
+     * All feedback is written next to the button. This control sits at the
+     * bottom of a very long page, so an admin notice at the top is thousands
+     * of pixels away from where the user is looking — from there, a working
+     * button is indistinguishable from a dead one.
+     */
+    function optimizeIndexes() {
+        var $button = $('#vigia-optimize-indexes');
+        var $status = $('#vigia-optimize-indexes-status');
+        var originalText = $button.text();
+
+        function setState(cssClass, icon, message) {
+            $status
+                .removeClass('is-working is-done is-error')
+                .addClass(cssClass)
+                .html(icon ? '<span class="dashicons ' + icon + '"></span>' : '')
+                .append(document.createTextNode(message));
+        }
+
+        $button.prop('disabled', true).text(vigiaData.strings.loading);
+        setState('is-working', 'dashicons-update', vigiaData.strings.optimizeRunning);
+
+        $.ajax({
+            url: vigiaData.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'vigia_optimize_indexes',
+                nonce: vigiaData.ajaxNonce
+            },
+            success: function(response) {
+                var payload = response.data || {};
+                if (response.success) {
+                    setState('is-done', 'dashicons-yes-alt', payload.message);
+                    $button.remove();
+                    return;
+                }
+                setState('is-error', 'dashicons-warning', payload.message || vigiaData.strings.error);
+                $button.prop('disabled', false).text(originalText);
+            },
+            error: function() {
+                setState('is-error', 'dashicons-warning', vigiaData.strings.optimizeFailed);
                 $button.prop('disabled', false).text(originalText);
             }
         });
@@ -1171,11 +1224,34 @@ window.VigiaPaginator = (function($) {
         fetchRecentPage(recentFilters, page);
     }
 
+    /**
+     * Store the pagination state coming back with a page of results.
+     *
+     * @param {Object} data Response payload (or a cached copy of one).
+     * @param {number} page Page that was requested.
+     */
+    function setRecentPagination(data, page) {
+        recentPagination = {
+            page: data.page || page || 1,
+            per_page: data.per_page || recentPagination.per_page,
+            total: data.total || 0,
+            total_pages: data.total_pages || 0
+        };
+    }
+
     function fetchRecentPage(filters, page) {
         var $tbody = $('#vigia-recent-table tbody');
         var cacheKey = filtersCacheKey(filters, page);
 
         if (recentPageCache[cacheKey]) {
+            // The cached branch used to render the rows without touching
+            // recentPagination, so the pager kept showing the page number of
+            // whatever was loaded last from the server. Going forward looked
+            // fine because each new page had to be fetched; going back served
+            // a cached page and left the counter stranded — and since the
+            // prev/next buttons work off that counter, the numbering stopped
+            // following the table.
+            setRecentPagination(recentPageCache[cacheKey], page);
             renderRecentTable(recentPageCache[cacheKey]);
             return;
         }
@@ -1192,12 +1268,7 @@ window.VigiaPaginator = (function($) {
                 data = { items: data, total: data.length, page: 1, per_page: data.length, total_pages: 1 };
             }
 
-            recentPagination = {
-                page: data.page || 1,
-                per_page: data.per_page || recentPagination.per_page,
-                total: data.total || 0,
-                total_pages: data.total_pages || 0
-            };
+            setRecentPagination(data, page);
 
             // Cache up to 3 page snapshots; drop oldest first.
             var keys = Object.keys(recentPageCache);

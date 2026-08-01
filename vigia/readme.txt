@@ -4,7 +4,7 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.9
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 2.4.5
+Stable tag: 2.5.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -396,44 +396,24 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
-= 2.4.5 =
-* Fix: The llms.txt references in robots.txt could end up duplicated, with a stray "Disallow: /" left in front of the old block, when another plugin rewrote the file and joined two of its lines. Because that leftover sits inside whichever User-agent group precedes it, it could tell every crawler to stay away from the whole site. VigIA now recognises its own markers even when another plugin has glued them to the line above, and repairs an affected robots.txt during the update.
-* Fix: robots.txt is now always left with a single newline at the end, so the next plugin that appends to it starts on its own line instead of running into VigIA's last one.
-* Fix: The AI crawler rules block is now closed with an end marker. Without it, rules another plugin wrote immediately after the block could be removed along with it.
-* Fix: An empty themed icon, such as the ones many themes and page builders emit, no longer leaves a stray ** or * in the middle of a sentence in the Markdown for agents output.
-* Fix: Bracketed prose such as [sic] or a [1] footnote is no longer mistaken for a leftover shortcode and deleted from the Markdown output. Tags left behind by a page builder are still removed.
-* Fix: The description in the Markdown frontmatter no longer runs words together on tables and lists, now decodes typographic punctuation instead of showing it as entities, and no longer comes out empty on long accented text.
-
-= 2.4.4 =
-* Improved: The content type pickers for Markdown for agents and llms.txt now offer only the types these files can actually serve. Types with no address of their own on the front end are gone from the list, and so are the course and membership types whose own plugin decides who may read them, with a note on screen explaining why.
-* Improved: A new `vigia_content_is_public` filter lets a plugin or theme decide, per entry, whether it may appear on these files at all.
-* Fix: Markdown for agents and llms.txt could serve content that a course or membership plugin keeps behind its gate. Both rebuild an entry's content outside the normal template, where the access rules those plugins enforce in their own templates never run, so an anonymous visitor could read through the .md file what the HTML page withheld. Entries are now checked against the access rules before they are published on any of these surfaces, and the content types whose plugin decides who may read them are withheld unless you opt them in. Your llms.txt and llms-full.txt are rebuilt during the update.
-
-= 2.4.3 =
-* Improved: The crawler breakdown of the Most Crawled Pages table now groups its chips by crawler type, each carrying the category colour used elsewhere in the dashboard, so the categories cluster together instead of scattering. Within each category the chips keep their by-visits order.
-* Fix: A static front page now advertises its Markdown version. Its permalink is the site home, so there was no path left to suffix with .md and neither the <link rel="alternate"> tag nor the Link header were emitted; both now point to the page slug endpoint, which was already serving that markdown.
-* Fix: The page assigned as the Posts page in Settings > Reading no longer serves markdown. WordPress renders the blog loop there instead of the page content, so its .md endpoint returned something the site never displays, and on most installs it was empty.
-
-= 2.4.2 =
-* Improved: When Visibility manages the robots.txt rules for AI crawlers, the Disallow & Blocking tab no longer shows the inert Add rule form and Remove buttons: the rules list is read-only while the compliance monitor and the PHP (403) blocking stay fully active.
-* Fix: The "Markdown for Agents" pointer in the AI Discovery JSON-LD now declares its URL pattern as an EntryPoint urlTemplate (with text/markdown contentType) instead of a plain target string, so crawlers no longer fetch the literal {slug}.md placeholder and Google Search Console stops reporting it as a 404.
-
-= 2.4.1 =
-* Improved: The Visibility recommendation now shows across the three Extras tabs (LLMs.txt, Markdown and JSON-LD) and the AI Visibility analyzer whenever Visibility is not active, with broader SEO plugin detection and clearer copy about the traffic and authority you gain. The call to action is now an inline link instead of an intrusive button.
-* Improved: The Monitored AI crawlers list is now grouped by crawler type, so the coloured category badges cluster together instead of scattering across the grid. The analytics tables (top crawlers, recent activity) keep their by-visits order.
-* Fix: The analyzer no longer offers to install NoIndexer or Native Sitemap Customizer, which are no longer in the WordPress.org directory (their install modal opened empty).
-
-= 2.4.0 =
-* Improved: With Visibility active, VigIA's overlapping Extras tabs (LLMs.txt, Markdown and JSON-LD) are dimmed and their controls disabled, with a pointer to Visibility where you configure them, so the same signal is never edited in two places. They are never removed: a site without Visibility sees them in full. The Disallow & Blocking tab stays active because its compliance monitor and 403 blocking remain VigIA's.
-* Improved: The robots.txt rules for AI now read from Visibility when it owns them. VigIA's compliance monitor and 403 escalation check against the crawlers Visibility disallows, and VigIA's own rule editor turns read-only while ceded, so the two never disagree on which bots should be blocked.
-* Improved: Each signal tab and the recommendations now point to Visibility, the sibling SEO and AI plugin that pairs natively with VigIA, instead of competing SEO plugins. You get a complementarity note when both are active, and a clear reason to switch (lightweight and native, no bloat) when another SEO plugin is running without Visibility.
+= 2.5.0 =
+* New: A "Database optimization" control in Data settings creates the indexes the statistics tables need. VigIA adds them by itself in the background shortly after updating; the button is there for sites where WP-Cron is disabled or barely runs, and it reports when the work is done. You can close the page while it runs, it finishes on its own.
+* Improved: The analytics screens no longer bog down on sites with a long history. The most crawled pages and top crawlers tables were resolving the per-row details for every page in the range instead of the ten on screen, and the pages endpoint re-derived the content type of up to 2000 old rows on every single load. On a test site with 610,000 recorded visits, the whole dashboard went from 16.4 seconds to 1.4 for a year of data, and from 17.1 to 3.6 for the full history.
+* Improved: Date ranges longer than 60 days are now computed ahead of time in the background and served ready-made, so the long views open instantly. Shorter ranges are never cached: what you see for today or the last 30 days is always live.
+* Improved: Exporting activity to CSV is far lighter. A week of activity used to run more than 15,000 database queries and now runs 12.
+* Improved: Visits still waiting for their content type are filled in by a background task that drains them steadily, instead of on whichever page load happened to run into them.
+* Fix: Paging backwards through Recent activity left the numbering stuck on the last page loaded from the server, because pages served from the browser's own cache did not update it. The rows changed but the counter did not follow.
+* Fix: Rows could show up twice, or not at all, when paging through the activity table, the most crawled pages or the top crawlers. Entries that tied on the sort column had no defined order, so they could change places between one page and the next. The same applies to a CSV export, which is paged the same way.
+* Fix: The analytics tables were unreadable on a phone: they were squeezed into the available width until words broke one letter per line. They now keep readable columns and scroll sideways within their box.
+* Fix: The spinner on the export button never spun and sat misaligned with the label.
+* Fix: CSV exports now write every recorded value as plain text, so spreadsheet software never interprets the contents of a cell.
 
 For older changelog entries, please check the [changelog.txt](https://plugins.svn.wordpress.org/vigia/trunk/changelog.txt) file
 
 == Upgrade Notice ==
 
-= 2.4.5 =
-Fixes a robots.txt problem: another plugin rewriting the file could duplicate VigIA's llms.txt block and leave a stray "Disallow: /" that blocked crawling of the whole site. Affected files are repaired during the update. Also fixes three issues in the Markdown for agents output.
+= 2.5.0 =
+Makes the analytics usable on sites with a long history: a year of data went from 16 seconds to under 1.5 in testing, and CSV exports from over 15,000 database queries to 12. VigIA adds the needed indexes in the background after updating.
 
 == Support ==
 

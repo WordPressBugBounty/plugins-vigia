@@ -3,6 +3,18 @@ VigIA — Full changelog
 For each release, see the entries below. The latest version is always at the top.
 The current release notes also live in readme.txt under "== Changelog ==".
 
+= 2.5.0 =
+* New: A "Database optimization" control in Data settings creates the indexes the statistics tables need. VigIA adds them by itself in the background shortly after updating; the button is there for sites where WP-Cron is disabled or barely runs, and it reports when the work is done. You can close the page while it runs, it finishes on its own.
+* Improved: The analytics screens no longer bog down on sites with a long history. The most crawled pages and top crawlers tables were resolving the per-row details for every page in the range instead of the ten on screen, and the pages endpoint re-derived the content type of up to 2000 old rows on every single load. On a test site with 610,000 recorded visits, the whole dashboard went from 16.4 seconds to 1.4 for a year of data, and from 17.1 to 3.6 for the full history.
+* Improved: Date ranges longer than 60 days are now computed ahead of time in the background and served ready-made, so the long views open instantly. Shorter ranges are never cached: what you see for today or the last 30 days is always live.
+* Improved: Exporting activity to CSV is far lighter. A week of activity used to run more than 15,000 database queries and now runs 12.
+* Improved: Visits still waiting for their content type are filled in by a background task that drains them steadily, instead of on whichever page load happened to run into them.
+* Fix: Paging backwards through Recent activity left the numbering stuck on the last page loaded from the server, because pages served from the browser's own cache did not update it. The rows changed but the counter did not follow.
+* Fix: Rows could show up twice, or not at all, when paging through the activity table, the most crawled pages or the top crawlers. Entries that tied on the sort column had no defined order, so they could change places between one page and the next. The same applies to a CSV export, which is paged the same way.
+* Fix: The analytics tables were unreadable on a phone: they were squeezed into the available width until words broke one letter per line. They now keep readable columns and scroll sideways within their box.
+* Fix: The spinner on the export button never spun and sat misaligned with the label.
+* Fix: CSV exports now write every recorded value as plain text, so spreadsheet software never interprets the contents of a cell.
+
 = 2.4.5 =
 * Fix: The llms.txt references in robots.txt could end up duplicated, with a stray "Disallow: /" left in front of the old block, when another plugin rewrote the file and joined two of its lines. Because that leftover sits inside whichever User-agent group precedes it, it could tell every crawler to stay away from the whole site. VigIA now recognises its own markers even when another plugin has glued them to the line above, and repairs an affected robots.txt during the update.
 * Fix: robots.txt is now always left with a single newline at the end, so the next plugin that appends to it starts on its own line instead of running into VigIA's last one.

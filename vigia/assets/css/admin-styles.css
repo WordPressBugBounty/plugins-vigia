@@ -919,7 +919,13 @@
 .vigia-settings-row {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
+    /*
+     * Top-aligned, not centred: the controls in a row have different heights
+     * (a select with one line of help text next to a button with three), and
+     * centring them staggers the labels so no two headings start at the same
+     * height.
+     */
+    align-items: flex-start;
     gap: 30px;
 }
 
@@ -953,6 +959,9 @@
     align-items: center;
     gap: 10px;
     margin-left: auto;
+    /* The row is top-aligned, but these sit next to a checkbox, not under a
+       label, so they line up with it rather than with the labels above. */
+    align-self: center;
 }
 
 .vigia-setting-buttons .button-link-delete {
@@ -961,6 +970,122 @@
 
 .vigia-setting-buttons .button-link-delete:hover {
     color: #a00;
+}
+
+/*
+ * Line break inside the settings row.
+ *
+ * Keeps the two data controls (retention and optimization) together on the
+ * first line and pushes what follows onto its own, which survives the wrap
+ * into a single column on narrow screens.
+ */
+.vigia-settings-break {
+    flex-basis: 100%;
+    height: 0;
+    margin: 0;
+}
+
+/*
+ * Database optimization control.
+ *
+ * .vigia-setting is a column flexbox, so a button inside it stretches to the
+ * width of the whole column by default; align-self below keeps it at its
+ * natural size.
+ *
+ * The width is capped rather than left to the content: without a cap the
+ * explanatory line would stretch the column across the whole row. 480px is
+ * where every state fits in two lines with room to spare for translations —
+ * the Spanish strings are about 20% longer than the English ones and still
+ * wrap at two — while leaving the row wide enough for the retention control
+ * beside it.
+ */
+.vigia-setting-optimize {
+    max-width: 480px;
+}
+
+.vigia-setting-optimize .button {
+    align-self: flex-start;
+    color: var(--vigia-brand);
+    border-color: var(--vigia-brand);
+}
+
+.vigia-setting-optimize .button:hover,
+.vigia-setting-optimize .button:focus {
+    color: var(--vigia-brand-hover);
+    border-color: var(--vigia-brand-hover);
+    background: var(--vigia-brand-light);
+}
+
+.vigia-setting-optimize .button:focus {
+    box-shadow: 0 0 0 1px var(--vigia-brand-hover);
+    outline: 2px solid transparent;
+}
+
+.vigia-setting-optimize .button:disabled,
+.vigia-setting-optimize .button[disabled] {
+    color: var(--vigia-brand) !important;
+    border-color: var(--vigia-brand) !important;
+    background: var(--vigia-brand-light) !important;
+    opacity: 0.7;
+}
+
+.vigia-optimize-state {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+    font-size: 12px;
+    color: #646970;
+}
+
+.vigia-optimize-state .dashicons {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+.vigia-optimize-state.is-working {
+    color: #1d2327;
+}
+
+.vigia-optimize-state.is-done {
+    color: var(--vigia-brand);
+}
+
+.vigia-optimize-state.is-error {
+    color: #b32d2e;
+}
+
+/*
+ * Spinning dashicon for buttons that are working.
+ *
+ * The markup already used class="dashicons dashicons-update spin", but no rule
+ * defined it: the icon sat on the text baseline, misaligned and motionless.
+ */
+.vigia-wrap .button .dashicons.spin,
+.vigia-wrap .button .dashicons {
+    vertical-align: middle;
+    margin-top: -2px;
+    margin-right: 2px;
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    line-height: 1;
+}
+
+.vigia-wrap .button .dashicons.spin {
+    animation: vigia-spin 1.2s linear infinite;
+}
+
+@keyframes vigia-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .vigia-wrap .button .dashicons.spin {
+        animation: none;
+    }
 }
 
 /* Collapsible sections */
@@ -1329,6 +1454,37 @@
         margin-left: 0;
         width: 100%;
         justify-content: flex-start;
+    }
+
+    /*
+     * Tables scroll sideways instead of being crushed.
+     *
+     * These are wp-list-table "fixed" tables, so table-layout: fixed forces
+     * them into whatever width is available and squeezes the columns until
+     * words break one letter per line — the overflow-x further up never kicks
+     * in because the table never actually overflows. Giving the table a
+     * minimum width lets it overflow on purpose, so the container scrolls and
+     * every cell stays readable.
+     */
+    .vigia-table-container,
+    .vigia-recent-activity {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .vigia-table-container table,
+    .vigia-recent-activity table {
+        /* wp-list-table sets table-layout: fixed, which splits the width
+           evenly and ignores what is actually in each column. Letting the
+           browser size them means the long values (paths, dates) get the room
+           and the short ones (status, counts) stop hogging it. */
+        table-layout: auto;
+        min-width: 620px;
+    }
+
+    /* The activity table carries the most columns, so it needs more room. */
+    #vigia-recent-table {
+        min-width: 860px;
     }
 }
 

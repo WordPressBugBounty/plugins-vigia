@@ -61,6 +61,7 @@ class VigIA_Admin_Page {
         $crawlers_collapsed  = ! empty( $settings['crawlers_box_collapsed'] );
         $blocked_crawlers    = VigIA_Blocker::get_blocked_crawlers();
         $robots_rules        = VigIA_Robots_Manager::get_ai_rules();
+        $index_status        = VigIA_Database::get_index_status();
 
         // Get blocked crawler names for quick lookup.
         $blocked_names = array_column( $blocked_crawlers, 'name' );
@@ -490,6 +491,30 @@ class VigIA_Admin_Page {
                         </select>
                         <span class="description"><?php echo esc_html__( 'Older data will be automatically deleted daily.', 'vigia' ); ?></span>
                     </div>
+                    <div class="vigia-setting vigia-setting-optimize">
+                        <label><?php echo esc_html__( 'Database optimization:', 'vigia' ); ?></label>
+                        <?php if ( $index_status['ready'] ) : ?>
+                            <span class="vigia-optimize-state is-done" id="vigia-optimize-indexes-status">
+                                <span class="dashicons dashicons-yes-alt"></span>
+                                <?php echo esc_html__( 'Done. The statistics tables are using the indexes that keep long date ranges fast.', 'vigia' ); ?>
+                            </span>
+                        <?php else : ?>
+                            <button type="button" id="vigia-optimize-indexes" class="button">
+                                <?php echo esc_html__( 'Optimize now', 'vigia' ); ?>
+                            </button>
+                            <span class="vigia-optimize-state" id="vigia-optimize-indexes-status">
+                                <?php
+                                echo esc_html(
+                                    $index_status['scheduled']
+                                        ? __( 'Pending. VigIA will add the indexes that speed up the statistics tables on its next scheduled run. You can run it now instead.', 'vigia' )
+                                        : __( 'The indexes that speed up the statistics tables are not in place yet. Running this makes long date ranges load much faster.', 'vigia' )
+                                );
+                                ?>
+                            </span>
+                        <?php endif; ?>
+                    </div>
+                    <?php // Forces the next settings onto their own row: the two data controls above belong together. ?>
+                    <div class="vigia-settings-break"></div>
                     <div class="vigia-setting">
                         <label>
                             <input type="checkbox" id="vigia-delete-on-uninstall" <?php checked( $settings['delete_on_uninstall'] ); ?>>

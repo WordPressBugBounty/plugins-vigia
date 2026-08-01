@@ -326,7 +326,10 @@ class VigIA_Rest_API {
         return array(
             'limit'  => array(
                 'type'              => 'integer',
-                'default'           => 10,
+                // Shared with the cache warm-up, which has to precompute the
+                // exact page the dashboard will request or the user waits for
+                // it anyway.
+                'default'           => VigIA_Database::DASHBOARD_PAGE_SIZE,
                 'sanitize_callback' => 'absint',
                 'validate_callback' => function ( $param ) {
                     return $param >= 1 && $param <= 100;
@@ -401,6 +404,11 @@ class VigIA_Rest_API {
      * @return WP_REST_Response
      */
     public static function get_stats( $request ) {
+        // Every dashboard load hits this endpoint first, so it is the natural
+        // place to record that the statistics screens are in use and the
+        // long-range cache is worth keeping warm.
+        VigIA_Database::mark_dashboard_in_use();
+
         $range = self::get_date_range_from_request( $request );
         $stats = VigIA_Database::get_stats( $range['start'], $range['end'] );
 
@@ -534,14 +542,25 @@ class VigIA_Rest_API {
      * @return WP_REST_Response
      */
     public static function get_timeline( $request ) {
-        $range     = self::get_date_range_from_request( $request );
-        $timeline  = VigIA_Database::get_visits_over_time( $range['start'], $range['end'] );
+        $range = self::get_date_range_from_request( $request );
+
+        // The per-day, per-crawler breakdown already contains the daily totals,
+        // so the timeline is a sum over it rather than a second pass over the
+        // same rows. On a long range that second scan cost as much as the first.
         $breakdown = VigIA_Database::get_daily_crawler_breakdown( $range['start'], $range['end'] );
 
-        // Merge breakdown into timeline data
-        foreach ( $timeline as &$day ) {
-            $date              = $day['date'];
-            $day['crawlers']   = isset( $breakdown[ $date ] ) ? $breakdown[ $date ] : array();
+        $timeline = array();
+        foreach ( $breakdown as $date => $crawlers ) {
+            $total = 0;
+            foreach ( $crawlers as $crawler ) {
+                $total += (int) $crawler['count'];
+            }
+
+            $timeline[] = array(
+                'date'        => $date,
+                'visit_count' => $total,
+                'crawlers'    => $crawlers,
+            );
         }
 
         return rest_ensure_response( $timeline );
@@ -615,10 +634,12 @@ class VigIA_Rest_API {
         $limit  = $request->get_param( 'limit' );
         $offset = $request->get_param( 'offset' );
 
-        // Fill any pre-2.0.0 rows in range so the dominant content_type column
-        // is accurate on first view instead of showing "Other" until the hourly
-        // backfill cron drains them (same intent as the recent-activity filter).
-        VigIA_Database::backfill_content_types_in_range( $range['start'], $range['end'], 2000 );
+        // No backfill here. Filling pre-2.0.0 rows used to run on every load of
+        // this endpoint — up to 2000 rows, each potentially costing a
+        // url_to_postid() plus two more lookups — which by itself put this
+        // request into timeout territory on a site with real history. The
+        // dominant content_type of the paths actually shown is resolved in
+        // get_top_pages(); the rest of the table is drained by cron.
 
         // Previous period for the per-page trend arrow. Skipped for "all time"
         // (days = 0), where there is no comparable previous window — those rows
@@ -843,9 +864,15 @@ class VigIA_Rest_API {
         );
 
         foreach ( $data as $row ) {
-            $type = isset( $row['content_type'] ) && '' !== $row['content_type']
-                ? $row['content_type']
-                : VigIA_Database::detect_content_type( $row['request_path'] );
+            // A dash, not "Other", for rows the backfill cron has not
+            // classified yet: "Other" is a real answer (a URL that exists and
+            // fits no category) and using it for "not known yet" would make
+            // the two indistinguishable in the file. Resolving them here
+            // instead would put a database lookup behind every one of them,
+            // which on a long export is thousands of queries for a column the
+            // cron is already filling in the background.
+            $type       = isset( $row['content_type'] ) ? (string) $row['content_type'] : '';
+            $type_label = '' === $type ? '-' : ( isset( $type_labels[ $type ] ) ? $type_labels[ $type ] : $type );
 
             $csv_lines[] = array(
                 $row['crawler_name'],
@@ -853,7 +880,7 @@ class VigIA_Rest_API {
                 $row['request_path'],
                 $row['ip_address'],
                 $row['http_status'],
-                isset( $type_labels[ $type ] ) ? $type_labels[ $type ] : $type,
+                $type_label,
                 $row['visit_date'],
             );
         }
@@ -947,9 +974,38 @@ class VigIA_Rest_API {
     private static function csv_lines_to_string( $lines ) {
         $out = '';
         foreach ( $lines as $line ) {
-            $out .= '"' . implode( '","', array_map( 'esc_attr', $line ) ) . '"' . "\n";
+            $out .= '"' . implode( '","', array_map( array( __CLASS__, 'csv_cell' ), $line ) ) . '"' . "\n";
         }
         return $out;
+    }
+
+    /**
+     * Prepare a single value for a CSV cell.
+     *
+     * Spreadsheets treat a cell starting with =, +, - or @ as a formula, so a
+     * value that came from outside can end up being executed when the file is
+     * opened. Crawled paths are exactly that: a bot chooses the URL it
+     * requests, VigIA records it, and it later lands in this file — a request
+     * for /=cmd|... would be a live formula in the admin's spreadsheet. A
+     * leading apostrophe is the standard defence: spreadsheets read the rest as
+     * text and do not display it.
+     *
+     * @since 2.5.0
+     * @param mixed $value Cell value.
+     * @return string Escaped value, safe to place inside quotes.
+     */
+    private static function csv_cell( $value ) {
+        // The apostrophe goes on *after* escaping, so it reaches the file as a
+        // real apostrophe. Spreadsheets read that as "the rest is text" and do
+        // not display it; escaping it first would turn it into &#039; and leave
+        // a visible mess in the cell.
+        $value = esc_attr( (string) $value );
+
+        if ( '' !== $value && preg_match( '/^[=+\-@\t\r]/', $value ) ) {
+            $value = "'" . $value;
+        }
+
+        return $value;
     }
 
     /**

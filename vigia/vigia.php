@@ -3,7 +3,7 @@
  * Plugin Name: VigIA - AI Visibility, Analytics & Control
  * Plugin URI: https://servicios.ayudawp.com
  * Description: Monitor, control, and optimize how AI systems interact with your WordPress site. Track 60+ AI crawlers, manage access via robots.txt, and boost your AI visibility with llms.txt, JSON-LD, Markdown for Agents, and AI Visibility Score.
- * Version: 2.4.5
+ * Version: 2.5.0
  * Author: Fernando Tellado
  * Author URI: https://ayudawp.com
  * License: GPL v2 or later
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'VIGIA_VERSION', '2.4.5' );
+define( 'VIGIA_VERSION', '2.5.0' );
 define( 'VIGIA_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VIGIA_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'VIGIA_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -172,6 +172,9 @@ final class VigIA {
         add_action( 'vigia_send_email_alerts', array( 'VigIA_Email_Alerts', 'send_scheduled_alerts' ) );
         add_action( 'vigia_llms_regenerate', array( 'VigIA_LLMS_Generator', 'cron_regenerate' ) );
         add_action( 'vigia_backfill_content_type', array( $this, 'run_content_type_backfill' ) );
+        add_action( 'vigia_optimize_indexes', array( $this, 'run_index_optimization' ) );
+        add_action( 'vigia_warm_stats_cache', array( 'VigIA_Database', 'warm_stats_cache' ) );
+        add_action( 'vigia_warm_stats_cache_now', array( 'VigIA_Database', 'warm_stats_cache' ) );
 
         // Run schema migrations on every admin request — idempotent, only
         // touches dbDelta when DB_VERSION is newer than the stored version.
@@ -205,6 +208,7 @@ final class VigIA {
         // Settings.
         add_action( 'wp_ajax_vigia_save_settings', array( $this, 'ajax_save_settings' ) );
         add_action( 'wp_ajax_vigia_delete_all_data', array( $this, 'ajax_delete_all_data' ) );
+        add_action( 'wp_ajax_vigia_optimize_indexes', array( $this, 'ajax_optimize_indexes' ) );
         add_action( 'wp_ajax_vigia_add_custom_crawler', array( $this, 'ajax_add_custom_crawler' ) );
         add_action( 'wp_ajax_vigia_remove_custom_crawler', array( $this, 'ajax_remove_custom_crawler' ) );
         add_action( 'wp_ajax_vigia_toggle_crawlers_box', array( $this, 'ajax_toggle_crawlers_box' ) );
@@ -271,6 +275,15 @@ final class VigIA {
             wp_schedule_event( time() + 60, 'hourly', 'vigia_backfill_content_type' );
         }
 
+        // Bring an existing table up to the composite indexes, in the
+        // background. A fresh install already has them from create_tables().
+        VigIA_Database::schedule_index_optimization();
+
+        // Keep the long date ranges warm so nobody waits for them.
+        if ( ! wp_next_scheduled( 'vigia_warm_stats_cache' ) ) {
+            wp_schedule_event( time() + ( 5 * MINUTE_IN_SECONDS ), 'hourly', 'vigia_warm_stats_cache' );
+        }
+
         // Schedule email alerts if enabled.
         VigIA_Email_Alerts::schedule_alerts();
     }
@@ -283,17 +296,50 @@ final class VigIA {
         wp_clear_scheduled_hook( 'vigia_send_email_alerts' );
         wp_clear_scheduled_hook( 'vigia_llms_regenerate' );
         wp_clear_scheduled_hook( 'vigia_backfill_content_type' );
+        wp_clear_scheduled_hook( 'vigia_optimize_indexes' );
+        wp_clear_scheduled_hook( 'vigia_warm_stats_cache' );
+        wp_clear_scheduled_hook( 'vigia_warm_stats_cache_now' );
     }
 
     /**
      * Cron handler for the content_type backfill queue.
      *
-     * Processes a fixed-size batch each tick. When the underlying table is
-     * fully populated, the call returns 0 rows and the cron stays scheduled
-     * but cheap (a single COUNT lookup).
+     * Drains in batches and re-schedules itself a minute later while there is
+     * still work left, so a site upgrading with a long history finishes in
+     * hours instead of the weeks an hourly-only 500-row tick would take. The
+     * legacy "other" bucket is swept by the same handler, once.
+     *
+     * Nothing here ever runs inside a page load: the whole point is that the
+     * dashboard never pays for this work.
      */
     public function run_content_type_backfill() {
-        VigIA_Database::backfill_content_types( 500 );
+        $filled = VigIA_Database::backfill_content_types( 1000 );
+
+        // Only start sweeping the legacy "other" bucket once every
+        // never-classified row has a value, so the visible column is right
+        // first and the cosmetic re-bucketing comes after.
+        if ( 0 === $filled ) {
+            VigIA_Database::reclassify_other_bucket( 1000 );
+        }
+
+        $more_work = ( $filled > 0 ) || ! get_option( 'vigia_other_bucket_swept', false );
+
+        if ( $more_work && ! wp_next_scheduled( 'vigia_backfill_content_type' ) ) {
+            wp_schedule_single_event( time() + MINUTE_IN_SECONDS, 'vigia_backfill_content_type' );
+        }
+    }
+
+    /**
+     * Cron handler that creates the analytics indexes.
+     *
+     * Kept out of any page load: on a table with a long history the ALTER can
+     * take minutes, which is exactly the kind of thing that must not happen
+     * while an admin waits for a screen to paint.
+     *
+     * @since 2.5.0
+     */
+    public function run_index_optimization() {
+        VigIA_Database::create_performance_indexes();
     }
 
     /**
@@ -555,6 +601,8 @@ final class VigIA {
                 'strings'    => array(
                     'loading'             => __( 'Loading...', 'vigia' ),
                     'error'               => __( 'Error loading data', 'vigia' ),
+                    'optimizeRunning'     => __( 'Working… on a large table this can take a few minutes. You can close this page, it will finish on its own.', 'vigia' ),
+                    'optimizeFailed'      => __( 'It did not finish. Reload the page to check: if the button is still here, try again or leave it to the scheduled run.', 'vigia' ),
                     'noData'              => __( 'No data available', 'vigia' ),
                     'requests'            => __( 'Requests', 'vigia' ),
                     'previousPeriod'      => __( 'Previous period', 'vigia' ),
@@ -847,6 +895,58 @@ final class VigIA {
         VigIA_Settings::delete_all_data();
 
         wp_send_json_success();
+    }
+
+    /**
+     * AJAX: build the analytics indexes now instead of waiting for cron.
+     *
+     * The background job covers the normal case, but plenty of sites run with
+     * WP-Cron disabled or get so little traffic that it barely fires, and those
+     * are exactly the sites where the dashboard is slow. This gives the user a
+     * way to trigger it and see the result.
+     *
+     * @since 2.5.0
+     */
+    public function ajax_optimize_indexes() {
+        check_ajax_referer( 'vigia_ajax_nonce', 'nonce' );
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( __( 'Unauthorized', 'vigia' ) );
+        }
+
+        // Long tables take a while; ask for room where the host allows it.
+        // function_exists() returns false when the host disables it, so no
+        // error silencing is needed.
+        if ( function_exists( 'set_time_limit' ) ) {
+            set_time_limit( 300 ); // phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- Deliberate, user-initiated maintenance action: an ALTER TABLE on a long history can outlast the default limit, and this only runs behind a nonce plus manage_options.
+        }
+
+        // Finish the job even if the admin closes the tab. Without this, an
+        // ALTER on a large table is tied to the browser being there to wait for
+        // it, which is a silly thing to ask of somebody who just pressed a
+        // maintenance button. Creating the indexes is idempotent, so a run that
+        // does get cut short simply leaves the rest for the next attempt.
+        ignore_user_abort( true );
+
+        VigIA_Database::create_performance_indexes();
+
+        $status = VigIA_Database::get_index_status();
+
+        if ( $status['ready'] ) {
+            wp_send_json_success(
+                array(
+                    'message' => __( 'Database optimized. The statistics tables should load noticeably faster now.', 'vigia' ),
+                    'ready'   => true,
+                )
+            );
+        }
+
+        wp_send_json_error(
+            array(
+                'message' => __( 'Could not create every index. Your database user may not have permission to alter tables; ask your host to run the optimization.', 'vigia' ),
+                'ready'   => false,
+            )
+        );
     }
 
     /**
