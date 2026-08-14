@@ -103,12 +103,17 @@ class VigIA_Robots_Manager {
             $llms_settings = is_array( $decoded ) ? $decoded : array();
         }
         
-        // Only add reference if enabled AND file actually exists.
-        $has_llms_ref  = ! empty( $llms_settings['robots_llms'] ) && file_exists( ABSPATH . 'llms.txt' );
-        $has_full_ref  = ! empty( $llms_settings['robots_llms_full'] ) && ! empty( $llms_settings['generate_full'] ) && file_exists( ABSPATH . 'llms-full.txt' );
+        // Only add the reference when it is enabled, there is a file to point at,
+        // and we are the ones serving it. Without that last test both siblings
+        // wrote their own line and robots.txt carried the same URL twice, once
+        // from each: the reference belongs to whoever serves llms.txt, the same
+        // rule the describedby relation follows.
+        $has_llms_ref = ! empty( $llms_settings['robots_llms'] )
+            && file_exists( ABSPATH . 'llms.txt' )
+            && ( ! class_exists( 'VigIA_LLMS_Generator' ) || VigIA_LLMS_Generator::serves_llms() );
 
-        if ( $has_llms_ref || $has_full_ref ) {
-            $output .= "\n" . self::build_llms_section( $has_llms_ref, $has_full_ref );
+        if ( $has_llms_ref ) {
+            $output .= "\n" . self::build_llms_section( $has_llms_ref, false );
         }
 
         // Normalize output: ensure it ends with exactly one newline
@@ -438,13 +443,24 @@ class VigIA_Robots_Manager {
     private static function build_llms_section( $add_llms, $add_llms_full ) {
         $section = self::LLMS_REFS_MARKER . "\n";
 
+        // Written as comments. `LLMs:` is not part of the robots.txt grammar and
+        // no crawler reads it as a directive, so nothing is lost, but Google
+        // Search Console reports the whole file as invalid over syntax it does not
+        // recognise, which is a red flag on a screen the site owner checks. The
+        // reference stays for whoever opens the file: the discovery mechanism the
+        // llms.txt spec actually defines is the `describedby` link relation, which
+        // the plugin emits on every page.
         if ( $add_llms ) {
-            $section .= 'LLMs: ' . home_url( '/llms.txt' ) . "\n";
+            $section .= '# llms.txt: ' . home_url( '/llms.txt' ) . "\n";
         }
 
-        if ( $add_llms_full ) {
-            $section .= 'LLMs-full: ' . home_url( '/llms-full.txt' ) . "\n";
-        }
+        // llms-full.txt is deliberately not referenced here any more. It is linked
+        // from inside llms.txt, in the Optional section, and llms.txt is the entry
+        // point an agent is meant to read first: a second route in robots.txt only
+        // pointed at the big file directly, which is the opposite of what the
+        // specification asks for. The $add_llms_full argument is kept so callers
+        // do not change, and its stored setting is simply no longer offered.
+        unset( $add_llms_full );
 
         return $section;
     }
@@ -638,7 +654,12 @@ class VigIA_Robots_Manager {
                 continue;
             }
 
-            if ( $skip && preg_match( '/^LLMs(-full)?:\s/i', trim( $line ) ) ) {
+            // Covers every shape this block has ever been written in, so a physical
+            // robots.txt is migrated in a single pass instead of keeping the old
+            // line and gaining the new one underneath: the bare `LLMs:` and
+            // `LLMs-full:` directives written before 2.6.0, which are the ones
+            // Search Console flags, and the commented `# llms.txt:` written now.
+            if ( $skip && preg_match( '/^#?\s*llms(-full)?(\.txt)?:\s/i', trim( $line ) ) ) {
                 continue;
             }
 
@@ -772,10 +793,9 @@ class VigIA_Robots_Manager {
 
         $llms_settings = class_exists( 'VigIA_LLMS_Generator' ) ? VigIA_LLMS_Generator::get_settings() : array();
 
-        self::update_physical_robots_llms(
-            ! empty( $llms_settings['robots_llms'] ),
-            ! empty( $llms_settings['robots_llms_full'] ) && ! empty( $llms_settings['generate_full'] )
-        );
+        // The ceding rule (only reference llms.txt when we serve it) lives inside
+        // update_physical_robots_llms(), the single writer of the physical file.
+        self::update_physical_robots_llms( ! empty( $llms_settings['robots_llms'] ), false );
 
         return true;
     }
@@ -822,6 +842,14 @@ class VigIA_Robots_Manager {
      * @return bool|WP_Error
      */
     public static function update_physical_robots_llms( $add_llms, $add_llms_full ) {
+        // Single choke point for the ceding rule on the physical file: the
+        // reference belongs to whoever serves llms.txt, so when the Visibility
+        // sibling serves it we never add our line (and an existing one is
+        // removed by the rewrite below). Callers do not need to gate this
+        // themselves; save_settings() and regenerate_file() call straight in.
+        $add_llms = $add_llms
+            && ( ! class_exists( 'VigIA_LLMS_Generator' ) || VigIA_LLMS_Generator::serves_llms() );
+
         $robots_path = ABSPATH . 'robots.txt';
 
         if ( ! self::has_physical_robots() ) {

@@ -745,7 +745,7 @@ class VigIA_Extras_Page {
                 <?php esc_html_e( 'Generate llms.txt and llms-full.txt files to help AI systems understand your site structure and content.', 'vigia' ); ?>
                 <a href="<?php
                     /* translators: URL to llms.txt documentation article. Replace with localized version if available. */
-                    echo esc_url( __( 'https://ayudawp-com.translate.goog/llms-txt-llms-full-txt/?_x_tr_sl=es&_x_tr_tl=en&_x_tr_hl=es&_x_tr_pto=wapp', 'vigia' ) );
+                    echo esc_url( __( 'https://wphelp.blog/llms-txt-and-llms-full-txt-files-what-are-they-are-they-useful-updated/', 'vigia' ) );
                 ?>" target="_blank" rel="noopener noreferrer">
                     <?php esc_html_e( 'Learn more about llms.txt', 'vigia' ); ?> <span class="dashicons dashicons-external"></span>
                 </a>
@@ -1026,11 +1026,9 @@ class VigIA_Extras_Page {
                         <input type="checkbox" id="vigia-robots-llms" <?php checked( $settings['robots_llms'] ); ?>>
                         <?php esc_html_e( 'Add llms.txt reference to robots.txt', 'vigia' ); ?>
                     </label>
-                    <br>
-                    <label class="vigia-checkbox-label">
-                        <input type="checkbox" id="vigia-robots-llms-full" <?php checked( $settings['robots_llms_full'] ); ?>>
-                        <?php esc_html_e( 'Add llms-full.txt reference to robots.txt', 'vigia' ); ?>
-                    </label>
+                    <p class="description">
+                        <?php esc_html_e( 'Written as a comment, since it is not part of the robots.txt grammar and Search Console reports syntax it does not recognise as an error. llms-full.txt is not referenced here: it is linked from llms.txt itself, which is the entry point agents are meant to read first.', 'vigia' ); ?>
+                    </p>
                 </div>
 
                 <!-- Content summary -->

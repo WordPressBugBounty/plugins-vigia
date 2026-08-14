@@ -97,6 +97,67 @@ class VigIA_LLMS_Generator {
     public static function init() {
         add_action( self::CRON_HOOK, array( __CLASS__, 'cron_regenerate' ) );
         add_filter( 'cron_schedules', array( __CLASS__, 'add_monthly_schedule' ) );
+
+        // Advertise the llms.txt covering this site, the discovery mechanism the
+        // spec settled on. It hangs off the llms feature and not off the Markdown
+        // endpoints on purpose: the Markdown alternate is per page and exists only
+        // where a .md does, while describedby covers every URL under the file's
+        // path. Hanging it here means whoever actually serves llms.txt advertises
+        // it, so with the Visibility sibling installed it is never emitted twice
+        // (we stand down when it serves one) and never missing (we still emit it
+        // when the sibling is installed with its llms module off, which is how it
+        // ships).
+        if ( ! is_admin() ) {
+            add_action( 'wp_head', array( __CLASS__, 'link_tag' ), 5 );
+            add_action( 'template_redirect', array( __CLASS__, 'link_header' ), 1 );
+        }
+    }
+
+    /**
+     * Is VigIA the one serving an llms.txt at the site root?
+     *
+     * Deliberately cheap: this runs on every front-end request, and get_settings()
+     * is an uncached direct query. A stat on a path we already know is all it
+     * takes, and it is only reached when we are not ceding.
+     *
+     * @return bool
+     */
+    public static function serves_llms() {
+        if ( self::is_ceded_to_visibility() ) {
+            return false;
+        }
+
+        return file_exists( ABSPATH . 'llms.txt' );
+    }
+
+    /**
+     * `<link rel="describedby">` pointing at llms.txt, in the head of every
+     * front-end view. Site-wide on purpose: an llms.txt describes every page under
+     * its path, so an agent landing on any URL can find the index. Skipped on
+     * 404s, which describe nothing.
+     */
+    public static function link_tag() {
+        if ( is_404() || ! self::serves_llms() ) {
+            return;
+        }
+
+        printf(
+            '<link rel="describedby" href="%s" />' . "\n",
+            esc_url( home_url( '/llms.txt' ) )
+        );
+    }
+
+    /**
+     * The same relation as a `Link:` header, for clients that never parse the HTML
+     * head. The spec calls out the header form precisely because it also covers
+     * non-HTML resources.
+     */
+    public static function link_header() {
+        if ( is_404() || headers_sent() || ! self::serves_llms() ) {
+            return;
+        }
+
+        header( 'Link: <' . esc_url_raw( home_url( '/llms.txt' ) ) . '>; rel="describedby"', false );
     }
 
     /**
@@ -863,7 +924,13 @@ class VigIA_LLMS_Generator {
         $name = $settings['site_name'] ?: get_bloginfo( 'name' );
         $desc = $settings['site_description'] ?: '';
 
-        $content = "# {$name}\n\n";
+        $content = '# ' . self::one_line( $name ) . "\n\n";
+
+        // Collapsed to one line: the summary is a single blockquote, and a stored
+        // description containing a line break (sanitize_textarea_field keeps them)
+        // used to prefix only its first line with `>`, cutting the quote short and
+        // spilling the rest into the body as loose text.
+        $desc = self::one_line( $desc );
         if ( $desc ) {
             $content .= "> {$desc}\n\n";
         }
@@ -889,8 +956,8 @@ class VigIA_LLMS_Generator {
             $content .= "## {$label}\n\n";
 
             foreach ( $posts as $post ) {
-                $title   = get_the_title( $post );
-                $url     = get_permalink( $post );
+                $title   = self::one_line( get_the_title( $post ) );
+                $url     = self::entry_url( $post );
                 $excerpt = self::get_clean_excerpt( $post );
 
                 $content .= "- [{$title}]({$url})";
@@ -903,11 +970,80 @@ class VigIA_LLMS_Generator {
         }
 
         if ( $settings['generate_full'] ) {
-            $content .= "## Full content\n\n";
-            $content .= "For complete content, see [llms-full.txt](" . home_url( '/llms-full.txt' ) . ")\n";
+            // "Optional" is a section name the spec defines, the convention for
+            // secondary links an agent may skip, and it goes last. Never
+            // translated: a localised heading stops being the name the convention
+            // refers to. llms-full.txt sits here rather than in a section of its
+            // own because it is not part of the spec at all, and it is written as
+            // a list item because the spec defines an H2 section as a list of
+            // links, not as prose.
+            $content .= "## Optional\n\n";
+            $content .= '- [llms-full.txt](' . home_url( '/llms-full.txt' ) . "): Full text of every page listed above, in a single file.\n";
         }
 
         return $content;
+    }
+
+    /**
+     * Collapse all whitespace, line breaks included, to single spaces.
+     *
+     * @param string $text Raw text.
+     * @return string
+     */
+    private static function one_line( $text ) {
+        return trim( (string) preg_replace( '/\s+/', ' ', (string) $text ) );
+    }
+
+    /**
+     * The URL to publish for an entry: its Markdown version when this site serves
+     * one for it, otherwise the permalink.
+     *
+     * The spec expects the links in llms.txt to point at LLM-friendly content, and
+     * that is exactly what the Markdown endpoints produce, so the index links to
+     * them instead of sending an agent to a page of HTML chrome to strip.
+     *
+     * The test is per entry, never per module: the post type lists of the two
+     * features are separate settings and need not agree, so a type listed in
+     * llms.txt may have no Markdown at all, and linking a .md nobody serves would
+     * turn the index into a list of 404s.
+     *
+     * When the Visibility sibling owns the Markdown endpoint our own module is
+     * deferred and answers nothing, so the question goes to its API instead: its
+     * lists are the ones that decide. `is_callable()` also covers a sibling older
+     * than 2.3.0, where those methods are private, and we fall back to the
+     * permalink rather than publishing a link nobody serves.
+     *
+     * @param WP_Post $the_post Post.
+     * @return string
+     */
+    private static function entry_url( $the_post ) {
+        // When the Visibility sibling owns the Markdown endpoint, its
+        // linkable_url() decides: it applies its own lists, eligibility and the
+        // round-trip check that keeps entries whose .md would 404 on their
+        // permalink. is_callable() covers a sibling older than 2.3.0 (no such
+        // method), where we fall back to the permalink.
+        if ( class_exists( 'VigIA_Sibling_Visibility' ) && VigIA_Sibling_Visibility::should_defer( 'markdown' ) ) {
+            if ( is_callable( array( 'Native_AEO_Pack_Frontend_Markdown', 'linkable_url' ) ) ) {
+                $url = (string) Native_AEO_Pack_Frontend_Markdown::linkable_url( $the_post );
+                if ( '' !== $url ) {
+                    return $url;
+                }
+            }
+
+            return get_permalink( $the_post );
+        }
+
+        // Our own endpoint. linkable_url() carries the whole contract (module
+        // switches, eligibility, round trip); the class is loaded even with the
+        // feature off, which is exactly why the checks live inside it.
+        if ( class_exists( 'VigIA_Markdown_Endpoints' ) ) {
+            $url = (string) VigIA_Markdown_Endpoints::linkable_url( $the_post );
+            if ( '' !== $url ) {
+                return $url;
+            }
+        }
+
+        return get_permalink( $the_post );
     }
 
     /**

@@ -556,6 +556,16 @@ class VigIA_Visibility_Analyzer {
 		$data['llms_txt_is_markdown'] = false;
 		if ( file_exists( ABSPATH . 'llms.txt' ) ) {
 			$content = file_get_contents( ABSPATH . 'llms.txt' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+
+			// Drop a UTF-8 BOM before sniffing. The spec allows one as the very
+			// first thing in the file and we write one ourselves, but it sits
+			// between the start of the line and the `#`, so `^#\s` never matched on
+			// our own output: the H1 branch was dead code over the files this very
+			// plugin generates, and the sniff was passing on the other two
+			// alternatives alone. A conforming file with a title and a summary but
+			// no entries yet failed all three and was reported as badly formatted.
+			$content = preg_replace( '/^\xEF\xBB\xBF/', '', (string) $content );
+
 			if ( $content && ( preg_match( '/^#\s/m', $content ) || preg_match( '/\[.*\]\(.*\)/', $content ) || preg_match( '/^[-*]\s/m', $content ) ) ) {
 				$data['llms_txt_is_markdown'] = true;
 			}

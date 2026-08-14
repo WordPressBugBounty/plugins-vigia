@@ -231,6 +231,20 @@ class VigIA_Markdown_Endpoints {
 
 		// Check for .md URL endpoint.
 		if ( $settings['enable_md_urls'] && get_query_var( 'vigia_markdown' ) ) {
+			// WordPress strips the trailing slash before matching the rewrite rule,
+			// so `/entry.md/` reaches this rule exactly like `/entry.md` and used to
+			// serve the same document at a second URL, with no canonical of its own
+			// pointing back. A .md address is a file name, never a directory, so the
+			// slashed form is redirected to the real one instead of answered.
+			$requested = isset( $_SERVER['REQUEST_URI'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
+			$only_path = (string) wp_parse_url( $requested, PHP_URL_PATH );
+			if ( '' !== $only_path && '/' === substr( $only_path, -1 ) ) {
+				$query  = (string) wp_parse_url( $requested, PHP_URL_QUERY );
+				$target = untrailingslashit( $only_path ) . ( '' !== $query ? '?' . $query : '' );
+				wp_safe_redirect( $target, 301 );
+				exit;
+			}
+
 			$path = get_query_var( 'vigia_markdown_path' );
 			if ( $path ) {
 				self::serve_markdown_by_path( sanitize_text_field( $path ) );
@@ -281,22 +295,61 @@ class VigIA_Markdown_Endpoints {
 			return;
 		}
 
-		$the_post = self::find_post_by_path( $path );
+		foreach ( self::path_candidates( $path ) as $candidate ) {
+			if ( '' === $candidate ) {
+				continue;
+			}
 
-		if ( $the_post && self::is_post_eligible( $the_post ) ) {
-			self::serve_markdown_response( $the_post );
-			return;
-		}
+			$the_post = self::find_post_by_path( $candidate );
 
-		// Fall back to taxonomy term lookup when no post matches the path.
-		$term = self::find_term_by_path( $path );
+			if ( $the_post && self::is_post_eligible( $the_post ) ) {
+				self::serve_markdown_response( $the_post );
+				return;
+			}
 
-		if ( $term && self::is_term_eligible( $term ) ) {
-			self::serve_markdown_response_for_term( $term );
-			return;
+			// Fall back to taxonomy term lookup when no post matches the path.
+			$term = self::find_term_by_path( $candidate );
+
+			if ( $term && self::is_term_eligible( $term ) ) {
+				self::serve_markdown_response_for_term( $term );
+				return;
+			}
 		}
 
 		self::send_404();
+	}
+
+	/**
+	 * Request paths to try, in order: the one asked for, then the same one with
+	 * the spec's `index` segment removed.
+	 *
+	 * The spec writes a page's Markdown URL as the page URL with `.md` appended or
+	 * its extension replaced, and adds that URLs with no file name should use
+	 * `index.md` or `index.html.md` instead. WordPress permalinks have no file
+	 * name, so `/hello-world/index.md` is what an agent following the spec to the
+	 * letter builds, while `/hello-world.md` is the form we publish and advertise.
+	 * Both answer.
+	 *
+	 * The literal path is always tried first, so a real entry whose own slug is
+	 * `index` still wins over the rewritten form.
+	 *
+	 * @param string $path Request path without the .md suffix.
+	 * @return array<int,string>
+	 */
+	private static function path_candidates( $path ) {
+		$candidates = array( $path );
+
+		foreach ( array( 'index.html', 'index' ) as $name ) {
+			if ( $path === $name ) {
+				break;
+			}
+			if ( substr( $path, - ( strlen( $name ) + 1 ) ) === '/' . $name ) {
+				$candidates[] = substr( $path, 0, - ( strlen( $name ) + 1 ) );
+				break;
+			}
+		}
+
+		return $candidates;
 	}
 
 	/**
@@ -387,7 +440,107 @@ class VigIA_Markdown_Endpoints {
 	 * @param WP_Post $the_post Post object.
 	 * @return bool
 	 */
-	private static function is_post_eligible( $the_post ) {
+	/**
+	 * Is this plugin actually answering .md URLs on this site right now?
+	 *
+	 * Needed because the class is loaded unconditionally, so class_exists() says
+	 * nothing about the feature being on, and neither is_post_eligible() nor
+	 * get_markdown_url() looks at the module switch: the first weighs access and
+	 * content types, the second only `enable_md_urls`, which defaults to true.
+	 * Anything building a link to a .md must ask this first, or it publishes URLs
+	 * that answer 404 with the module switched off.
+	 *
+	 * @return bool
+	 */
+	public static function serves_markdown() {
+		$settings = self::get_settings();
+
+		if ( empty( $settings['enabled'] ) || empty( $settings['enable_md_urls'] ) ) {
+			return false;
+		}
+
+		// The Visibility sibling owns the endpoint when it serves Markdown, and we
+		// return nothing: its URLs have the same shape but its own lists decide.
+		return ! ( class_exists( 'VigIA_Sibling_Visibility' ) && VigIA_Sibling_Visibility::should_defer( 'markdown' ) );
+	}
+
+	/**
+	 * The .md URL for an entry, but only when this module will actually answer
+	 * it: the module switches, eligibility, and a round trip through the same
+	 * resolver that serves the request. Building the URL and resolving it are
+	 * different operations, so a URL that builds fine can still answer 404 (a
+	 * custom type whose permalink carries a prefix its resolver does not strip,
+	 * for instance). Publishing a link, in llms.txt or to the sibling plugin,
+	 * must go through here, never through get_markdown_url() alone. Returns ''
+	 * when the entry has no working .md.
+	 *
+	 * @param int|WP_Post $the_post Post.
+	 * @return string
+	 */
+	public static function linkable_url( $the_post ) {
+		if ( ! self::serves_markdown() ) {
+			return '';
+		}
+
+		$the_post = get_post( $the_post );
+		if ( ! $the_post instanceof WP_Post || ! self::is_post_eligible( $the_post ) ) {
+			return '';
+		}
+
+		$url = self::get_markdown_url( $the_post );
+		if ( ! $url ) {
+			return '';
+		}
+
+		$found = self::find_post_by_path( self::request_path_from_url( $url ) );
+		return ( $found instanceof WP_Post && (int) $found->ID === (int) $the_post->ID ) ? (string) $url : '';
+	}
+
+	/**
+	 * The .md URL for a term on the same contract as linkable_url().
+	 *
+	 * @param WP_Term $term Term.
+	 * @return string
+	 */
+	public static function linkable_url_for_term( $term ) {
+		if ( ! self::serves_markdown() ) {
+			return '';
+		}
+
+		if ( ! $term instanceof WP_Term || ! self::is_term_eligible( $term ) ) {
+			return '';
+		}
+
+		$url = self::get_markdown_url_for_term( $term );
+		if ( ! $url ) {
+			return '';
+		}
+
+		$found = self::find_term_by_path( self::request_path_from_url( $url ) );
+		return ( $found instanceof WP_Term && (int) $found->term_id === (int) $term->term_id ) ? (string) $url : '';
+	}
+
+	/**
+	 * Reduce a full .md URL to the request path the resolvers expect: the URL
+	 * path without the .md suffix, slashes trimmed, subdirectory prefix removed.
+	 * The rewrite rule hands serve_markdown_by_path() exactly this shape.
+	 *
+	 * @param string $url Absolute .md URL.
+	 * @return string
+	 */
+	private static function request_path_from_url( $url ) {
+		$path  = (string) wp_parse_url( $url, PHP_URL_PATH );
+		$clean = trim( substr( $path, 0, -3 ), '/' );
+
+		$home_path = trim( (string) wp_parse_url( home_url(), PHP_URL_PATH ), '/' );
+		if ( '' !== $home_path && 0 === strpos( $clean, $home_path ) ) {
+			$clean = ltrim( substr( $clean, strlen( $home_path ) ), '/' );
+		}
+
+		return $clean;
+	}
+
+	public static function is_post_eligible( $the_post ) {
 		// Status, password, and whatever the LMS and membership plugins on this
 		// site have to say about this entry. A `.md` is a second representation of
 		// the page, so it answers to the same access rules the page does; rebuilt
@@ -585,7 +738,7 @@ class VigIA_Markdown_Endpoints {
 	 * @param WP_Term $term Term object.
 	 * @return bool
 	 */
-	private static function is_term_eligible( $term ) {
+	public static function is_term_eligible( $term ) {
 		if ( ! $term instanceof WP_Term ) {
 			return false;
 		}
@@ -764,6 +917,14 @@ class VigIA_Markdown_Endpoints {
 		header( 'Vary: Accept' );
 		header( 'X-Markdown-Tokens: ' . $token_count );
 		header( 'Link: <' . esc_url( $canonical_url ) . '>; rel="canonical"' );
+
+		// A Markdown document has no head to carry link relations, which is the
+		// case the spec singles out for the header form. Only when we are the one
+		// serving an llms.txt: when the Visibility sibling serves it, its own
+		// Markdown endpoint answers this URL and adds the header itself.
+		if ( class_exists( 'VigIA_LLMS_Generator' ) && VigIA_LLMS_Generator::serves_llms() ) {
+			header( 'Link: <' . esc_url( home_url( '/llms.txt' ) ) . '>; rel="describedby"', false );
+		}
 
 		// The endpoint returns plain Markdown with a `Content-Type: text/markdown`
 		// header, not HTML. Escaping it as HTML (esc_html/wp_kses) would corrupt the

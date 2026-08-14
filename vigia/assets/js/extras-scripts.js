@@ -933,8 +933,7 @@
             generate_full: $('#vigia-generate-full').is(':checked') ? 'true' : 'false',
             full_mode: $('input[name="vigia_full_mode"]:checked').val() || 'full',
             auto_regenerate: $('input[name="vigia_auto_regenerate"]:checked').val() || 'manual',
-            robots_llms: $('#vigia-robots-llms').is(':checked') ? 'true' : 'false',
-            robots_llms_full: $('#vigia-robots-llms-full').is(':checked') ? 'true' : 'false'
+            robots_llms: $('#vigia-robots-llms').is(':checked') ? 'true' : 'false'
         };
 
         // Get selected post types

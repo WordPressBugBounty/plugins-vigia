@@ -2,9 +2,9 @@
 Contributors: fernandot, ayudawp
 Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.9
-Tested up to: 7.0
+Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 2.5.0
+Stable tag: 2.6.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -396,24 +396,24 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
-= 2.5.0 =
-* New: A "Database optimization" control in Data settings creates the indexes the statistics tables need. VigIA adds them by itself in the background shortly after updating; the button is there for sites where WP-Cron is disabled or barely runs, and it reports when the work is done. You can close the page while it runs, it finishes on its own.
-* Improved: The analytics screens no longer bog down on sites with a long history. The most crawled pages and top crawlers tables were resolving the per-row details for every page in the range instead of the ten on screen, and the pages endpoint re-derived the content type of up to 2000 old rows on every single load. On a test site with 610,000 recorded visits, the whole dashboard went from 16.4 seconds to 1.4 for a year of data, and from 17.1 to 3.6 for the full history.
-* Improved: Date ranges longer than 60 days are now computed ahead of time in the background and served ready-made, so the long views open instantly. Shorter ranges are never cached: what you see for today or the last 30 days is always live.
-* Improved: Exporting activity to CSV is far lighter. A week of activity used to run more than 15,000 database queries and now runs 12.
-* Improved: Visits still waiting for their content type are filled in by a background task that drains them steadily, instead of on whichever page load happened to run into them.
-* Fix: Paging backwards through Recent activity left the numbering stuck on the last page loaded from the server, because pages served from the browser's own cache did not update it. The rows changed but the counter did not follow.
-* Fix: Rows could show up twice, or not at all, when paging through the activity table, the most crawled pages or the top crawlers. Entries that tied on the sort column had no defined order, so they could change places between one page and the next. The same applies to a CSV export, which is paged the same way.
-* Fix: The analytics tables were unreadable on a phone: they were squeezed into the available width until words broke one letter per line. They now keep readable columns and scroll sideways within their box.
-* Fix: The spinner on the export button never spun and sat misaligned with the label.
-* Fix: CSV exports now write every recorded value as plain text, so spreadsheet software never interprets the contents of a cell.
+= 2.6.0 =
+* New: Every page now advertises the llms.txt that covers it, with a rel="describedby" link in the head and as a Link header, and also on the .md responses, which have no head to carry it. This is the discovery mechanism version 2 of the llms.txt specification settled on, published in August 2026 and answering the question people asked most in two years of adoption: given a page, how does an agent find the llms.txt that describes it without guessing.
+* New: The Markdown version of an entry also answers at the URL forms the specification writes down for addresses with no file name, /your-post/index.md and /your-post/index.html.md, alongside the /your-post.md the plugin publishes and links to. Nothing changes in the URLs advertised: the extra forms are there for agents that build the address themselves from the specification.
+* Improved: llms.txt links each entry to its Markdown version instead of to the page, which is what version 2 of the specification asks for, that the links in the file point at content already clean for a language model. The decision is made per entry, so anything with no Markdown version of its own, or whose address does not resolve to one, keeps linking to the page exactly as before. If Visibility is the one serving the Markdown endpoint on your site, its entries are used.
+* Improved: Tested up to WordPress 7.1.
+* Improved: llms-full.txt is listed in the Optional section the specification defines for secondary links, and as a list item instead of a sentence. Sections in the file are lists of links, so the old paragraph was skipped by anything reading the file to the letter.
+* Improved: The llms.txt reference in robots.txt is a single commented line pointing at the index, and llms-full.txt is no longer referenced there: it is linked from inside llms.txt, in the Optional section, which is the entry point an agent reads first. The checkbox for the llms-full.txt reference is gone from the settings, and with both this plugin and Visibility installed only the one actually serving llms.txt writes the line, so robots.txt never carries the same URL twice.
+* Fix: A .md address with a trailing slash served the same document all over again at a second URL, with no canonical between the two. WordPress trims that slash before matching the rewrite rule, so /your-post.md/ reached the endpoint exactly like /your-post.md. It now redirects to the real address.
+* Fix: The llms.txt and llms-full.txt references in robots.txt are written as comments now. They were plain lines, and Google Search Console reports a robots.txt containing syntax it does not recognise as invalid, which is an alarming red mark on a screen site owners check. No crawler ever read those lines as directives, so nothing is lost, and the reference stays there for anyone opening the file. A physical robots.txt has its old lines replaced, not duplicated.
+* Fix: A site description containing a line break broke the summary of llms.txt. Only its first line was quoted and the rest fell into the body of the file as loose text.
+* Fix: The AI Visibility Score no longer marks a correctly formatted llms.txt as badly formatted. The check looked for a heading at the start of a line, but the byte order mark the plugin writes at the very beginning of the file sits in front of it, so a file with a title and a summary but no entries yet failed every test and lost points for a format that was correct.
 
 For older changelog entries, please check the [changelog.txt](https://plugins.svn.wordpress.org/vigia/trunk/changelog.txt) file
 
 == Upgrade Notice ==
 
-= 2.5.0 =
-Makes the analytics usable on sites with a long history: a year of data went from 16 seconds to under 1.5 in testing, and CSV exports from over 15,000 database queries to 12. VigIA adds the needed indexes in the background after updating.
+= 2.6.0 =
+Brings llms.txt and Markdown in line with version 2 of the llms.txt specification: every page now points agents at the llms.txt covering it, and the index links each entry to its Markdown version. The robots.txt references are comments now, so Search Console stops flagging the file.
 
 == Support ==
 
