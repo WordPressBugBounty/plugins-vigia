@@ -71,17 +71,18 @@ class RequestRouter {
 		);
 
 		$handlers = array(
-			'initialize'     => function () use ( $params, $request_id, $http_context, &$new_session_id ) {
+			'initialize'               => function () use ( $params, $request_id, $http_context, &$new_session_id ) {
 				return $this->handle_initialize_with_session( $params, $request_id, $http_context, $new_session_id );
 			},
-			'ping'           => fn() => $this->context->system_handler->ping(),
-			'tools/list'     => fn() => $this->context->tools_handler->list_tools(),
-			'tools/list/all' => fn() => $this->context->tools_handler->list_all_tools(),
-			'tools/call'     => fn() => $this->context->tools_handler->call_tool( $params, $request_id ),
-			'resources/list' => fn() => $this->context->resources_handler->list_resources(),
-			'resources/read' => fn() => $this->context->resources_handler->read_resource( $params, $request_id ),
-			'prompts/list'   => fn() => $this->context->prompts_handler->list_prompts(),
-			'prompts/get'    => fn() => $this->context->prompts_handler->get_prompt( $params, $request_id ),
+			'ping'                     => fn() => $this->context->system_handler->ping(),
+			'tools/list'               => fn() => $this->context->tools_handler->list_tools(),
+			'tools/list/all'           => fn() => $this->context->tools_handler->list_all_tools(),
+			'tools/call'               => fn() => $this->context->tools_handler->call_tool( $params, $request_id ),
+			'resources/list'           => fn() => $this->context->resources_handler->list_resources(),
+			'resources/templates/list' => fn() => $this->context->resources_handler->list_resource_templates(),
+			'resources/read'           => fn() => $this->context->resources_handler->read_resource( $params, $request_id ),
+			'prompts/list'             => fn() => $this->context->prompts_handler->list_prompts(),
+			'prompts/get'              => fn() => $this->context->prompts_handler->get_prompt( $params, $request_id ),
 		);
 
 		try {
@@ -324,7 +325,7 @@ class RequestRouter {
 		// Handle session creation if HTTP context is provided.
 		// InitializeResult DTO never has errors - errors would be thrown as exceptions.
 		if ( $http_context && ! $http_context->session_id ) {
-			$session_result = HttpSessionValidator::create_session( $params );
+			$session_result = HttpSessionValidator::create_session_with_error_handler( $params, $this->context->error_handler );
 
 			if ( is_array( $session_result ) ) {
 				$error = $session_result['error'] ?? array();

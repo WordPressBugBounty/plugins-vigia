@@ -127,6 +127,63 @@ class VigIA_Abilities {
 	}
 
 	/**
+	 * Ability meta for the read-only abilities.
+	 *
+	 * The MCP Adapter maps these to the tool annotations an MCP client reads to
+	 * decide how much ceremony a call deserves: without them every tool looks
+	 * alike, and asking for crawler statistics gets the same approval prompt as
+	 * blocking a crawler. `openWorldHint` is false because every one of these
+	 * answers from this site's own database, never from an outside service.
+	 *
+	 * The other two hints are spelled out even though the specification calls
+	 * them meaningful only when a tool is not read-only. An absent
+	 * `destructiveHint` defaults to true, so a client that applies the default
+	 * without first checking `readOnlyHint` would put a statistics query behind
+	 * the same warning as a block. Saying it costs nothing and is true anyway:
+	 * reading changes nothing and can be repeated.
+	 *
+	 * @since 2.6.1
+	 *
+	 * @return array
+	 */
+	private static function read_annotations() {
+		return array(
+			'annotations' => array(
+				'readonly'      => true,
+				'destructive'   => false,
+				'idempotent'    => true,
+				'openWorldHint' => false,
+			),
+		);
+	}
+
+	/**
+	 * Ability meta for the abilities that change something.
+	 *
+	 * Destructive is not the same as important. The specification defines it as
+	 * destructive versus additive, so blocking a crawler and adding a Disallow
+	 * are additive (they add a rule), while unblocking and removing a rule take
+	 * an existing one away. All four are idempotent: none of them duplicates an
+	 * entry when it is called again with the same arguments, so repeating a call
+	 * leaves the site in the same state.
+	 *
+	 * @since 2.6.1
+	 *
+	 * @param bool $destructive Whether the ability takes an existing rule away.
+	 * @return array
+	 */
+	private static function write_annotations( $destructive ) {
+		return array(
+			'annotations' => array(
+				'readonly'      => false,
+				'destructive'   => (bool) $destructive,
+				'idempotent'    => true,
+				'openWorldHint' => false,
+			),
+		);
+	}
+
+	/**
 	 * Build a transient cache key for an ability call.
 	 *
 	 * @since 1.11.0
@@ -176,6 +233,7 @@ class VigIA_Abilities {
 				'description'         => __( 'Returns statistics about AI crawler visits including total visits, unique crawlers, and unique pages crawled.', 'vigia' ),
 				'category'            => self::CATEGORY,
 				'permission_callback' => array( __CLASS__, 'check_permission' ),
+				'meta'                => self::read_annotations(),
 				'input_schema'        => array(
 					'type'       => 'object',
 					'properties' => array(
@@ -261,6 +319,7 @@ class VigIA_Abilities {
 				'description'         => __( 'Returns a list of the most active AI crawlers sorted by visit count.', 'vigia' ),
 				'category'            => self::CATEGORY,
 				'permission_callback' => array( __CLASS__, 'check_permission' ),
+				'meta'                => self::read_annotations(),
 				'input_schema'        => array(
 					'type'       => 'object',
 					'properties' => array(
@@ -372,6 +431,7 @@ class VigIA_Abilities {
 				'description'         => __( 'Returns a list of the most crawled pages on your site.', 'vigia' ),
 				'category'            => self::CATEGORY,
 				'permission_callback' => array( __CLASS__, 'check_permission' ),
+				'meta'                => self::read_annotations(),
 				'input_schema'        => array(
 					'type'       => 'object',
 					'properties' => array(
@@ -489,6 +549,7 @@ class VigIA_Abilities {
 				'description'         => __( 'Returns the list of currently blocked crawlers and IP addresses.', 'vigia' ),
 				'category'            => self::CATEGORY,
 				'permission_callback' => array( __CLASS__, 'check_permission' ),
+				'meta'                => self::read_annotations(),
 				'input_schema'        => array(),
 				'output_schema'       => array(
 					'type'       => 'object',
@@ -606,6 +667,7 @@ class VigIA_Abilities {
 				'description'         => __( 'Blocks an AI crawler by User-Agent pattern or IP address. Blocked crawlers receive a 403 Forbidden response.', 'vigia' ),
 				'category'            => self::CATEGORY,
 				'permission_callback' => array( __CLASS__, 'check_write_permission' ),
+				'meta'                => self::write_annotations( false ),
 				'input_schema'        => array(
 					'type'       => 'object',
 					'required'   => array( 'value', 'type' ),
@@ -732,6 +794,7 @@ class VigIA_Abilities {
 				'description'         => __( 'Removes a block by its ID. Use get-blocked-items to find block IDs.', 'vigia' ),
 				'category'            => self::CATEGORY,
 				'permission_callback' => array( __CLASS__, 'check_write_permission' ),
+				'meta'                => self::write_annotations( true ),
 				'input_schema'        => array(
 					'type'       => 'object',
 					'required'   => array( 'block_id' ),
@@ -803,6 +866,7 @@ class VigIA_Abilities {
 				'description'         => __( 'Returns the current AI crawler rules configured in robots.txt (Disallow and Allow directives).', 'vigia' ),
 				'category'            => self::CATEGORY,
 				'permission_callback' => array( __CLASS__, 'check_permission' ),
+				'meta'                => self::read_annotations(),
 				'input_schema'        => array(),
 				'output_schema'       => array(
 					'type'       => 'object',
@@ -861,6 +925,7 @@ class VigIA_Abilities {
 				'description'         => __( 'Adds a Disallow directive for an AI crawler in robots.txt. Well-behaved crawlers will respect this and stop crawling.', 'vigia' ),
 				'category'            => self::CATEGORY,
 				'permission_callback' => array( __CLASS__, 'check_write_permission' ),
+				'meta'                => self::write_annotations( false ),
 				'input_schema'        => array(
 					'type'       => 'object',
 					'required'   => array( 'crawler' ),
@@ -949,6 +1014,7 @@ class VigIA_Abilities {
 				'description'         => __( 'Removes a Disallow or Allow rule for a crawler from robots.txt.', 'vigia' ),
 				'category'            => self::CATEGORY,
 				'permission_callback' => array( __CLASS__, 'check_write_permission' ),
+				'meta'                => self::write_annotations( true ),
 				'input_schema'        => array(
 					'type'       => 'object',
 					'required'   => array( 'crawler' ),

@@ -26,6 +26,38 @@ class VigIA_Markdown_Endpoints {
 	const OPTION_NAME = 'vigia_markdown_settings';
 
 	/**
+	 * Transient prefix for the cached markdown documents.
+	 *
+	 * @since 2.6.1
+	 */
+	const CACHE_PREFIX = 'vigia_md_';
+
+	/**
+	 * Option holding the cache key salt, bumped to flush every document at once.
+	 *
+	 * @since 2.6.1
+	 */
+	const CACHE_SALT_OPTION = 'vigia_md_cache_salt';
+
+	/**
+	 * How long a cached markdown document lives.
+	 *
+	 * Long, because the cache is dropped by hand whenever the entry it was built
+	 * from changes; the expiry is only the backstop for whatever edits the plugin
+	 * cannot see.
+	 *
+	 * @since 2.6.1
+	 */
+	const CACHE_TTL = 12 * HOUR_IN_SECONDS;
+
+	/**
+	 * How long clients may reuse a markdown response, in seconds.
+	 *
+	 * @since 2.6.1
+	 */
+	const HTTP_MAX_AGE = 3600;
+
+	/**
 	 * Default settings
 	 *
 	 * @var array
@@ -51,6 +83,18 @@ class VigIA_Markdown_Endpoints {
 			return;
 		}
 
+		// Drop a cached document when what it was built from changes. Registered
+		// before the deferral check below, so a site that hands the endpoint over
+		// to Visibility for a while does not come back to a stale cache.
+		add_action( 'save_post', array( __CLASS__, 'flush_post' ) );
+		// Runs after the terms and meta of a REST save have been stored, which
+		// save_post does not: the block editor writes them after wp_update_post().
+		add_action( 'wp_after_insert_post', array( __CLASS__, 'flush_post' ) );
+		add_action( 'deleted_post', array( __CLASS__, 'flush_post' ) );
+		add_action( 'woocommerce_update_product', array( __CLASS__, 'flush_post' ) );
+		add_action( 'edited_term', array( __CLASS__, 'flush_term' ) );
+		add_action( 'delete_term', array( __CLASS__, 'flush_term' ) );
+
 		// Cede Markdown for agents to the Visibility sibling when it serves it.
 		// Visibility intercepts on do_parse_request (ahead of our
 		// template_redirect), so it already wins the /{slug}.md collision; bailing
@@ -69,6 +113,12 @@ class VigIA_Markdown_Endpoints {
 
 		// Content negotiation and .md URL handling.
 		add_action( 'template_redirect', array( __CLASS__, 'handle_request' ), 5 );
+
+		// Announce Accept as a cache key on the HTML side of a negotiable URL,
+		// before handle_request() decides which variant to serve.
+		if ( $settings['enable_negotiation'] ) {
+			add_action( 'template_redirect', array( __CLASS__, 'add_vary_header' ), 1 );
+		}
 
 		// Add <link rel="alternate"> in HTML head.
 		if ( $settings['enable_link_tag'] ) {
@@ -133,6 +183,14 @@ class VigIA_Markdown_Endpoints {
 			|| $taxonomies_changed
 		) {
 			update_option( 'vigia_flush_rewrite', true );
+		}
+
+		// Turning the module off stops the invalidation hooks from running, so
+		// anything edited while it was off would come back from the cache when it
+		// is turned on again. Dropping the cache on every settings save covers
+		// that and any other change of what the documents are built from.
+		if ( $old_settings !== $normalized ) {
+			self::flush_all();
 		}
 
 		return update_option( self::OPTION_NAME, $normalized );
@@ -830,7 +888,7 @@ class VigIA_Markdown_Endpoints {
 	 */
 	private static function serve_markdown_response( $the_post ) {
 		self::send_markdown_response(
-			self::build_as_anonymous( array( __CLASS__, 'generate_post_markdown' ), $the_post ),
+			self::cached_post_markdown( $the_post ),
 			get_permalink( $the_post )
 		);
 	}
@@ -848,7 +906,7 @@ class VigIA_Markdown_Endpoints {
 		}
 
 		self::send_markdown_response(
-			self::build_as_anonymous( array( __CLASS__, 'generate_term_markdown' ), $term ),
+			self::cached_term_markdown( $term ),
 			$link
 		);
 	}
@@ -880,6 +938,134 @@ class VigIA_Markdown_Endpoints {
 		}
 	}
 
+	// =========================================================================
+	// Document cache
+	// =========================================================================
+
+	/**
+	 * Cached markdown document for a post.
+	 *
+	 * Building one converts the whole entry to markdown on every request, which
+	 * is the most expensive thing this class does and gives the same answer every
+	 * time: the document is built in anonymous context, so it does not depend on
+	 * who is asking and one cache entry serves everybody.
+	 *
+	 * @since 2.6.1
+	 * @param WP_Post $the_post Post object.
+	 * @return string
+	 */
+	private static function cached_post_markdown( $the_post ) {
+		$key    = self::cache_key( (int) $the_post->ID );
+		$cached = get_transient( $key );
+
+		if ( false !== $cached ) {
+			return (string) $cached;
+		}
+
+		$markdown = self::build_as_anonymous( array( __CLASS__, 'generate_post_markdown' ), $the_post );
+		set_transient( $key, $markdown, self::CACHE_TTL );
+
+		return $markdown;
+	}
+
+	/**
+	 * Cached markdown document for a taxonomy term.
+	 *
+	 * @since 2.6.1
+	 * @param WP_Term $term Term object.
+	 * @return string
+	 */
+	private static function cached_term_markdown( $term ) {
+		$key    = self::cache_key( (int) $term->term_id, 'term' );
+		$cached = get_transient( $key );
+
+		if ( false !== $cached ) {
+			return (string) $cached;
+		}
+
+		$markdown = self::build_as_anonymous( array( __CLASS__, 'generate_term_markdown' ), $term );
+		set_transient( $key, $markdown, self::CACHE_TTL );
+
+		return $markdown;
+	}
+
+	/**
+	 * Transient key for a cached document.
+	 *
+	 * The salt is what makes a full flush possible: transients cannot be deleted
+	 * by prefix on a site with a persistent object cache, so bumping the salt
+	 * changes every future key and the old entries are simply never read again
+	 * and expire on their own. Same technique as VigIA_Database.
+	 *
+	 * @since 2.6.1
+	 * @param int    $id   Post or term id.
+	 * @param string $kind Object kind, 'post' (default) or 'term'.
+	 * @return string
+	 */
+	private static function cache_key( $id, $kind = 'post' ) {
+		$salt = (int) get_option( self::CACHE_SALT_OPTION, 0 );
+
+		return self::CACHE_PREFIX . $salt . '_' . ( 'term' === $kind ? 't' : 'p' ) . $id;
+	}
+
+	/**
+	 * Drop the cached document of a post, and of the terms that list it.
+	 *
+	 * @since 2.6.1
+	 * @param int $post_id Post id.
+	 * @return void
+	 */
+	public static function flush_post( $post_id ) {
+		$post_id = (int) $post_id;
+
+		// Autosaves and revisions carry their own id; what is served is the entry
+		// they belong to.
+		$parent = wp_is_post_revision( $post_id );
+		if ( $parent ) {
+			$post_id = (int) $parent;
+		}
+
+		delete_transient( self::cache_key( $post_id ) );
+
+		// A term document lists the latest entries in the term, so saving an entry
+		// also dates the documents of the terms it belongs to.
+		$settings   = self::get_settings();
+		$taxonomies = $settings['taxonomies'];
+		if ( empty( $taxonomies ) ) {
+			return;
+		}
+
+		$terms = wp_get_object_terms( $post_id, $taxonomies, array( 'fields' => 'ids' ) );
+		if ( is_wp_error( $terms ) ) {
+			return;
+		}
+
+		foreach ( $terms as $term_id ) {
+			delete_transient( self::cache_key( (int) $term_id, 'term' ) );
+		}
+	}
+
+	/**
+	 * Drop the cached document of a term.
+	 *
+	 * @since 2.6.1
+	 * @param int $term_id Term id.
+	 * @return void
+	 */
+	public static function flush_term( $term_id ) {
+		delete_transient( self::cache_key( (int) $term_id, 'term' ) );
+	}
+
+	/**
+	 * Drop every cached document at once, by bumping the key salt.
+	 *
+	 * @since 2.6.1
+	 * @return void
+	 */
+	public static function flush_all() {
+		update_option( self::CACHE_SALT_OPTION, (int) get_option( self::CACHE_SALT_OPTION, 0 ) + 1, false );
+	}
+
 	/**
 	 * Shared response writer used by both post and term markdown responses.
 	 *
@@ -890,10 +1076,11 @@ class VigIA_Markdown_Endpoints {
 	 * @param string $canonical_url Canonical URL for the Link header.
 	 */
 	private static function send_markdown_response( $markdown, $canonical_url ) {
-		if ( class_exists( 'VigIA_Blocker' ) ) {
+		$blocks = class_exists( 'VigIA_Blocker' ) ? VigIA_Blocker::get_all_blocks() : array();
+
+		if ( ! empty( $blocks ) ) {
 			$user_agent = isset( $_SERVER['HTTP_USER_AGENT'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_USER_AGENT'] ) ) : '';
 			if ( ! empty( $user_agent ) ) {
-				$blocks = VigIA_Blocker::get_all_blocks();
 				foreach ( $blocks as $block ) {
 					if ( 'useragent' === $block['type'] && false !== stripos( $user_agent, $block['pattern'] ) ) {
 						status_header( 403 );
@@ -911,10 +1098,21 @@ class VigIA_Markdown_Endpoints {
 		$token_count = (int) ceil( mb_strlen( $markdown, 'UTF-8' ) / 4 );
 
 		status_header( 200 );
-		nocache_headers();
+
+		// The document is built in anonymous context, so it is the same one for
+		// everybody who asks and can be reused. What decides how widely: a blocked
+		// crawler is turned away here, at the origin, and a shared cache in front
+		// of the site never asks, so with blocks configured the response is kept
+		// out of those and only the client it was served to may reuse it.
+		$reuse = empty( $blocks ) ? '' : 'private, ';
+		header( 'Cache-Control: ' . $reuse . 'max-age=' . (int) self::HTTP_MAX_AGE );
+		// WordPress sends the nocache set on requests from a logged-in user, and
+		// its Expires date is in the past. Cache-Control takes precedence over it,
+		// but leaving both in a response that may now be reused is contradictory.
+		header_remove( 'Expires' );
 
 		header( 'Content-Type: text/markdown; charset=utf-8' );
-		header( 'Vary: Accept' );
+		self::merge_vary_header( 'Accept' );
 		header( 'X-Markdown-Tokens: ' . $token_count );
 		header( 'Link: <' . esc_url( $canonical_url ) . '>; rel="canonical"' );
 
@@ -2056,6 +2254,108 @@ class VigIA_Markdown_Endpoints {
 		if ( $md_url ) {
 			header( 'Link: <' . esc_url( $md_url ) . '>; rel="alternate"; type="text/markdown"', false );
 		}
+	}
+
+	/**
+	 * Announce that this URL answers differently depending on Accept.
+	 *
+	 * The Vary belongs on every response subject to negotiation, not only on the
+	 * negotiated variant (RFC 9110 section 12.5.5). Without it on the HTML side, a
+	 * shared cache in front of the site stores the page with no idea the address
+	 * has a second form, and later hands that HTML to an agent asking for
+	 * markdown.
+	 *
+	 * Two limits worth knowing. It covers the HTML WordPress generates, not what a
+	 * page cache serves straight from disk, because those requests end before
+	 * these hooks run. And Cloudflare ignores Vary on HTML except for
+	 * Accept-Encoding, so the fix there is a Cache Rule, not this header.
+	 *
+	 * @since 2.6.1
+	 * @return void
+	 */
+	public static function add_vary_header() {
+		if ( ! self::current_request_is_negotiable() ) {
+			return;
+		}
+
+		self::merge_vary_header( 'Accept' );
+	}
+
+	/**
+	 * Does the current request answer to content negotiation?
+	 *
+	 * Unlike resolve_current_markdown_url(), this does not care whether .md URLs
+	 * are on: negotiation and .md addresses are separate settings, and a URL that
+	 * answers markdown on Accept varies whether or not it also has an address of
+	 * its own.
+	 *
+	 * @since 2.6.1
+	 * @return bool
+	 */
+	private static function current_request_is_negotiable() {
+		if ( is_singular() ) {
+			$the_post = get_queried_object();
+			return ( $the_post instanceof WP_Post && self::is_post_eligible( $the_post ) );
+		}
+
+		if ( is_tax() || is_category() || is_tag() ) {
+			$term = get_queried_object();
+			return ( $term instanceof WP_Term && self::is_term_eligible( $term ) );
+		}
+
+		return false;
+	}
+
+	/**
+	 * Add a field name to the Vary header without dropping what is already there.
+	 *
+	 * Vary is a list, and other plugins put their own fields in it. Replacing the
+	 * header outright would discard theirs, and appending a second Vary header
+	 * gets folded into the same list anyway, so the values are merged instead.
+	 *
+	 * @since 2.6.1
+	 * @param string $field Field name to announce, e.g. 'Accept'.
+	 * @return void
+	 */
+	private static function merge_vary_header( $field ) {
+		if ( headers_sent() ) {
+			return;
+		}
+
+		$fields = array();
+
+		foreach ( headers_list() as $sent ) {
+			if ( 0 !== stripos( $sent, 'vary:' ) ) {
+				continue;
+			}
+
+			foreach ( explode( ',', substr( $sent, 5 ) ) as $value ) {
+				$value = trim( $value );
+				if ( '' === $value ) {
+					continue;
+				}
+				// A Vary of * already says the response is uncacheable by anything
+				// other than the origin, and nothing can be added to that.
+				if ( '*' === $value ) {
+					return;
+				}
+				if ( 0 === strcasecmp( $value, $field ) ) {
+					return;
+				}
+				// Anything that is not a field name (RFC 9110 token) is not ours to
+				// rewrite: the header is left exactly as whoever sent it wrote it,
+				// and ours is appended as a second one, which means the same list.
+				if ( ! preg_match( '/^[A-Za-z0-9!#$%&\'*+.^_`|~-]+$/', $value ) ) {
+					header( 'Vary: ' . $field, false );
+					return;
+				}
+				$fields[] = $value;
+			}
+		}
+
+		$fields[] = $field;
+
+		header( 'Vary: ' . implode( ', ', $fields ) );
 	}
 
 	/**

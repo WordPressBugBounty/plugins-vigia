@@ -3,6 +3,13 @@ VigIA — Full changelog
 For each release, see the entries below. The latest version is always at the top.
 The current release notes also live in readme.txt under "== Changelog ==".
 
+= 2.6.1 =
+* Improved: The Markdown version of an entry is built once and kept, instead of being converted from scratch on every request. On a 55 KB entry the response went from 74 to 22 milliseconds. It is rebuilt as soon as the entry changes, or a term whose document lists it.
+* Improved: A Markdown response may now be reused for an hour, where it used to tell every agent and proxy not to store it at all. The document is the same one for whoever asks, built as a logged-out visitor, so there was nothing to protect by refusing to cache it. On a site with crawler blocks configured it is marked private instead, so a cache in front of the site never gets to answer for a crawler your site would have turned away.
+* Improved: The MCP tools now tell the client what each of them does to your site. The five that read are marked read-only, and of the four that change something, blocking a crawler and adding a Disallow rule are marked as additive, while unblocking a crawler and removing a rule are marked as destructive. All nine looked alike until now, so asking for crawler statistics got the same approval prompt as blocking a crawler in Claude Desktop, Claude Code or Cursor.
+* Improved: The bundled WordPress MCP Adapter is updated from 0.5.0 to 0.6.1, along with the php-mcp-schema library it depends on. There is nothing to install: both ship inside the plugin, as always.
+* Fix: A page that also answers in Markdown now says so on its HTML response too, with a Vary: Accept header. Without it a shared cache, a CDN or a proxy, stores the HTML with no idea the address has a second form, and can later hand that HTML to an agent asking for Markdown. This covers the HTML WordPress generates, not what a page cache serves straight from disk, and Cloudflare ignores Vary on HTML, where the equivalent is a Cache Rule.
+
 = 2.6.0 =
 * New: Every page now advertises the llms.txt that covers it, with a rel="describedby" link in the head and as a Link header, and also on the .md responses, which have no head to carry it. This is the discovery mechanism version 2 of the llms.txt specification settled on, published in August 2026 and answering the question people asked most in two years of adoption: given a page, how does an agent find the llms.txt that describes it without guessing.
 * New: The Markdown version of an entry also answers at the URL forms the specification writes down for addresses with no file name, /your-post/index.md and /your-post/index.html.md, alongside the /your-post.md the plugin publishes and links to. Nothing changes in the URLs advertised: the extra forms are there for agents that build the address themselves from the specification.
@@ -25,7 +32,7 @@ The current release notes also live in readme.txt under "== Changelog ==".
 * Fix: Rows could show up twice, or not at all, when paging through the activity table, the most crawled pages or the top crawlers. Entries that tied on the sort column had no defined order, so they could change places between one page and the next. The same applies to a CSV export, which is paged the same way.
 * Fix: The analytics tables were unreadable on a phone: they were squeezed into the available width until words broke one letter per line. They now keep readable columns and scroll sideways within their box.
 * Fix: The spinner on the export button never spun and sat misaligned with the label.
-* Fix: CSV exports now write every recorded value as plain text, so spreadsheet software never interprets the contents of a cell.
+* Fix: A CSV export could carry a recorded URL that spreadsheets treat as a formula. A crawler chooses the address it requests, VigIA records it, and opening the file could then run it as a formula. Those values are now written as plain text.
 
 = 2.4.5 =
 * Fix: The llms.txt references in robots.txt could end up duplicated, with a stray "Disallow: /" left in front of the old block, when another plugin rewrote the file and joined two of its lines. Because that leftover sits inside whichever User-agent group precedes it, it could tell every crawler to stay away from the whole site. VigIA now recognises its own markers even when another plugin has glued them to the line above, and repairs an affected robots.txt during the update.

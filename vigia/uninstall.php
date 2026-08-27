@@ -37,6 +37,15 @@ if ( ! empty( $vigia_settings['delete_on_uninstall'] ) ) {
     delete_option( 'vigia_jsonld_settings' );
     delete_option( 'vigia_flush_rewrite' );
     delete_option( 'vigia_aiss_tip_dismissed' );
+    delete_option( 'vigia_md_cache_salt' );
+
+    // Cached markdown documents. One transient per entry served, so there can be
+    // plenty of them; they expire on their own, but an uninstall that was asked
+    // to delete the data should not leave them behind.
+    $vigia_md_like    = $wpdb->esc_like( '_transient_vigia_md_' ) . '%';
+    $vigia_md_timeout = $wpdb->esc_like( '_transient_timeout_vigia_md_' ) . '%';
+    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- One-off cleanup on uninstall; there is no API to delete transients by prefix.
+    $wpdb->query( $wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s", $vigia_md_like, $vigia_md_timeout ) );
 
     // Clear scheduled hooks.
     wp_clear_scheduled_hook( 'vigia_daily_cleanup' );

@@ -4,7 +4,7 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 2.6.0
+Stable tag: 2.6.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -396,6 +396,13 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
+= 2.6.1 =
+* Improved: The Markdown version of an entry is built once and kept, instead of being converted from scratch on every request. On a 55 KB entry the response went from 74 to 22 milliseconds. It is rebuilt as soon as the entry changes, or a term whose document lists it.
+* Improved: A Markdown response may now be reused for an hour, where it used to tell every agent and proxy not to store it at all. The document is the same one for whoever asks, built as a logged-out visitor, so there was nothing to protect by refusing to cache it. On a site with crawler blocks configured it is marked private instead, so a cache in front of the site never gets to answer for a crawler your site would have turned away.
+* Improved: The MCP tools now tell the client what each of them does to your site. The five that read are marked read-only, and of the four that change something, blocking a crawler and adding a Disallow rule are marked as additive, while unblocking a crawler and removing a rule are marked as destructive. All nine looked alike until now, so asking for crawler statistics got the same approval prompt as blocking a crawler in Claude Desktop, Claude Code or Cursor.
+* Improved: The bundled WordPress MCP Adapter is updated from 0.5.0 to 0.6.1, along with the php-mcp-schema library it depends on. There is nothing to install: both ship inside the plugin, as always.
+* Fix: A page that also answers in Markdown now says so on its HTML response too, with a Vary: Accept header. Without it a shared cache, a CDN or a proxy, stores the HTML with no idea the address has a second form, and can later hand that HTML to an agent asking for Markdown. This covers the HTML WordPress generates, not what a page cache serves straight from disk, and Cloudflare ignores Vary on HTML, where the equivalent is a Cache Rule.
+
 = 2.6.0 =
 * New: Every page now advertises the llms.txt that covers it, with a rel="describedby" link in the head and as a Link header, and also on the .md responses, which have no head to carry it. This is the discovery mechanism version 2 of the llms.txt specification settled on, published in August 2026 and answering the question people asked most in two years of adoption: given a page, how does an agent find the llms.txt that describes it without guessing.
 * New: The Markdown version of an entry also answers at the URL forms the specification writes down for addresses with no file name, /your-post/index.md and /your-post/index.html.md, alongside the /your-post.md the plugin publishes and links to. Nothing changes in the URLs advertised: the extra forms are there for agents that build the address themselves from the specification.
@@ -412,8 +419,8 @@ For older changelog entries, please check the [changelog.txt](https://plugins.sv
 
 == Upgrade Notice ==
 
-= 2.6.0 =
-Brings llms.txt and Markdown in line with version 2 of the llms.txt specification: every page now points agents at the llms.txt covering it, and the index links each entry to its Markdown version. The robots.txt references are comments now, so Search Console stops flagging the file.
+= 2.6.1 =
+Markdown documents are built once and kept, and may now be reused for an hour instead of never. Pages that also answer in Markdown announce it with a Vary header. MCP tools now declare which of them only read and which ones change your site.
 
 == Support ==
 
