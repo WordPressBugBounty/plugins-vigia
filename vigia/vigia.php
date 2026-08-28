@@ -3,7 +3,7 @@
  * Plugin Name: VigIA - AI Visibility, Analytics & Control
  * Plugin URI: https://servicios.ayudawp.com
  * Description: Monitor, control, and optimize how AI systems interact with your WordPress site. Track 60+ AI crawlers, manage access via robots.txt, and boost your AI visibility with llms.txt, JSON-LD, Markdown for Agents, and AI Visibility Score.
- * Version: 2.6.1
+ * Version: 2.6.3
  * Author: Fernando Tellado
  * Author URI: https://ayudawp.com
  * License: GPL v2 or later
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'VIGIA_VERSION', '2.6.1' );
+define( 'VIGIA_VERSION', '2.6.3' );
 define( 'VIGIA_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VIGIA_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'VIGIA_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -841,6 +841,14 @@ final class VigIA {
      */
     public function dismiss_notice() {
         check_ajax_referer( 'vigia_dismiss_notice', 'nonce' );
+
+        // The nonce only proves the request came from a page we rendered, not
+        // that the sender may change a site option. Every other handler here
+        // checks the capability; this one did not.
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( '', '', array( 'response' => 403 ) );
+        }
+
         delete_option( 'vigia_activation_notice' );
         wp_die();
     }

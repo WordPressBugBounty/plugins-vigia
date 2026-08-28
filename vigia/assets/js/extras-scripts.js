@@ -789,7 +789,7 @@
                 var termCount = taxData.terms ? taxData.terms.length : 0;
                 var hasSavedFilter = savedTermsByTax[taxName] && savedTermsByTax[taxName].length > 0;
                 
-                html += '<div class="vigia-taxonomy-accordion" data-taxonomy="' + taxName + '">';
+                html += '<div class="vigia-taxonomy-accordion" data-taxonomy="' + escapeHtml(taxName) + '">';
                 
                 // Accordion header (collapsed by default)
                 html += '<div class="vigia-accordion-header">';
@@ -804,8 +804,8 @@
                 
                 // Select all / None controls
                 html += '<div class="vigia-tax-bulk-actions">';
-                html += '<button type="button" class="button button-small vigia-select-all-tax" data-taxonomy="' + taxName + '">' + (vigiaData.strings.includeAll || 'Include all') + '</button>';
-                html += '<button type="button" class="button button-small vigia-select-none-tax" data-taxonomy="' + taxName + '">' + (vigiaData.strings.excludeAll || 'Exclude all') + '</button>';
+                html += '<button type="button" class="button button-small vigia-select-all-tax" data-taxonomy="' + escapeHtml(taxName) + '">' + (vigiaData.strings.includeAll || 'Include all') + '</button>';
+                html += '<button type="button" class="button button-small vigia-select-none-tax" data-taxonomy="' + escapeHtml(taxName) + '">' + (vigiaData.strings.excludeAll || 'Exclude all') + '</button>';
                 html += '<span class="vigia-tax-hint">' + (vigiaData.strings.uncheckToExclude || 'Uncheck to exclude specific terms') + '</span>';
                 html += '</div>';
                 
@@ -823,7 +823,7 @@
                     html += '<input type="checkbox" class="vigia-tax-checkbox" ' +
                             'name="vigia_tax_' + taxName + '[]" ' +
                             'value="' + term.id + '" ' +
-                            'data-taxonomy="' + taxName + '"' + (isChecked ? ' checked' : '') + '>';
+                            'data-taxonomy="' + escapeHtml(taxName) + '"' + (isChecked ? ' checked' : '') + '>';
                     html += ' ' + escapeHtml(term.name) + ' <span class="vigia-term-count">(' + term.count + ')</span>';
                     html += '</label>';
                 });
@@ -1417,13 +1417,30 @@
     }
 
     /**
-     * Escape HTML entities
+     * Escape HTML entities, safe for attribute context too.
+     *
+     * Escapes quotes as well as angle brackets, because callers use this inside
+     * double-quoted attributes (data-title, data-crawler) and not only in text
+     * nodes. A textContent/innerHTML round-trip leaves " and ' intact, which is
+     * safe between tags but lets an attacker-controlled value break out of an
+     * attribute and inject event handlers. Post titles reach this function raw
+     * from the vigia_search_posts AJAX handler, and a post title is
+     * Author-controlled content. Mirrors escapeHtml() in admin-scripts.js and
+     * escHtml() in visibility-scripts.js.
+     *
+     * @param {string} text Text to escape
+     * @return {string} Escaped text, safe for both element and attribute context
      */
     function escapeHtml(text) {
-        if (!text) return '';
-        var div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        if (text === null || typeof text === 'undefined') {
+            return '';
+        }
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     // ==========================================================================

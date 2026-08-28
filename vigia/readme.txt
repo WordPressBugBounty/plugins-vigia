@@ -4,7 +4,7 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 2.6.1
+Stable tag: 2.6.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -208,95 +208,11 @@ Claude Code merges the new entry into its config file automatically — no risk 
 
 Save the JSON block from Quick Connect as `~/.cursor/mcp.json`. You can also reach this file from inside Cursor at *Settings → Cursor Settings → MCP*.
 
-If the file already exists with other content, see "Merging into an existing config file" below.
+If the file already exists with other content, see the FAQ.
 
-= Connecting Claude Desktop =
+= Claude Desktop and other clients =
 
-Save the JSON block from Quick Connect as `claude_desktop_config.json` in your **user** Library (this is not the system Library at the root of the disk):
-
-* macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-* Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-* Linux: `~/.config/Claude/claude_desktop_config.json`
-
-On macOS, the easiest way to reach the folder is to open Finder, press ⌘ Shift G, paste `~/Library/Application Support/Claude/` and hit Enter. On Windows, press Win+R and run `%APPDATA%\Claude`.
-
-Important: **Claude Desktop only speaks stdio to local processes**, so the snippet does not connect directly to VigIA over HTTP. Instead it launches a small bridge package (`mcp-remote`) via `npx` that proxies the connection. This means you need [Node.js](https://nodejs.org/) installed on the machine. The first run downloads `mcp-remote` automatically; subsequent runs use the npm cache.
-
-If you do not want to install Node.js, connect from Claude Code or Cursor instead — both speak HTTP MCP natively and do not need a bridge.
-
-Restart Claude Desktop after saving the file. If the app boots with default preferences, the JSON is malformed — review the file or restore your backup. If Claude Desktop says the entry is "not a valid MCP server configuration", `npx` is not in its PATH; check that Node.js is installed and accessible to GUI apps.
-
-If the file already exists with other content, see "Merging into an existing config file" below.
-
-= Merging into an existing config file =
-
-If your `claude_desktop_config.json` or `~/.cursor/mcp.json` already exists, do **not** paste the full Quick Connect block on top of it. Pasting on top discards everything else (preferences, other MCP servers) and the app will start with defaults.
-
-**Always make a backup of the file first.** Then open it with any text editor that preserves JSON.
-
-There are two scenarios.
-
-**Scenario 1 — the file has content but no mcpServers block yet.**
-
-This is common when you have used Claude Desktop before but never configured MCP servers. The file might look like this:
-
-`{
-  "preferences": {
-    "menuBarEnabled": false,
-    "...": "..."
-  }
-}`
-
-Add `mcpServers` as a sibling property of `preferences`, separated by a comma. The result should be:
-
-`{
-  "preferences": {
-    "menuBarEnabled": false,
-    "...": "..."
-  },
-  "mcpServers": {
-    "vigia": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "mcp-remote",
-        "https://your-site.example/wp-json/vigia/v1/mcp",
-        "--header",
-        "Authorization: Basic BASE64_OF_USER_AND_APP_PASSWORD"
-      ]
-    }
-  }
-}`
-
-The order of `preferences` and `mcpServers` is not important, but the comma between them is required. Forgetting the comma makes the JSON invalid and Claude Desktop will start with default preferences.
-
-**Scenario 2 — the file already has mcpServers with other servers.**
-
-Add the `vigia` entry inside the existing `mcpServers` object, separated from other entries by a comma:
-
-`"mcpServers": {
-  "other-server": {
-    "...": "..."
-  },
-  "vigia": {
-    "command": "npx",
-    "args": [
-      "-y",
-      "mcp-remote",
-      "https://your-site.example/wp-json/vigia/v1/mcp",
-      "--header",
-      "Authorization: Basic BASE64_OF_USER_AND_APP_PASSWORD"
-    ]
-  }
-}`
-
-For Cursor the entry is different — Cursor speaks HTTP MCP natively, so its block uses `type`, `url` and `headers` directly inside the server entry instead of the bridge command. The Quick Connect panel renders the right format for each client.
-
-= Other MCP clients (Codex CLI, Continue, Cline, Antigravity, Zed, custom) =
-
-Most MCP clients accept HTTP transport with a custom Authorization header. The Quick Connect panel exposes the two raw values you need — the server URL and the Authorization header — so you can drop them into whatever configuration format your client expects.
-
-Browser-only assistants without an MCP client (AI Studio, ChatGPT web) cannot connect. They need a desktop or CLI client that speaks MCP over HTTP.
+Claude Desktop does not speak HTTP MCP, so it needs a small bridge and a config file of its own. Any other client (Codex CLI, Continue, Cline, Antigravity, Zed, or your own) takes the two raw values Quick Connect exposes: the server URL and the Authorization header. Both cases are covered in the FAQ, together with how to merge VigIA into a config file that already exists without losing what is in it.
 
 = Read-only mode =
 
@@ -307,6 +223,10 @@ The toggle stores a `vigia_mcp_read_only` option that hooks into the `vigia_can_
 `add_filter( 'vigia_can_write_via_abilities', '__return_false' );`
 
 The mu-plugin filter at the default priority takes precedence over the toggle.
+
+= Who can reach the endpoint =
+
+The endpoint requires the capability to manage options, the same one every tool behind it already asked for. The `vigia_mcp_transport_capability` filter can lower that bar; each tool keeps its own permission check.
 
 = After connecting =
 
@@ -374,6 +294,94 @@ VigIA supports automatic noindex detection from: Yoast SEO, Rank Math, All in On
 
 The Abilities API is a new feature in WordPress 6.9 that allows plugins to expose their functionality in a standardized way. This enables AI agents, automation tools, and external systems to discover and use plugin features programmatically. VigIA implements 9 abilities for analytics, blocking, and robots.txt management.
 
+= How do I connect Claude Desktop? =
+
+Save the JSON block from Quick Connect as `claude_desktop_config.json` in your **user** Library (this is not the system Library at the root of the disk):
+
+* macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+* Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+* Linux: `~/.config/Claude/claude_desktop_config.json`
+
+On macOS, the easiest way to reach the folder is to open Finder, press ⌘ Shift G, paste `~/Library/Application Support/Claude/` and hit Enter. On Windows, press Win+R and run `%APPDATA%\Claude`.
+
+Important: **Claude Desktop only speaks stdio to local processes**, so the snippet does not connect directly to VigIA over HTTP. Instead it launches a small bridge package (`mcp-remote`) via `npx` that proxies the connection. This means you need [Node.js](https://nodejs.org/) installed on the machine. The first run downloads `mcp-remote` automatically; subsequent runs use the npm cache.
+
+If you do not want to install Node.js, connect from Claude Code or Cursor instead — both speak HTTP MCP natively and do not need a bridge.
+
+Restart Claude Desktop after saving the file. If the app boots with default preferences, the JSON is malformed — review the file or restore your backup. If Claude Desktop says the entry is "not a valid MCP server configuration", `npx` is not in its PATH; check that Node.js is installed and accessible to GUI apps.
+
+If the file already exists with other content, see the next question.
+
+= How do I add VigIA to an MCP config file that already exists? =
+
+If your `claude_desktop_config.json` or `~/.cursor/mcp.json` already exists, do **not** paste the full Quick Connect block on top of it. Pasting on top discards everything else (preferences, other MCP servers) and the app will start with defaults.
+
+**Always make a backup of the file first.** Then open it with any text editor that preserves JSON.
+
+There are two scenarios.
+
+**Scenario 1 — the file has content but no mcpServers block yet.**
+
+This is common when you have used Claude Desktop before but never configured MCP servers. The file might look like this:
+
+`{
+  "preferences": {
+    "menuBarEnabled": false,
+    "...": "..."
+  }
+}`
+
+Add `mcpServers` as a sibling property of `preferences`, separated by a comma. The result should be:
+
+`{
+  "preferences": {
+    "menuBarEnabled": false,
+    "...": "..."
+  },
+  "mcpServers": {
+    "vigia": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://your-site.example/wp-json/vigia/v1/mcp",
+        "--header",
+        "Authorization: Basic BASE64_OF_USER_AND_APP_PASSWORD"
+      ]
+    }
+  }
+}`
+
+The order of `preferences` and `mcpServers` is not important, but the comma between them is required. Forgetting the comma makes the JSON invalid and Claude Desktop will start with default preferences.
+
+**Scenario 2 — the file already has mcpServers with other servers.**
+
+Add the `vigia` entry inside the existing `mcpServers` object, separated from other entries by a comma:
+
+`"mcpServers": {
+  "other-server": {
+    "...": "..."
+  },
+  "vigia": {
+    "command": "npx",
+    "args": [
+      "-y",
+      "mcp-remote",
+      "https://your-site.example/wp-json/vigia/v1/mcp",
+      "--header",
+      "Authorization: Basic BASE64_OF_USER_AND_APP_PASSWORD"
+    ]
+  }
+}`
+
+For Cursor the entry is different — Cursor speaks HTTP MCP natively, so its block uses `type`, `url` and `headers` directly inside the server entry instead of the bridge command. The Quick Connect panel renders the right format for each client.
+
+= Can I use an MCP client other than Claude Code, Cursor or Claude Desktop? =
+
+Most MCP clients accept HTTP transport with a custom Authorization header. The Quick Connect panel exposes the two raw values you need — the server URL and the Authorization header — so you can drop them into whatever configuration format your client expects.
+
+Browser-only assistants without an MCP client (AI Studio, ChatGPT web) cannot connect. They need a desktop or CLI client that speaks MCP over HTTP.
+
 = What does JSON-LD do? =
 
 JSON-LD (JavaScript Object Notation for Linked Data) is structured data that helps search engines and AI systems understand your site identity and content. VigIA generates two types of JSON-LD: Site Identity (WebSite + Organization/Person schema with social profiles) and AI Discovery (ReadAction pointers to your llms.txt and Markdown for Agents endpoints). This makes your AI-ready content discoverable through structured signals. Enable it in VigIA > Extras > JSON-LD.
@@ -395,6 +403,15 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 13. Extras page - MCP server status, endpoint, client connection snippets and exposed abilities
 
 == Changelog ==
+
+= 2.6.3 =
+* Improved: The MCP endpoint now asks for the same capability as the tools it exposes. It was left at the default of the bundled adapter, which any subscriber meets, so a logged-in user with no rights over the site could reach the endpoint and list the available tools. Running any of them was never possible, because all nine ask on their own for the capability to manage options, and that has not changed. A vigia_mcp_transport_capability filter is there for an install that needs a different bar.
+
+= 2.6.2 =
+* Improved: The Markdown responses now carry an X-Content-Type-Options: nosniff header, so a browser cannot second-guess their content type and decide to treat them as HTML.
+* Fix: The content search in the LLMs.txt generator did not escape post titles correctly before listing the results, so a title containing quotes could break out of an HTML attribute and run script in the browser of the administrator running the search. Titles come from anyone who can publish, the Author role included. The escaping function now encodes quotes, the same way the rest of the plugin already did.
+* Fix: On multisite, robots.txt, llms.txt and llms-full.txt sit at the network root and are one set of files for every site in the network, yet any subsite administrator could rewrite them. Only the main site writes them now. Subsites keep their own rules and keep serving them through the virtual robots.txt, which is per site.
+* Fix: Dismissing the activation notice checked that the request came from a page of the plugin, but not that whoever sent it was allowed to change a site option. It now checks the capability like every other handler does.
 
 = 2.6.1 =
 * Improved: The Markdown version of an entry is built once and kept, instead of being converted from scratch on every request. On a 55 KB entry the response went from 74 to 22 milliseconds. It is rebuilt as soon as the entry changes, or a term whose document lists it.
@@ -419,8 +436,8 @@ For older changelog entries, please check the [changelog.txt](https://plugins.sv
 
 == Upgrade Notice ==
 
-= 2.6.1 =
-Markdown documents are built once and kept, and may now be reused for an hour instead of never. Pages that also answer in Markdown announce it with a Vary header. MCP tools now declare which of them only read and which ones change your site.
+= 2.6.3 =
+The MCP endpoint now asks for the same capability as the tools it exposes, instead of the default of the bundled adapter, which any subscriber meets. No tool was ever runnable by them, so nothing changes for administrators.
 
 == Support ==
 

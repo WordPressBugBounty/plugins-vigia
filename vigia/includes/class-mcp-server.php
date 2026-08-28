@@ -74,6 +74,47 @@ class VigIA_MCP_Server {
 	}
 
 	/**
+	 * Permission gate for the MCP transport endpoint itself.
+	 *
+	 * Passed to the adapter as the transport permission callback so the
+	 * endpoint does not fall back to the adapter's own default, which is
+	 * current_user_can( 'read' ) and therefore open to any subscriber.
+	 * Every ability already requires manage_options on its own, so a
+	 * subscriber could never invoke one; what this closes is the ability
+	 * to reach the endpoint and enumerate the available tools.
+	 *
+	 * manage_options is a per-site capability, which is the right bar
+	 * here: the abilities that write the files shared by a whole network
+	 * carry their own network gate (see
+	 * VigIA_Robots_Manager::current_user_can_manage_root_files()).
+	 *
+	 * @since 2.6.3
+	 *
+	 * @param WP_REST_Request $request Incoming request. Unused, kept for
+	 *                                 the adapter's callback signature.
+	 * @return bool
+	 */
+	public static function check_transport_permission( $request = null ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.Found -- Signature required by the MCP Adapter.
+		/**
+		 * Filters the capability required to reach the VigIA MCP endpoint.
+		 *
+		 * Only gates the transport. Each ability keeps its own permission
+		 * check, so relaxing this does not grant the right to run them.
+		 *
+		 * @since 2.6.3
+		 *
+		 * @param string $capability Capability required. Default 'manage_options'.
+		 */
+		$capability = apply_filters( 'vigia_mcp_transport_capability', 'manage_options' );
+
+		if ( ! is_string( $capability ) || '' === $capability ) {
+			$capability = 'manage_options';
+		}
+
+		return current_user_can( $capability ); // phpcs:ignore WordPress.WP.Capabilities.Undetermined -- Filtered capability, defaults to manage_options.
+	}
+
+	/**
 	 * Whether the WordPress MCP Adapter is loaded.
 	 *
 	 * Only checks that the class is autoloaded. The adapter will additionally
@@ -156,7 +197,8 @@ class VigIA_MCP_Server {
 			'\\WP\\MCP\\Infrastructure\\Observability\\NullMcpObservabilityHandler',
 			$tools,
 			array(),
-			array()
+			array(),
+			array( __CLASS__, 'check_transport_permission' )
 		);
 	}
 }

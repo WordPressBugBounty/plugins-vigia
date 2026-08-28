@@ -1588,6 +1588,17 @@ class VigIA_LLMS_Generator {
     private static function write_file( $filename, $content ) {
         global $wp_filesystem;
 
+        // llms.txt and llms-full.txt live at ABSPATH, one set of files for a whole
+        // network. Only the main site writes them, so a subsite never overwrites
+        // what every other site in the network serves. See
+        // VigIA_Robots_Manager::owns_root_files().
+        if ( is_multisite() && ! is_main_site() ) {
+            return new WP_Error(
+                'network_root_file',
+                __( 'Files at the site root belong to the network root and can only be managed from the main site.', 'vigia' )
+            );
+        }
+
         if ( ! function_exists( 'WP_Filesystem' ) ) {
             require_once ABSPATH . 'wp-admin/includes/file.php';
         }
@@ -1639,12 +1650,19 @@ class VigIA_LLMS_Generator {
             return false;
         }
 
+        // Same ownership rule as write_file(): a subsite must not delete the
+        // network root's files.
+        if ( is_multisite() && ! is_main_site() ) {
+            return false;
+        }
+
         $path = ABSPATH . $filename;
         if ( ! file_exists( $path ) ) {
             return true;
         }
 
-        return unlink( $path ); // phpcs:ignore
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- wp_delete_file() returns void, and the caller needs to know whether the file is gone. Path is one of two literals from the allowlist above, always at ABSPATH.
+        return unlink( $path );
     }
 
     /**

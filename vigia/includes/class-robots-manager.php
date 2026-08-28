@@ -336,6 +336,12 @@ class VigIA_Robots_Manager {
             return false;
         }
 
+        // The file at ABSPATH is shared by the whole network. Only the main site
+        // writes it; a subsite would be rewriting everyone else's robots.txt.
+        if ( ! self::owns_root_files() ) {
+            return false;
+        }
+
         $robots_path = ABSPATH . 'robots.txt';
 
         // Check if writable.
@@ -801,6 +807,44 @@ class VigIA_Robots_Manager {
     }
 
     /**
+     * Whether this site owns the shared files at the filesystem root.
+     *
+     * robots.txt, llms.txt and llms-full.txt live at ABSPATH, which in a
+     * multisite network is a single set of files for the whole network, not one
+     * per site. Only the main site may write them. Otherwise any subsite
+     * administrator rewrites the file every other site in the network serves,
+     * because manage_options is a per-site capability, and two subsites saving
+     * in turn would take turns overwriting each other.
+     *
+     * Subsites keep their own rules and keep serving them through the virtual
+     * robots.txt filter, which is per site and unaffected by this.
+     *
+     * @since 2.6.2
+     *
+     * @return bool True when this site may write the root files.
+     */
+    public static function owns_root_files() {
+        return ! is_multisite() || is_main_site();
+    }
+
+    /**
+     * Whether the current user may manage the shared files at the network root.
+     *
+     * In a network these files belong to the network, so managing them takes a
+     * network capability. On a single site manage_options is the right bar and
+     * nothing changes.
+     *
+     * @since 2.6.2
+     *
+     * @return bool
+     */
+    public static function current_user_can_manage_root_files() {
+        return is_multisite()
+            ? current_user_can( 'manage_network_options' )
+            : current_user_can( 'manage_options' );
+    }
+
+    /**
      * Check if physical robots.txt file exists
      *
      * @return bool
@@ -854,6 +898,14 @@ class VigIA_Robots_Manager {
 
         if ( ! self::has_physical_robots() ) {
             return new WP_Error( 'no_physical', __( 'No physical robots.txt file found.', 'vigia' ) );
+        }
+
+        // Shared across the network: main site only. See owns_root_files().
+        if ( ! self::owns_root_files() ) {
+            return new WP_Error(
+                'network_root_file',
+                __( 'The physical robots.txt belongs to the network root and can only be managed from the main site.', 'vigia' )
+            );
         }
 
         // Check if writable.

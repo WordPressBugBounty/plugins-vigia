@@ -1086,6 +1086,7 @@ class VigIA_Markdown_Endpoints {
 						status_header( 403 );
 						nocache_headers();
 						header( 'Content-Type: text/plain; charset=utf-8' );
+						header( 'X-Content-Type-Options: nosniff' );
 						echo 'Access denied';
 						exit;
 					}
@@ -1112,6 +1113,11 @@ class VigIA_Markdown_Endpoints {
 		header_remove( 'Expires' );
 
 		header( 'Content-Type: text/markdown; charset=utf-8' );
+		// The body is plain Markdown, never HTML, and the generator strips script
+		// and event-handler markup out of post content on the way in. nosniff keeps
+		// a browser from second-guessing that and rendering the response as HTML in
+		// the site's own origin.
+		header( 'X-Content-Type-Options: nosniff' );
 		self::merge_vary_header( 'Accept' );
 		header( 'X-Markdown-Tokens: ' . $token_count );
 		header( 'Link: <' . esc_url( $canonical_url ) . '>; rel="canonical"' );
@@ -2461,6 +2467,7 @@ class VigIA_Markdown_Endpoints {
 		status_header( 404 );
 		nocache_headers();
 		header( 'Content-Type: text/plain; charset=utf-8' );
+		header( 'X-Content-Type-Options: nosniff' );
 		echo 'Not found';
 		exit;
 	}

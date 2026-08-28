@@ -3,6 +3,15 @@ VigIA — Full changelog
 For each release, see the entries below. The latest version is always at the top.
 The current release notes also live in readme.txt under "== Changelog ==".
 
+= 2.6.3 =
+* Improved: The MCP endpoint now asks for the same capability as the tools it exposes. It was left at the default of the bundled adapter, which any subscriber meets, so a logged-in user with no rights over the site could reach the endpoint and list the available tools. Running any of them was never possible, because all nine ask on their own for the capability to manage options, and that has not changed. A vigia_mcp_transport_capability filter is there for an install that needs a different bar.
+
+= 2.6.2 =
+* Improved: The Markdown responses now carry an X-Content-Type-Options: nosniff header, so a browser cannot second-guess their content type and decide to treat them as HTML.
+* Fix: The content search in the LLMs.txt generator did not escape post titles correctly before listing the results, so a title containing quotes could break out of an HTML attribute and run script in the browser of the administrator running the search. Titles come from anyone who can publish, the Author role included. The escaping function now encodes quotes, the same way the rest of the plugin already did.
+* Fix: On multisite, robots.txt, llms.txt and llms-full.txt sit at the network root and are one set of files for every site in the network, yet any subsite administrator could rewrite them. Only the main site writes them now. Subsites keep their own rules and keep serving them through the virtual robots.txt, which is per site.
+* Fix: Dismissing the activation notice checked that the request came from a page of the plugin, but not that whoever sent it was allowed to change a site option. It now checks the capability like every other handler does.
+
 = 2.6.1 =
 * Improved: The Markdown version of an entry is built once and kept, instead of being converted from scratch on every request. On a 55 KB entry the response went from 74 to 22 milliseconds. It is rebuilt as soon as the entry changes, or a term whose document lists it.
 * Improved: A Markdown response may now be reused for an hour, where it used to tell every agent and proxy not to store it at all. The document is the same one for whoever asks, built as a logged-out visitor, so there was nothing to protect by refusing to cache it. On a site with crawler blocks configured it is marked private instead, so a cache in front of the site never gets to answer for a crawler your site would have turned away.
