@@ -4,7 +4,7 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 2.6.3
+Stable tag: 2.6.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -404,6 +404,11 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
+= 2.6.4 =
+* Improved: The bundled WordPress MCP Adapter is updated to the current upstream release. There is nothing to install: it ships inside the plugin, as always.
+* Improved: The MCP server now refuses to start when the adapter that ends up loaded no longer takes the permission callback that guards the endpoint, rather than letting it fall back to the adapter own default, which any subscriber meets. No adapter in circulation behaves that way, so nothing changes today.
+* Fix: VigIA clashed with other plugins that bundle the same MCP Adapter, such as the standalone MCP Adapter plugin. The log filled with Constant WP_MCP_DIR already defined and Constant WP_MCP_VERSION already defined, and the site went down with a fatal Cannot redeclare class WP\MCP\Autoloader when the other copy loaded first. VigIA no longer runs the adapter standalone plugin file, which is what declared those names, and starts the classes directly, the same way WooCommerce, WP Rocket and Elementor do.
+
 = 2.6.3 =
 * Improved: The MCP endpoint now asks for the same capability as the tools it exposes. It was left at the default of the bundled adapter, which any subscriber meets, so a logged-in user with no rights over the site could reach the endpoint and list the available tools. Running any of them was never possible, because all nine ask on their own for the capability to manage options, and that has not changed. A vigia_mcp_transport_capability filter is there for an install that needs a different bar.
 
@@ -436,8 +441,8 @@ For older changelog entries, please check the [changelog.txt](https://plugins.sv
 
 == Upgrade Notice ==
 
-= 2.6.3 =
-The MCP endpoint now asks for the same capability as the tools it exposes, instead of the default of the bundled adapter, which any subscriber meets. No tool was ever runnable by them, so nothing changes for administrators.
+= 2.6.4 =
+VigIA no longer clashes with other plugins that bundle the same MCP Adapter. Before this, the log filled with warnings about WP_MCP_DIR and WP_MCP_VERSION, and the site could go down with a fatal error when the other copy loaded first.
 
 == Support ==
 

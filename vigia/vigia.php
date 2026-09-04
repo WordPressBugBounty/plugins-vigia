@@ -3,7 +3,7 @@
  * Plugin Name: VigIA - AI Visibility, Analytics & Control
  * Plugin URI: https://servicios.ayudawp.com
  * Description: Monitor, control, and optimize how AI systems interact with your WordPress site. Track 60+ AI crawlers, manage access via robots.txt, and boost your AI visibility with llms.txt, JSON-LD, Markdown for Agents, and AI Visibility Score.
- * Version: 2.6.3
+ * Version: 2.6.4
  * Author: Fernando Tellado
  * Author URI: https://ayudawp.com
  * License: GPL v2 or later
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'VIGIA_VERSION', '2.6.3' );
+define( 'VIGIA_VERSION', '2.6.4' );
 define( 'VIGIA_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VIGIA_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'VIGIA_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -69,35 +69,36 @@ final class VigIA {
         if ( file_exists( VIGIA_PLUGIN_DIR . 'vendor/autoload.php' ) ) {
             require_once VIGIA_PLUGIN_DIR . 'vendor/autoload.php';
 
-            // The MCP Adapter ships as a WordPress plugin: its main file
-            // defines constants and calls Plugin::instance() to bootstrap
-            // the adapter into the rest_api_init hook chain. Composer's
-            // autoload only sets up class autoloading, so we require the
-            // plugin file explicitly to trigger the bootstrap.
+            // Boot the bundled adapter WITHOUT loading its mcp-adapter.php
+            // file. That file is the adapter's standalone-plugin wrapper: it
+            // declares the WP\MCP\Autoloader class and, in older releases,
+            // the WP\MCP\constants() function plus WP_MCP_DIR and
+            // WP_MCP_VERSION. Every one of those is a global name, so a second
+            // plugin shipping its own copy of the adapter turns them into
+            // "already defined" warnings and a fatal "Cannot redeclare class
+            // WP\MCP\Autoloader". WooCommerce, WP Rocket and Elementor all
+            // consume the adapter by calling McpAdapter::instance() on the
+            // autoloaded classes; this does the same.
             //
-            // We must also tell the adapter to skip its own bundled
-            // Autoloader: when installed as a sub-dependency (not as a
-            // standalone WP plugin), the adapter's own vendor/autoload.php
-            // doesn't exist inside its directory, so its Autoloader logs
-            // a misleading admin notice and short-circuits the bootstrap,
-            // which would prevent Plugin::instance() from running. Our
-            // parent autoload already maps WP\MCP\* classes correctly.
-            // Skip bootstrap if the standalone MCP Adapter plugin is also
-            // active: it loads first (alphabetical plugin order) and has
-            // already declared WP\MCP\constants(). Re-requiring our copy
-            // would fatal with "Cannot redeclare WP\MCP\constants()". Our
-            // vendor/autoload.php remains registered as a harmless fallback
-            // in case the standalone's own autoloader failed.
-            $vigia_mcp_bootstrap = VIGIA_PLUGIN_DIR . 'vendor/wordpress/mcp-adapter/mcp-adapter.php';
-            if ( file_exists( $vigia_mcp_bootstrap ) && ! function_exists( 'WP\\MCP\\constants' ) ) {
-                if ( ! defined( 'WP_MCP_AUTOLOAD' ) ) {
-                    // The WordPress MCP Adapter checks this exact constant name
-                    // to skip its own bundled autoloader (we use our own PSR-4
-                    // loader in vendor/autoload.php), so the name is fixed by
-                    // the upstream library and cannot be prefixed.
-                    define( 'WP_MCP_AUTOLOAD', false ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound -- upstream contract.
+            // Guarding on function_exists( 'WP\MCP\constants' ) is NOT enough:
+            // upstream dropped that function, so recent copies pass the guard.
+            //
+            // WP_MCP_DIR is deliberately left undefined. Nothing in VigIA reads
+            // it, and pointing it at our directory would send another copy's
+            // Autoloader looking for its Composer autoloader inside our bundle.
+            if ( class_exists( '\\WP\\MCP\\Core\\McpAdapter' ) ) {
+                if ( ! defined( 'WP_MCP_VERSION' ) ) {
+                    // Declared before instantiating: without it the adapter
+                    // logs a deprecation notice on every request, its way of
+                    // telling library consumers to install the standalone
+                    // plugin. The name is fixed by upstream and cannot be
+                    // prefixed. Read from the class that actually loaded, so
+                    // the value stays true if another plugin's copy won the
+                    // autoload race.
+                    define( 'WP_MCP_VERSION', \WP\MCP\Core\McpAdapter::VERSION ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound -- upstream contract.
                 }
-                require_once $vigia_mcp_bootstrap;
+
+                \WP\MCP\Core\McpAdapter::instance();
             }
         }
 

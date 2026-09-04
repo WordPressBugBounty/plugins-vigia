@@ -46,6 +46,16 @@ class VigIA_MCP_Server {
 	const SERVER_VERSION = 'v1';
 
 	/**
+	 * Zero-based position of create_server()'s transport permission callback.
+	 *
+	 * The callback is passed positionally, so this slot is load-bearing for
+	 * access control. See adapter_accepts_permission_callback().
+	 *
+	 * @var int
+	 */
+	const PERMISSION_CALLBACK_ARG = 12;
+
+	/**
 	 * Hook registration.
 	 */
 	public static function init() {
@@ -115,9 +125,11 @@ class VigIA_MCP_Server {
 	}
 
 	/**
-	 * Whether the WordPress MCP Adapter is loaded.
+	 * Whether a usable WordPress MCP Adapter is loaded.
 	 *
-	 * Only checks that the class is autoloaded. The adapter will additionally
+	 * Checks that the class is autoloaded AND that its create_server() still
+	 * takes our transport permission callback, because an adapter we cannot
+	 * lock down is worse than no adapter at all. The adapter will additionally
 	 * bail out at runtime if the Abilities API is not available, so a true
 	 * here does not guarantee the MCP routes are actually registered. Use
 	 * is_mcp_active() for the full readiness check.
@@ -125,7 +137,53 @@ class VigIA_MCP_Server {
 	 * @return bool
 	 */
 	public static function is_adapter_available() {
-		return class_exists( '\\WP\\MCP\\Core\\McpAdapter' );
+		return class_exists( '\\WP\\MCP\\Core\\McpAdapter' )
+			&& self::adapter_accepts_permission_callback();
+	}
+
+	/**
+	 * Whether the loaded adapter still takes our permission callback.
+	 *
+	 * VigIA passes check_transport_permission() positionally, as the 13th
+	 * argument of create_server(). VigIA bundles its own copy of the adapter,
+	 * but WooCommerce, WP Rocket and Elementor bundle or consume it too, and
+	 * whichever autoloader is registered first wins, so the signature we call
+	 * is not necessarily the one we ship. If that slot ever stops being the
+	 * permission callback, the argument is silently ignored, HttpTransport
+	 * falls back to its own default of current_user_can( 'read' ), and every
+	 * subscriber on the site reaches the MCP endpoint.
+	 *
+	 * Verified identical across adapter 0.3.0, 0.5.0, 0.6.1 and upstream trunk,
+	 * so this never fires today. It exists so a future signature change downs
+	 * the server instead of quietly opening it.
+	 *
+	 * @return bool
+	 */
+	public static function adapter_accepts_permission_callback() {
+		static $accepts = null;
+
+		if ( null !== $accepts ) {
+			return $accepts;
+		}
+
+		// Answered without caching while the class is still unloaded, so an
+		// early caller cannot freeze a false for the rest of the request.
+		if ( ! class_exists( '\\WP\\MCP\\Core\\McpAdapter' ) ) {
+			return false;
+		}
+
+		try {
+			$params = ( new \ReflectionMethod( '\\WP\\MCP\\Core\\McpAdapter', 'create_server' ) )->getParameters();
+		} catch ( \ReflectionException $e ) {
+			$accepts = false;
+
+			return $accepts;
+		}
+
+		$accepts = isset( $params[ self::PERMISSION_CALLBACK_ARG ] )
+			&& 'transport_permission_callback' === $params[ self::PERMISSION_CALLBACK_ARG ]->getName();
+
+		return $accepts;
 	}
 
 	/**
@@ -168,6 +226,12 @@ class VigIA_MCP_Server {
 		}
 
 		if ( ! is_object( $adapter ) || ! method_exists( $adapter, 'create_server' ) ) {
+			return;
+		}
+
+		// Fail closed. No MCP server at all beats one whose endpoint answers
+		// to any logged-in subscriber. See adapter_accepts_permission_callback().
+		if ( ! self::adapter_accepts_permission_callback() ) {
 			return;
 		}
 
