@@ -3,7 +3,7 @@
  * Plugin Name: VigIA - AI Visibility, Analytics & Control
  * Plugin URI: https://servicios.ayudawp.com
  * Description: Monitor, control, and optimize how AI systems interact with your WordPress site. Track 60+ AI crawlers, manage access via robots.txt, and boost your AI visibility with llms.txt, JSON-LD, Markdown for Agents, and AI Visibility Score.
- * Version: 2.6.4
+ * Version: 2.6.5
  * Author: Fernando Tellado
  * Author URI: https://ayudawp.com
  * License: GPL v2 or later
@@ -22,10 +22,47 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'VIGIA_VERSION', '2.6.4' );
+define( 'VIGIA_VERSION', '2.6.5' );
 define( 'VIGIA_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VIGIA_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'VIGIA_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
+
+/**
+ * The site name as its owner typed it.
+ *
+ * WordPress stores `blogname` already escaped: `sanitize_option()` runs
+ * `esc_html()` over it before writing (`wp-includes/formatting.php`), so
+ * `get_bloginfo( 'name' )` hands back `Mus&eacute;e d&#039;Impressionnisme`. A
+ * browser resolves that and nobody notices; everything else shows the code, and
+ * this plugin produces mostly everything else: llms.txt, llms-full.txt, .md
+ * documents, JSON-LD inside a script tag, and email subjects.
+ *
+ * Core's own recipe, used verbatim in 18 places in `wp-includes/pluggable.php`.
+ * The second argument is the part that is easy to miss: the default
+ * `ENT_NOQUOTES` decodes `&amp;` but leaves `&#039;` and `&quot;` alone, which
+ * is exactly the reported case.
+ *
+ * Single helper on purpose, so a caller cannot get the second argument wrong.
+ * Same shape as `ayudawp_euw_get_site_name()` in eu-withdrawal-compliance.
+ *
+ * @since 2.6.5
+ * @return string
+ */
+function vigia_get_site_name() {
+    return wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES );
+}
+
+/**
+ * The site tagline, decoded for the same reason as vigia_get_site_name().
+ *
+ * `blogdescription` goes through the same `esc_html()` in `sanitize_option()`.
+ *
+ * @since 2.6.5
+ * @return string
+ */
+function vigia_get_site_description() {
+    return wp_specialchars_decode( get_bloginfo( 'description' ), ENT_QUOTES );
+}
 
 /**
  * Main plugin class
@@ -400,6 +437,14 @@ final class VigIA {
         // invisible to our cleanup, so the broken line stayed and every save
         // appended one more copy of the block. No-op when there is nothing glued.
         VigIA_Robots_Manager::repair_physical_robots();
+
+        // The Markdown documents are cached for 12 hours behind a salted key, and
+        // nothing in an update touches that salt: without this, an update whose
+        // whole point is the content of those documents keeps serving the old
+        // ones for half a day. Same reasoning as the llms rebuild below, and the
+        // flush is a single option bump, so it costs nothing when there is
+        // nothing cached.
+        VigIA_Markdown_Endpoints::flush_all();
 
         // A file on disk is the signal: the llms generator has no on/off flag of
         // its own, it either has written the files or it has not. Nothing to
@@ -1318,7 +1363,7 @@ final class VigIA {
         );
 
         if ( empty( $settings['site_name'] ) ) {
-            $settings['site_name'] = get_bloginfo( 'name' );
+            $settings['site_name'] = vigia_get_site_name();
         }
 
         if ( empty( $settings['post_types'] ) && empty( $settings['manual_includes'] ) ) {
@@ -1363,7 +1408,7 @@ final class VigIA {
         );
 
         if ( empty( $settings['site_name'] ) ) {
-            $settings['site_name'] = get_bloginfo( 'name' );
+            $settings['site_name'] = vigia_get_site_name();
         }
 
         VigIA_LLMS_Generator::save_settings( $settings );

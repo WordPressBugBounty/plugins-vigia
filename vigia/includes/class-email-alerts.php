@@ -254,7 +254,10 @@ class VigIA_Email_Alerts {
      * @return string
      */
     private static function get_email_subject( $frequency ) {
-        $site_name = get_bloginfo( 'name' );
+        // The subject of an email is plain text even when the body is HTML, so
+        // an entity here travels as its own source code. The body below prints
+        // the same value through esc_html(), which is why only this one showed.
+        $site_name = vigia_get_site_name();
 
         $subjects = array(
             'daily'   => /* translators: %s: site name */ __( '[VigIA] Daily AI Crawler Report - %s', 'vigia' ),
@@ -276,7 +279,7 @@ class VigIA_Email_Alerts {
      * @return string HTML email body.
      */
     private static function format_email_body( $report, $level, $is_test = false ) {
-        $site_name = get_bloginfo( 'name' );
+        $site_name = vigia_get_site_name();
         $site_url  = home_url();
 
         ob_start();

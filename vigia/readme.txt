@@ -4,7 +4,7 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 2.6.4
+Stable tag: 2.6.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -404,6 +404,20 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
+= 2.6.5 =
+llms.txt and llms-full.txt now come out as clean plain text: no byte order mark at the start, no HTML entities in titles, and page summaries that no longer weld a heading to the paragraph under it.
+
+* Improved: Both files are now built in the language of the site, not in the language the administrator reads wp-admin in. The section headings are the names WordPress gives your content types, so on a Spanish site generated from an English admin they used to come out as Posts and Pages.
+* Improved: The JSON-LD preview in the settings screen now escapes angle brackets when it hands the site name to the browser. Nothing changes on screen; it is what allows the site name to be decoded everywhere else without opening a way to close the script tag from the site title.
+* Fix: llms.txt and llms-full.txt began with a UTF-8 byte order mark, three bytes written on purpose so editors would detect the encoding. UTF-8 needs no mark, and those bytes are content: the first heading was no longer the first thing in the file, and a strict Markdown parser read it as a paragraph instead of a title. Both files are now written without it, and a mark arriving inside the content is stripped.
+* Fix: Titles came out with HTML entities in them, so a post called Bull&Bear was listed as Bull&#038;Bear while its own summary, a few words later, showed the ampersand correctly. Nothing renders these files as HTML, so the code was what an agent read. Titles, term names, authors and the body of llms-full.txt are now decoded, in the index, in llms-full.txt and in the Markdown documents and their frontmatter.
+* Fix: The summary of a page with no hand-written excerpt welded its blocks together, so a heading ran straight into the paragraph below it and read as one broken sentence. The markup was carrying that full stop and stripping the tags threw it away. Block boundaries are now kept as sentence breaks, in llms.txt and in the description of the Markdown documents.
+* Fix: The page assigned as Posts page in Settings > Reading was listed with neither a summary nor a Markdown link, the only entry in the file missing both. WordPress shows the blog loop there and never renders that page own content, which is usually empty. It is now described as the blog index.
+* Fix: The site name and the tagline came out escaped, as WordPress stores them that way, so a site called Musee d&#039;Art appeared like that in the heading of both files, in the JSON-LD name, and in the subject of the report emails. All of them now show the name as its owner typed it.
+* Fix: A summary was cut by bytes rather than by characters, so the cut could land in the middle of an accented letter and write an invalid byte into the file.
+* Fix: A summary that contained a comparison written without a space, such as 5<10, lost everything after it. The character was stored as an entity and decoding it back handed the rest of the line to a tag that never closed. This showed in the description of the Markdown documents, and it now keeps the whole text while still taking out anything shaped like a tag.
+* Fix: The body of a Markdown document carried through any HTML that had been stored as an entity, so a script tag written by someone able to publish arrived as a live tag in a document an agent may render. It now goes through the same filter as the summaries, in the text and in list items. Fenced code blocks and inline code are left exactly as they were: HTML there is what the page is about, not markup, and nothing renders it.
+
 = 2.6.4 =
 * Improved: The bundled WordPress MCP Adapter is updated to the current upstream release. There is nothing to install: it ships inside the plugin, as always.
 * Improved: The MCP server now refuses to start when the adapter that ends up loaded no longer takes the permission callback that guards the endpoint, rather than letting it fall back to the adapter own default, which any subscriber meets. No adapter in circulation behaves that way, so nothing changes today.
@@ -441,8 +455,9 @@ For older changelog entries, please check the [changelog.txt](https://plugins.sv
 
 == Upgrade Notice ==
 
-= 2.6.4 =
-VigIA no longer clashes with other plugins that bundle the same MCP Adapter. Before this, the log filled with warnings about WP_MCP_DIR and WP_MCP_VERSION, and the site could go down with a fatal error when the other copy loaded first.
+= 2.6.5 =
+llms.txt and llms-full.txt now come out as clean plain text: no byte order mark at the start, no HTML entities in titles, and page summaries that no longer weld a heading to the paragraph under it.
+
 
 == Support ==
 

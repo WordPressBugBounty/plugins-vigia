@@ -912,7 +912,7 @@ class VigIA_Rest_API {
      */
     private static function build_csv_metadata( $export_type, $range, $applied_filters = array() ) {
         $lines = array(
-            array( __( 'Site name', 'vigia' ), wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES ) ),
+            array( __( 'Site name', 'vigia' ), vigia_get_site_name() ),
             array( __( 'Site URL', 'vigia' ), home_url( '/' ) ),
             array( __( 'Export type', 'vigia' ), $export_type ),
             array( __( 'Date range', 'vigia' ), $range['start'] . ' / ' . $range['end'] ),

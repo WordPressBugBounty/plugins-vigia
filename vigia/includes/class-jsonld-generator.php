@@ -205,7 +205,7 @@ class VigIA_JsonLD_Generator {
 				'@type' => 'WebSite',
 				'@id'   => $site_url . '/#website',
 				'url'   => $site_url . '/',
-				'name'  => ! empty( $settings['entity_name'] ) ? $settings['entity_name'] : get_bloginfo( 'name' ),
+				'name'  => ! empty( $settings['entity_name'] ) ? $settings['entity_name'] : vigia_get_site_name(),
 			);
 
 			if ( ! empty( $settings['entity_description'] ) ) {
@@ -237,7 +237,7 @@ class VigIA_JsonLD_Generator {
 			$entity = array(
 				'@type' => $settings['entity_type'],
 				'@id'   => $site_url . '/#identity',
-				'name'  => ! empty( $settings['entity_name'] ) ? $settings['entity_name'] : get_bloginfo( 'name' ),
+				'name'  => ! empty( $settings['entity_name'] ) ? $settings['entity_name'] : vigia_get_site_name(),
 				'url'   => ! empty( $settings['entity_url'] ) ? $settings['entity_url'] : $site_url . '/',
 			);
 
@@ -331,7 +331,7 @@ class VigIA_JsonLD_Generator {
 						'@type'           => 'WebSite',
 						'@id'             => $site_url . '/#website',
 						'url'             => $site_url . '/',
-						'name'            => get_bloginfo( 'name' ),
+						'name'            => vigia_get_site_name(),
 						'potentialAction' => $ai_actions,
 					);
 				}

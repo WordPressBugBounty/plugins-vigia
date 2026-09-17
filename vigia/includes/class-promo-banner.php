@@ -63,6 +63,7 @@ class Vigia_Promo_Banner {
 				'title'       => __( 'Need help with your website?', 'vigia' ),
 				'description' => __( 'Professional WordPress maintenance: security monitoring, regular backups, performance optimization, and priority support.', 'vigia' ),
 				'button'      => __( 'Learn more', 'vigia' ),
+				/* translators: AyudaWP maintenance service URL. Change this URL in translations to use a localized landing page. */
 				'url'         => __( 'https://mantenimiento.ayudawp.com/en/', 'vigia' ),
 			),
 			'consultancy' => array(
@@ -93,6 +94,14 @@ class Vigia_Promo_Banner {
 				'button'      => __( 'Learn more', 'vigia' ),
 				/* translators: SiteGround affiliate URL. Change this URL in translations to use a localized landing page. */
 				'url'         => __( 'https://stgrnd.co/telladowpbox', 'vigia' ),
+			),
+			'plugins'     => array(
+				'icon'        => 'dashicons-admin-plugins',
+				'title'       => __( 'Premium WordPress plugins', 'vigia' ),
+				'description' => __( 'Focused plugins for WordPress and WooCommerce, each solving one problem well. No bloated suites, no upsell nags, no telemetry.', 'vigia' ),
+				'button'      => __( 'Browse plugins', 'vigia' ),
+				/* translators: AyudaWP plugin store URL. Change this URL in translations to use a localized landing page. */
+				'url'         => __( 'https://plugins.ayudawp.com/en/', 'vigia' ),
 			),
 		);
 	}

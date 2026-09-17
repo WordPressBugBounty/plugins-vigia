@@ -185,12 +185,13 @@ class VigIA_LLMS_Generator {
         }
         $settings = self::normalize_settings( $settings );
 
-        // Defaults for empty values.
+        // Defaults for empty values. Decoded, because core stores both already
+        // escaped and these two end up in a plain text file. See site_name().
         if ( empty( $settings['site_name'] ) ) {
-            $settings['site_name'] = get_bloginfo( 'name' );
+            $settings['site_name'] = self::site_name();
         }
         if ( empty( $settings['site_description'] ) ) {
-            $settings['site_description'] = get_bloginfo( 'description' );
+            $settings['site_description'] = self::site_description();
         }
 
         return $settings;
@@ -321,12 +322,25 @@ class VigIA_LLMS_Generator {
         // everybody, but they are built by whoever pressed the button in wp-admin.
         // Build them as a logged-out visitor so what goes in is what a logged-out
         // visitor may read. See VigIA_Content_Access::begin_anonymous_context().
+        // And in the site's language, not the admin's. Both files are one copy
+        // served to everybody, but the section headings are post type labels and
+        // the posts page summary is a translated string, so whoever pressed the
+        // button would otherwise decide what language they come out in: an admin
+        // reading wp-admin in English writes `## Posts` into a Spanish site's
+        // llms.txt. switch_to_locale() returns false when the locale is already
+        // the current one, which is the cron case.
+        $switched = switch_to_locale( get_locale() );
+
         VigIA_Content_Access::begin_anonymous_context();
 
         try {
             return self::build_and_write( $settings );
         } finally {
             VigIA_Content_Access::end_anonymous_context();
+
+            if ( $switched ) {
+                restore_previous_locale();
+            }
         }
     }
 
@@ -404,13 +418,20 @@ class VigIA_LLMS_Generator {
 
         $settings = self::normalize_settings( self::get_settings() );
 
-        // Same reasoning as generate(): built by an admin, read by everybody.
+        // Same reasoning as generate(), both for the anonymous context and for
+        // the locale: built by an admin, read by everybody.
+        $switched = switch_to_locale( get_locale() );
+
         VigIA_Content_Access::begin_anonymous_context();
 
         try {
             return self::rebuild_one( $settings, $which );
         } finally {
             VigIA_Content_Access::end_anonymous_context();
+
+            if ( $switched ) {
+                restore_previous_locale();
+            }
         }
     }
 
@@ -921,16 +942,16 @@ class VigIA_LLMS_Generator {
      * @return string
      */
     private static function generate_llms_txt( $settings, $post_ids ) {
-        $name = $settings['site_name'] ?: get_bloginfo( 'name' );
+        $name = $settings['site_name'] ?: self::site_name();
         $desc = $settings['site_description'] ?: '';
 
-        $content = '# ' . self::one_line( $name ) . "\n\n";
+        $content = '# ' . self::one_line( self::decode_entities( $name ) ) . "\n\n";
 
         // Collapsed to one line: the summary is a single blockquote, and a stored
         // description containing a line break (sanitize_textarea_field keeps them)
         // used to prefix only its first line with `>`, cutting the quote short and
         // spilling the rest into the body as loose text.
-        $desc = self::one_line( $desc );
+        $desc = self::one_line( self::decode_entities( $desc ) );
         if ( $desc ) {
             $content .= "> {$desc}\n\n";
         }
@@ -956,9 +977,19 @@ class VigIA_LLMS_Generator {
             $content .= "## {$label}\n\n";
 
             foreach ( $posts as $post ) {
-                $title   = self::one_line( get_the_title( $post ) );
+                $title   = self::one_line( self::decode_entities( get_the_title( $post ) ) );
                 $url     = self::entry_url( $post );
                 $excerpt = self::get_clean_excerpt( $post );
+
+                // The posts page has no body of its own: WordPress shows the blog
+                // loop there and never renders its content, so get_clean_excerpt()
+                // comes back empty and the entry would be a bare link, the only
+                // one in the file with neither summary nor `.md`. Say what it is
+                // instead. Same page the Markdown module refuses to serve, see
+                // class-markdown-endpoints.php:627.
+                if ( '' === $excerpt && self::is_posts_page( $post ) ) {
+                    $excerpt = __( 'Index of the blog posts published on this site.', 'vigia' );
+                }
 
                 $content .= "- [{$title}]({$url})";
                 if ( $excerpt ) {
@@ -992,6 +1023,194 @@ class VigIA_LLMS_Generator {
      */
     private static function one_line( $text ) {
         return trim( (string) preg_replace( '/\s+/', ' ', (string) $text ) );
+    }
+
+    /**
+     * Decode HTML entities in a piece of text, then strip tags again.
+     *
+     * Everything this class writes is plain text read by a model, so an entity
+     * is not a character it resolves: `Bull&#038;Bear` arrives with the code
+     * inside. Titles need this more than anything else, because `get_the_title()`
+     * runs the `the_title` filter and `convert_chars()` there turns a plain `&`
+     * into `&#038;` (`wp-includes/formatting.php`), which is how a title typed
+     * with an ampersand ends up encoded in a file nobody renders as HTML.
+     *
+     * Stripping afterwards is not redundant: an entity-encoded `&lt;script&gt;`
+     * survives a strip untouched, and decoding alone would put a real tag back
+     * into the document. Twin of class-markdown-endpoints.php:1777, kept here so
+     * the generator does not depend on a module that can be switched off.
+     *
+     * @param string $text Raw text.
+     * @return string
+     */
+    private static function decode_entities( $text ) {
+        return self::remove_tag_shapes( html_entity_decode( (string) $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+    }
+
+    /**
+     * Take out everything shaped like an HTML tag, leaving a lone `<` alone.
+     *
+     * Not wp_strip_all_tags(): strip_tags() drops everything from a `<` that
+     * never finds its `>`, so a decoded `5<10` or `<5 minutes` swallows the rest
+     * of the line without a word of warning, and the entity at least used to
+     * survive as text.
+     *
+     * To a fixed point, and this is the part that bites: one pass can weld two
+     * leftovers into a new tag. `<scr<b></b>ipt>` loses the `<b></b>` and becomes
+     * a working `<script>`, and `<i<b></b>mg src=x on<b></b>error=1>` rebuilds a
+     * live `<img onerror>` out of something strip_tags() emptied. The
+     * quoted-attribute alternatives keep a `>` inside an attribute from closing
+     * the match early. Measured on adversarial input of several MB (a million
+     * unclosed `<`, 100.000 tags, an unterminated comment): under 4 ms, no
+     * backtracking.
+     *
+     * Twin of VigIA_Markdown_Endpoints::remove_tag_shapes(), same name on
+     * purpose. Both findings, and the reconstruction the first fix introduced,
+     * come from the two cross-review rounds of 2.6.5.
+     *
+     * @param string $text Text that may carry decoded markup.
+     * @return string
+     */
+    private static function remove_tag_shapes( $text ) {
+        $text = (string) $text;
+
+        for ( $pass = 0; $pass < 10; $pass++ ) {
+            $before = $text;
+            $text   = (string) preg_replace( '#<!--.*?-->#s', '', $text );
+            $text   = (string) preg_replace( '#</?[a-z](?:[^<>"\']|"[^"]*"|\'[^\']*\')*>#i', '', $text );
+
+            if ( $text === $before ) {
+                break;
+            }
+        }
+
+        return $text;
+    }
+
+    /**
+     * The site name as the owner typed it.
+     *
+     * `get_bloginfo( 'name' )` returns it already escaped, because
+     * `sanitize_option()` runs `esc_html()` over `blogname` before storing it.
+     * A browser resolves that; a file of plain text does not, so the heading
+     * would read `# Mus&eacute;e d&#039;Impressionnisme`. Core's own recipe, with
+     * the second argument that is easy to miss: the default `ENT_NOQUOTES`
+     * leaves `&#039;` and `&quot;` intact, which is the reported case.
+     *
+     * @return string
+     */
+    public static function site_name() {
+        return vigia_get_site_name();
+    }
+
+    /**
+     * The site tagline, decoded for the same reason as site_name().
+     *
+     * `blogdescription` goes through the same `esc_html()` in
+     * `sanitize_option()`, so it comes back escaped too.
+     *
+     * @return string
+     */
+    public static function site_description() {
+        return vigia_get_site_description();
+    }
+
+    /**
+     * Is this the page assigned as the posts page in Settings > Reading?
+     *
+     * Same test as VigIA_Markdown_Endpoints::is_posts_page(), which refuses to
+     * serve a `.md` for it (class-markdown-endpoints.php:627). It is an archive,
+     * not a document: WordPress shows the blog loop there and never renders its
+     * own content, which on most installs is empty.
+     *
+     * @param WP_Post $the_post Post object.
+     * @return bool
+     */
+    private static function is_posts_page( $the_post ) {
+        if ( 'page' !== get_option( 'show_on_front' ) ) {
+            return false;
+        }
+
+        $posts_page_id = (int) get_option( 'page_for_posts' );
+
+        return $posts_page_id > 0 && $posts_page_id === (int) $the_post->ID;
+    }
+
+    /**
+     * Does this text already end in punctuation that joins the next block?
+     *
+     * Takes the block, never the line built so far: matching with `/u` over a
+     * growing subject revalidates the whole string every time, which turns
+     * blocks_to_line() quadratic. Measured on 20.000 blocks: 9.9 seconds against
+     * the line, under 10 ms against the block. Found in the cross review of 2.6.5.
+     *
+     * @param string $text Text to test.
+     * @return bool
+     */
+    private static function ends_in_punctuation( $text ) {
+        $last = mb_substr( (string) $text, -1, 1, 'UTF-8' );
+
+        return '' !== $last && 1 === preg_match( '/^[.!?:;,\x{2026}\x{00BB}\x{201D}\x{2019})\]"\']$/u', $last );
+    }
+
+    /**
+     * Flatten HTML to one line of prose, keeping the block boundaries.
+     *
+     * `wp_strip_all_tags()` on its own welds the blocks together: a heading and
+     * the paragraph under it become `Politica editorial de capitancapo
+     * capitancapo es un proyecto`, two sentences with nothing between them. The
+     * markup carried that boundary and the strip threw it away, so we turn each
+     * closing block tag into the full stop it was standing in for, unless the
+     * block already ends in punctuation of its own.
+     *
+     * A newline would not survive: these summaries are a single line in llms.txt
+     * and in the `.md` frontmatter, so whatever separates two blocks has to be
+     * something that reads correctly inside a sentence.
+     *
+     * @param string $html Raw or rendered HTML.
+     * @return string
+     */
+    private static function blocks_to_line( $html ) {
+        $html = (string) $html;
+
+        // Every boundary the markup draws becomes a newline first, so the split
+        // below sees the same thing whether the break was a closing tag or a
+        // line break the author typed.
+        $html = preg_replace( '#<(?:br|hr)\b[^>]*>#i', "\n", $html );
+        $html = preg_replace(
+            '#</(?:p|div|section|article|aside|header|footer|main|nav|h[1-6]|li|ul|ol|dl|dt|dd|blockquote|pre|figure|figcaption|table|thead|tbody|tfoot|tr|td|th|address|form|fieldset|details|summary)\s*>#i',
+            "\n",
+            (string) $html
+        );
+
+        $text = wp_strip_all_tags( (string) $html );
+
+        // $previous carries the block just appended, so the punctuation test
+        // reads one short string instead of the whole line built so far. Testing
+        // $line is quadratic (the /u match revalidates the entire subject every
+        // time): on 20.000 blocks it went from 9.9 seconds to under 10 ms.
+        $line     = '';
+        $previous = '';
+
+        foreach ( preg_split( '/\R+/', $text ) as $block ) {
+            $block = self::one_line( $block );
+            if ( '' === $block ) {
+                continue;
+            }
+
+            if ( '' === $line ) {
+                $line     = $block;
+                $previous = $block;
+                continue;
+            }
+
+            // Sentence-ending punctuation, a closing quote or bracket, or a
+            // comma: all of them already join the next block readably.
+            $line    .= ( self::ends_in_punctuation( $previous ) ? ' ' : '. ' ) . $block;
+            $previous = $block;
+        }
+
+        return $line;
     }
 
     /**
@@ -1054,8 +1273,10 @@ class VigIA_LLMS_Generator {
      * @return string
      */
     private static function generate_llms_full_txt( $settings, $post_ids ) {
-        $name = $settings['site_name'] ?: get_bloginfo( 'name' );
+        $name = self::one_line( self::decode_entities( $settings['site_name'] ?: self::site_name() ) );
         $desc = $settings['site_description'] ?: '';
+
+        $desc = self::one_line( self::decode_entities( $desc ) );
 
         $content = "# {$name} - Full Content\n\n";
         if ( $desc ) {
@@ -1069,7 +1290,7 @@ class VigIA_LLMS_Generator {
                 continue;
             }
 
-            $content .= "## " . get_the_title( $post ) . "\n\n";
+            $content .= '## ' . self::one_line( self::decode_entities( get_the_title( $post ) ) ) . "\n\n";
             $content .= "URL: " . get_permalink( $post ) . "\n\n";
 
             if ( 'excerpt' === $settings['full_mode'] ) {
@@ -1137,20 +1358,37 @@ class VigIA_LLMS_Generator {
                 $content = self::extract_text_from_shortcodes( $original_content );
             }
 
-            // Remove remaining shortcodes and strip tags.
+            // Remove remaining shortcodes, then flatten the markup keeping the
+            // boundaries it drew: blocks_to_line() is what stops a heading from
+            // being welded to the paragraph under it.
             $excerpt = strip_shortcodes( $content );
-            $excerpt = wp_strip_all_tags( $excerpt );
+            $excerpt = self::blocks_to_line( $excerpt );
 
             // Final cleanup: remove any shortcode-like patterns that might remain.
             $excerpt = preg_replace( '/\[[a-z][a-z0-9_-]*[^\]]*\]/is', '', $excerpt );
             $excerpt = preg_replace( '/\[\/[a-z][a-z0-9_-]*\]/is', '', $excerpt );
         }
 
-        $excerpt = preg_replace( '/\s+/', ' ', trim( $excerpt ) );
+        // A hand-written excerpt can carry markup too, and it reaches the same
+        // single line, so it goes through the same flattening.
+        $excerpt = self::one_line( self::decode_entities( self::blocks_to_line( $excerpt ) ) );
 
-        if ( strlen( $excerpt ) > $length ) {
-            $excerpt = substr( $excerpt, 0, $length );
-            $excerpt = substr( $excerpt, 0, strrpos( $excerpt, ' ' ) ) . '...';
+        // Multibyte-aware: strlen()/substr() count bytes, and cutting a UTF-8
+        // sequence in half writes an invalid byte into a file a model parses.
+        // WordPress polyfills both functions when mbstring is missing
+        // (wp-includes/compat.php).
+        if ( mb_strlen( $excerpt, 'UTF-8' ) > $length ) {
+            $excerpt = mb_substr( $excerpt, 0, $length, 'UTF-8' );
+
+            // Back off to the last whole word, unless there is none to back off
+            // to: mb_strrpos() returns false there and cutting at 0 would leave
+            // nothing but the ellipsis.
+            $last_space = mb_strrpos( $excerpt, ' ', 0, 'UTF-8' );
+            if ( false !== $last_space && $last_space > 0 ) {
+                $excerpt = mb_substr( $excerpt, 0, $last_space, 'UTF-8' );
+            }
+
+            $excerpt = rtrim( $excerpt ) . '...';
         }
 
         return $excerpt;
@@ -1575,11 +1813,16 @@ class VigIA_LLMS_Generator {
         $content = preg_replace( '/\[[a-z][a-z0-9_-]*[^\]]*\]/is', '', $content );
         $content = preg_replace( '/\[\/[a-z][a-z0-9_-]*\]/is', '', $content );
 
+        // Entities last. The body carries `&amp;` and `&#038;` that a model reads
+        // literally, and decode_entities() strips again afterwards so decoding
+        // cannot put a real tag back into a document already stripped.
+        $content = self::decode_entities( $content );
+
         return trim( $content );
     }
 
     /**
-     * Write file with UTF-8 BOM for proper encoding detection
+     * Write one of the root files, as plain UTF-8 with no byte order mark.
      *
      * @param string $filename Filename.
      * @param string $content  Content.
@@ -1618,9 +1861,13 @@ class VigIA_LLMS_Generator {
             return new WP_Error( 'dir_not_writable', __( 'Cannot write to site root.', 'vigia' ) );
         }
 
-        // Add UTF-8 BOM for proper encoding detection by browsers and text editors.
-        $utf8_bom = "\xEF\xBB\xBF";
-        $content  = $utf8_bom . $content;
+        // No byte order mark. These files are read by agents and parsers, not by
+        // browsers or text editors, and UTF-8 needs no mark to be recognised: the
+        // three bytes are content, so the first heading stops being `# ` at
+        // position zero and a strict Markdown parser reads it as a paragraph. We
+        // used to prepend one on purpose; 2.6.5 stops, and strips one arriving in
+        // the content so a title pasted from a BOM'd editor cannot put it back.
+        $content = (string) preg_replace( '/^\xEF\xBB\xBF/', '', (string) $content );
 
         if ( ! $wp_filesystem->put_contents( $path, $content, FS_CHMOD_FILE ) ) {
             /* translators: %s: filename (e.g., llms.txt or llms-full.txt) */

@@ -1207,7 +1207,7 @@ class VigIA_Markdown_Endpoints {
 	 */
 	private static function generate_post_markdown( $the_post ) {
 		$output  = self::build_frontmatter( $the_post );
-		$output .= '# ' . get_the_title( $the_post ) . "\n\n";
+		$output .= '# ' . self::decode_entities( get_the_title( $the_post ) ) . "\n\n";
 		$output .= self::get_clean_content( $the_post ) . "\n";
 
 		return $output;
@@ -1226,7 +1226,7 @@ class VigIA_Markdown_Endpoints {
 	 */
 	private static function generate_term_markdown( $term ) {
 		$output  = self::build_term_frontmatter( $term );
-		$output .= '# ' . $term->name . "\n\n";
+		$output .= '# ' . self::decode_entities( $term->name ) . "\n\n";
 
 		$description = self::get_term_clean_content( $term );
 		if ( '' !== $description ) {
@@ -1255,7 +1255,7 @@ class VigIA_Markdown_Endpoints {
 	private static function build_frontmatter( $the_post ) {
 		$fm = "---\n";
 
-		$fm .= 'title: "' . self::escape_yaml( get_the_title( $the_post ) ) . '"' . "\n";
+		$fm .= 'title: "' . self::escape_yaml( self::decode_entities( get_the_title( $the_post ) ) ) . '"' . "\n";
 
 		$excerpt = self::get_clean_excerpt( $the_post );
 		if ( $excerpt ) {
@@ -1268,7 +1268,7 @@ class VigIA_Markdown_Endpoints {
 
 		$author_name = get_the_author_meta( 'display_name', $the_post->post_author );
 		if ( $author_name ) {
-			$fm .= 'author: "' . self::escape_yaml( $author_name ) . '"' . "\n";
+			$fm .= 'author: "' . self::escape_yaml( self::decode_entities( $author_name ) ) . '"' . "\n";
 		}
 
 		$thumbnail_url = get_the_post_thumbnail_url( $the_post, 'full' );
@@ -1280,7 +1280,7 @@ class VigIA_Markdown_Endpoints {
 		if ( ! empty( $categories ) ) {
 			$cat_names = array_map(
 				function ( $cat ) {
-					return '"' . self::escape_yaml( $cat->name ) . '"';
+					return '"' . self::escape_yaml( self::decode_entities( $cat->name ) ) . '"';
 				},
 				$categories
 			);
@@ -1291,7 +1291,7 @@ class VigIA_Markdown_Endpoints {
 		if ( ! empty( $tags ) && ! is_wp_error( $tags ) ) {
 			$tag_names = array_map(
 				function ( $tag ) {
-					return '"' . self::escape_yaml( $tag->name ) . '"';
+					return '"' . self::escape_yaml( self::decode_entities( $tag->name ) ) . '"';
 				},
 				$tags
 			);
@@ -1442,7 +1442,7 @@ class VigIA_Markdown_Endpoints {
 	private static function build_term_frontmatter( $term ) {
 		$fm = "---\n";
 
-		$fm .= 'title: "' . self::escape_yaml( $term->name ) . '"' . "\n";
+		$fm .= 'title: "' . self::escape_yaml( self::decode_entities( $term->name ) ) . '"' . "\n";
 
 		$description = trim( wp_strip_all_tags( (string) $term->description ) );
 		if ( '' !== $description ) {
@@ -1466,13 +1466,13 @@ class VigIA_Markdown_Endpoints {
 
 		$tax_object = get_taxonomy( $term->taxonomy );
 		if ( $tax_object && ! empty( $tax_object->labels->singular_name ) ) {
-			$fm .= 'taxonomy_label: "' . self::escape_yaml( $tax_object->labels->singular_name ) . '"' . "\n";
+			$fm .= 'taxonomy_label: "' . self::escape_yaml( self::decode_entities( $tax_object->labels->singular_name ) ) . '"' . "\n";
 		}
 
 		if ( $term->parent ) {
 			$parent = get_term( $term->parent, $term->taxonomy );
 			if ( $parent && ! is_wp_error( $parent ) ) {
-				$fm .= 'parent: "' . self::escape_yaml( $parent->name ) . '"' . "\n";
+				$fm .= 'parent: "' . self::escape_yaml( self::decode_entities( $parent->name ) ) . '"' . "\n";
 				$fm .= 'parent_slug: ' . $parent->slug . "\n";
 			}
 		}
@@ -1588,7 +1588,7 @@ class VigIA_Markdown_Endpoints {
 			if ( is_wp_error( $link ) ) {
 				continue;
 			}
-			$lines[] = sprintf( '- [%s](%s) (%d)', $child->name, $link, (int) $child->count );
+			$lines[] = sprintf( '- [%s](%s) (%d)', self::decode_entities( $child->name ), $link, (int) $child->count );
 		}
 
 		return implode( "\n", $lines ) . "\n\n";
@@ -1653,7 +1653,7 @@ class VigIA_Markdown_Endpoints {
 			}
 
 			$permalink = get_permalink( $entry );
-			$title     = get_the_title( $entry );
+			$title     = self::decode_entities( get_the_title( $entry ) );
 			$excerpt   = self::get_clean_excerpt( $entry );
 
 			$line = sprintf( '- [%s](%s)', $title, $permalink );
@@ -1706,21 +1706,79 @@ class VigIA_Markdown_Endpoints {
 	}
 
 	/**
-	 * HTML down to readable plain text, for the summaries that are not the
+	 * Does this text already end in punctuation that joins the next block?
+	 *
+	 * Twin of VigIA_LLMS_Generator::ends_in_punctuation(), and the reason it takes
+	 * the block and never the line built so far.
+	 *
+	 * @param string $text Text to test.
+	 * @return bool
+	 */
+	private static function ends_in_punctuation( $text ) {
+		$last = mb_substr( (string) $text, -1, 1, 'UTF-8' );
+
+		return '' !== $last && 1 === preg_match( '/^[.!?:;,\x{2026}\x{00BB}\x{201D}\x{2019})\]"\']$/u', $last );
+	}
+
+	/**
+	 * HTML down to one readable line of prose, for the summaries that are not the
 	 * document body (the frontmatter description).
 	 *
 	 * Stripping tags on their own glues together text the markup kept apart, so a
-	 * pricing table reads as `PlanPriceBasic10 €Pro20 €`; a space in place of each
-	 * tag keeps the words separated.
+	 * pricing table reads as `PlanPriceBasic10 EURPro20 EUR`; a space in place of
+	 * each tag keeps the words separated.
+	 *
+	 * A space is not enough where the tag was a block boundary, though: a heading
+	 * and the paragraph under it come out as `Politica editorial de capitancapo
+	 * capitancapo es un proyecto`, two sentences with nothing between them. The
+	 * markup was carrying that full stop, so we put it back, unless the block
+	 * already ends in punctuation of its own. A newline cannot do the job here,
+	 * because the description is a single YAML line. Twin of
+	 * class-llms-generator.php, blocks_to_line().
 	 *
 	 * @param string $html Raw HTML.
 	 * @return string
 	 */
 	private static function plain_text( $html ) {
 		$text = (string) preg_replace( '#<(script|style)\b[^>]*>.*?</\1>#is', ' ', (string) $html );
-		$text = str_replace( '<', ' <', $text );
 
-		return self::one_line( wp_strip_all_tags( $text ) );
+		// Boundaries first, as newlines, so the loop below can tell the end of a
+		// block from a space inside a sentence.
+		$text = (string) preg_replace( '#<(?:br|hr)\b[^>]*>#i', "\n", $text );
+		$text = (string) preg_replace(
+			'#</(?:p|div|section|article|aside|header|footer|main|nav|h[1-6]|li|ul|ol|dl|dt|dd|blockquote|pre|figure|figcaption|table|thead|tbody|tfoot|tr|td|th|address|form|fieldset|details|summary)\s*>#i',
+			"\n",
+			$text
+		);
+
+		// Whatever tags are left still separate two words.
+		$text = str_replace( '<', ' <', $text );
+		$text = wp_strip_all_tags( $text );
+
+		// $previous holds the block just appended, so the punctuation test reads one
+		// short string instead of the whole line so far: matching with `/u` over a
+		// growing subject revalidates all of it every time, which makes this loop
+		// quadratic. Twin of class-llms-generator.php, ends_in_punctuation().
+		$line     = '';
+		$previous = '';
+
+		foreach ( preg_split( '/\R+/', $text ) as $block ) {
+			$block = self::one_line( $block );
+			if ( '' === $block ) {
+				continue;
+			}
+
+			if ( '' === $line ) {
+				$line     = $block;
+				$previous = $block;
+				continue;
+			}
+
+			$line    .= ( self::ends_in_punctuation( $previous ) ? ' ' : '. ' ) . $block;
+			$previous = $block;
+		}
+
+		return $line;
 	}
 
 	/**
@@ -1762,20 +1820,64 @@ class VigIA_Markdown_Endpoints {
 	}
 
 	/**
-	 * Decode entities in a summary, then strip tags again.
+	 * Decode entities in a summary, then take the tags out again.
 	 *
 	 * Decoding is what turns a stored `&#8217;` into the apostrophe the author
-	 * wrote. Stripping afterwards is not redundant: an entity-encoded
-	 * `&lt;script&gt;` survives the first strip untouched and decoding would put
+	 * wrote. Cleaning up afterwards is not redundant: an entity-encoded
+	 * `&lt;script&gt;` survives the first pass untouched and decoding would put
 	 * a real tag back into the document. These summaries reach a Markdown list
 	 * line with no further escaping, and Markdown passes inline HTML straight
 	 * through to whatever renders it.
+	 *
+	 * Not wp_strip_all_tags() for that second pass, though: strip_tags() drops
+	 * everything from a `<` that never finds its `>`, so a decoded `5<10` or
+	 * `<5 minutes` swallowed the rest of the summary without a word, where the
+	 * entity at least used to survive as text. Removing what is tag-shaped covers
+	 * the `&lt;script&gt;` case and leaves a lone `<` as the character the author
+	 * typed. Found in the cross review of 2.6.5; present since this helper existed.
 	 *
 	 * @param string $text Summary text.
 	 * @return string
 	 */
 	private static function decode_entities( $text ) {
-		return self::one_line( wp_strip_all_tags( html_entity_decode( (string) $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
+		$text = html_entity_decode( (string) $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		return self::one_line( self::remove_tag_shapes( $text ) );
+	}
+
+	/**
+	 * Take out everything shaped like an HTML tag, leaving a lone `<` alone.
+	 *
+	 * Not wp_strip_all_tags(): strip_tags() drops everything from a `<` that never
+	 * finds its `>`, so a `5<10` or a `<5 minutes` swallows the rest of the text.
+	 *
+	 * To a fixed point, and this is the part that bites: one pass can weld two
+	 * leftovers into a new tag. `<scr<b></b>ipt>` loses the `<b></b>` and becomes a
+	 * working `<script>`, and `<i<b></b>mg src=x on<b></b>error=1>` rebuilds a live
+	 * `<img onerror>` out of something strip_tags() emptied. The quoted-attribute
+	 * alternatives keep a `>` inside an attribute from closing the match early.
+	 * Measured on adversarial input of several MB: under 4 ms, no backtracking.
+	 *
+	 * Twin of VigIA_LLMS_Generator::decode_entities(). Both findings, and the
+	 * reconstruction that the first fix introduced, come from the two cross-review
+	 * rounds of 2.6.5.
+	 *
+	 * @param string $text Text that may carry decoded markup.
+	 * @return string
+	 */
+	private static function remove_tag_shapes( $text ) {
+		$text = (string) $text;
+
+		for ( $pass = 0; $pass < 10; $pass++ ) {
+			$before = $text;
+			$text   = (string) preg_replace( '#<!--.*?-->#s', '', $text );
+			$text   = (string) preg_replace( '#</?[a-z](?:[^<>"\']|"[^"]*"|\'[^\']*\')*>#i', '', $text );
+
+			if ( $text === $before ) {
+				break;
+			}
+		}
+
+		return $text;
 	}
 
 	/**
@@ -2032,6 +2134,18 @@ class VigIA_Markdown_Endpoints {
 		$html = preg_replace_callback( '/```.*?```/s', $protect, $html );
 		$html = preg_replace_callback( '/`[^`\n]+`/', $protect, $html );
 
+		// The body kept whatever markup the entities carried: a stored
+		// `&lt;script&gt;` came out of the decode above as a real `<script>` in a
+		// document a Markdown renderer passes straight through as inline HTML. It
+		// only took an author to write it. Now it goes through the same tag-shape
+		// filter as the summaries.
+		//
+		// Deliberately AFTER the two $protect passes: inside a fenced block or an
+		// inline code span, `<div>` is the subject of the page, not markup, and
+		// CommonMark does not interpret HTML there. Those are placeholders by now
+		// and come back verbatim at the end. Decided 17 sep 2026.
+		$html = self::remove_tag_shapes( $html );
+
 		// Clean up artifacts left by unregistered shortcodes.
 		$html = self::strip_shortcode_leftovers( $html );
 
@@ -2087,7 +2201,12 @@ class VigIA_Markdown_Endpoints {
 		$result = preg_replace_callback(
 			$pattern,
 			function ( $matches ) use ( &$store ) {
-				$markdown = self::render_html_list( $matches[0] );
+				// render_html_list() reads items with DOM textContent, which decodes
+				// entities, and the block is parked here and restored verbatim at the
+				// very end, so it never meets the filter applied to the body. A
+				// `&lt;script&gt;` inside an <li> reached the document through this
+				// door, which is why the filter is applied here too.
+				$markdown = self::remove_tag_shapes( self::render_html_list( $matches[0] ) );
 				if ( '' === trim( $markdown ) ) {
 					return '';
 				}

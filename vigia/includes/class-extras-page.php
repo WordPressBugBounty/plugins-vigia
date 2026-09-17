@@ -1515,12 +1515,21 @@ class VigIA_Extras_Page {
             // Hidden data for JS preview builder.
             $preview_data = array(
                 'siteUrl'     => untrailingslashit( home_url() ),
-                'siteName'    => get_bloginfo( 'name' ),
+                'siteName'    => vigia_get_site_name(),
                 'aiFeatures'  => $ai_features,
             );
             ?>
             <script type="text/javascript">
-                var vigiaJsonldData = <?php echo wp_json_encode( $preview_data ); ?>;
+                <?php
+                // JSON_HEX_TAG escapes < and > so a "</script>" inside any of
+                // these values cannot close the tag. It is not optional here:
+                // until 2.6.5 siteName was get_bloginfo( 'name' ), which core
+                // stores already escaped, and that accident was the only thing
+                // keeping a "</script>" in the site title from breaking out.
+                // Decoding the name (which is what vigia_get_site_name() does)
+                // removes the accident, so the flag has to come first.
+                ?>
+                var vigiaJsonldData = <?php echo wp_json_encode( $preview_data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG ); ?>;
             </script>
         </div>
         <?php
