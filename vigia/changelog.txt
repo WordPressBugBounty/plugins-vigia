@@ -3,6 +3,13 @@ VigIA — Full changelog
 For each release, see the entries below. The latest version is always at the top.
 The current release notes also live in readme.txt under "== Changelog ==".
 
+= 2.6.6 =
+* Improved: The Markdown-for-agents description in the JSON-LD now uses the same wording as the Visibility sibling, so an AI agent reading either plugin's structured data sees one consistent claim.
+* Fix: The `.md` rewrite rule stayed registered after VigIA started deferring Markdown for agents to the Visibility sibling, because nothing regenerated it when that hand-over began. Combined with a request the sibling could not resolve either, the stale rule could turn into a redirect loop on a nonexistent `.md` address. VigIA now notices the hand-over on every request and flushes the rule once, on either side of it, and also flushes on deactivation.
+* Fix: A tag-shaped string with an unpaired attribute quote, such as an `<a href="javascript:...>` with no closing quote, survived the tag-stripping pass shared by llms.txt, llms-full.txt, the Markdown documents, and the site name and tagline, leaving a live tag in a file nothing renders as HTML.
+* Fix: The site name and tagline were decoded but not cleaned afterwards, so a script tag typed into either field, something a multisite sub-site administrator can do without full HTML permission, came back live everywhere they are reused: llms.txt, the Markdown documents, JSON-LD and report emails.
+* Fix: A post, page or category with a non-Latin address (Cyrillic, Greek, Arabic, CJK) served the wrong Markdown document or a 404 instead of its own: a child page served its parent, a single-word slug 404'd, and a category never resolved. The address was being stripped of the very encoding a non-Latin slug is made of before VigIA tried to match it. Crawler visit logs for these addresses also recorded the path with the whole non-Latin segment missing; both are now recorded and matched correctly, and shown decoded in the crawler activity table and in report emails.
+
 = 2.6.5 =
 * Improved: Both files are now built in the language of the site, not in the language the administrator reads wp-admin in. The section headings are the names WordPress gives your content types, so on a Spanish site generated from an English admin they used to come out as Posts and Pages.
 * Improved: The JSON-LD preview in the settings screen now escapes angle brackets when it hands the site name to the browser. Nothing changes on screen; it is what allows the site name to be decoded everywhere else without opening a way to close the script tag from the site title.

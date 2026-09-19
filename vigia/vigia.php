@@ -3,7 +3,7 @@
  * Plugin Name: VigIA - AI Visibility, Analytics & Control
  * Plugin URI: https://servicios.ayudawp.com
  * Description: Monitor, control, and optimize how AI systems interact with your WordPress site. Track 60+ AI crawlers, manage access via robots.txt, and boost your AI visibility with llms.txt, JSON-LD, Markdown for Agents, and AI Visibility Score.
- * Version: 2.6.5
+ * Version: 2.6.6
  * Author: Fernando Tellado
  * Author URI: https://ayudawp.com
  * License: GPL v2 or later
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'VIGIA_VERSION', '2.6.5' );
+define( 'VIGIA_VERSION', '2.6.6' );
 define( 'VIGIA_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VIGIA_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'VIGIA_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -45,23 +45,44 @@ define( 'VIGIA_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
  * Single helper on purpose, so a caller cannot get the second argument wrong.
  * Same shape as `ayudawp_euw_get_site_name()` in eu-withdrawal-compliance.
  *
+ * Decoding only undoes esc_html(); it does not undo what someone without
+ * `unfiltered_html` (a multisite sub-site admin, notably) typed and had
+ * escaped on the way in, so a `<script>` typed into the Site Title field
+ * comes back out of decoding as a live tag. VigIA_LLMS_Generator::remove_tag_shapes()
+ * clears it the same way it already does for post and term titles reused
+ * across llms.txt, the .md documents and this string's own callers.
+ *
  * @since 2.6.5
+ * @since 2.6.6 Passed through remove_tag_shapes() after decoding.
  * @return string
  */
 function vigia_get_site_name() {
-    return wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES );
+    $name = wp_specialchars_decode( get_bloginfo( 'name' ), ENT_QUOTES );
+
+    if ( class_exists( 'VigIA_LLMS_Generator' ) ) {
+        $name = VigIA_LLMS_Generator::remove_tag_shapes( $name );
+    }
+
+    return $name;
 }
 
 /**
- * The site tagline, decoded for the same reason as vigia_get_site_name().
+ * The site tagline, decoded and cleaned for the same reasons as vigia_get_site_name().
  *
  * `blogdescription` goes through the same `esc_html()` in `sanitize_option()`.
  *
  * @since 2.6.5
+ * @since 2.6.6 Passed through remove_tag_shapes() after decoding.
  * @return string
  */
 function vigia_get_site_description() {
-    return wp_specialchars_decode( get_bloginfo( 'description' ), ENT_QUOTES );
+    $description = wp_specialchars_decode( get_bloginfo( 'description' ), ENT_QUOTES );
+
+    if ( class_exists( 'VigIA_LLMS_Generator' ) ) {
+        $description = VigIA_LLMS_Generator::remove_tag_shapes( $description );
+    }
+
+    return $description;
 }
 
 /**
@@ -337,6 +358,12 @@ final class VigIA {
         wp_clear_scheduled_hook( 'vigia_optimize_indexes' );
         wp_clear_scheduled_hook( 'vigia_warm_stats_cache' );
         wp_clear_scheduled_hook( 'vigia_warm_stats_cache_now' );
+
+        // A `^(.+)\.md$` rewrite rule registered while active would otherwise
+        // stay in the saved rewrite_rules option pointing at a query var this
+        // plugin is no longer here to register or answer, matched by every
+        // request that reaches it until something else happens to flush.
+        flush_rewrite_rules();
     }
 
     /**

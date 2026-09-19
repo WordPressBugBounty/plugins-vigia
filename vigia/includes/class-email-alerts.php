@@ -406,7 +406,8 @@ class VigIA_Email_Alerts {
                 <tbody>
                     <?php foreach ( $report['top_pages'] as $page ) : ?>
                     <tr>
-                        <td><?php echo esc_html( $page['request_path'] ); ?></td>
+                        <?php // request_path is stored percent-encoded (esc_url_raw()), same as any non-Latin WordPress slug; decode it back to readable text for a human reading an email, same as a browser would show it in the address bar. ?>
+                        <td><?php echo esc_html( urldecode( $page['request_path'] ) ); ?></td>
                         <td><?php echo esc_html( number_format_i18n( $page['visit_count'] ) ); ?></td>
                     </tr>
                     <?php endforeach; ?>

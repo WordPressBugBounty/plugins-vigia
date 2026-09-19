@@ -305,8 +305,11 @@ class VigIA_JsonLD_Generator {
 							'urlTemplate' => $site_url . '/{slug}.md',
 							'contentType' => 'text/markdown',
 						),
-						'name'        => 'Markdown for Agents',
-						'description' => 'Individual posts served as optimized markdown via .md URL endpoints',
+						// Same wording as the Visibility sibling's own ReadAction
+						// (class-frontend-schema-identity.php), so an agent reading
+						// either plugin's JSON-LD sees one consistent claim.
+						'name'        => 'Markdown for agents',
+						'description' => 'Each page is also available as clean Markdown at its URL with a .md suffix.',
 					);
 				}
 			}

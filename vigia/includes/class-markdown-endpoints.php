@@ -83,6 +83,14 @@ class VigIA_Markdown_Endpoints {
 			return;
 		}
 
+		// Consume a pending flush at the very end of `init`, once every other
+		// callback registered below (including add_rewrite_rules()) has had its
+		// say for this request. Registered unconditionally, on both sides of the
+		// cession switch: add_rewrite_rules() itself only runs while NOT
+		// deferring, so it cannot be the one to notice a flush that a flip in
+		// maybe_mark_defer_change() below requires.
+		add_action( 'init', array( __CLASS__, 'maybe_flush_pending' ), 999 );
+
 		// Drop a cached document when what it was built from changes. Registered
 		// before the deferral check below, so a site that hands the endpoint over
 		// to Visibility for a while does not come back to a stale cache.
@@ -95,13 +103,23 @@ class VigIA_Markdown_Endpoints {
 		add_action( 'edited_term', array( __CLASS__, 'flush_term' ) );
 		add_action( 'delete_term', array( __CLASS__, 'flush_term' ) );
 
+		// Visibility takes priority: VigIA yields the markdown signal for as
+		// long as Visibility actively emits it, and reclaims it the moment
+		// Visibility stops. Either flip leaves the `^(.+)\.md$` rewrite rule out
+		// of sync with reality (registered-but-unused, or missing-but-needed)
+		// until something flushes it, so every request compares today's cession
+		// state against the one stored last time and marks a flush when they
+		// differ; maybe_flush_pending() above does the actual flushing.
+		$now_defers = VigIA_Sibling_Visibility::should_defer( 'markdown' );
+		self::maybe_mark_defer_change( $now_defers );
+
 		// Cede Markdown for agents to the Visibility sibling when it serves it.
 		// Visibility intercepts on do_parse_request (ahead of our
 		// template_redirect), so it already wins the /{slug}.md collision; bailing
 		// here also stops us advertising a duplicate .md <link> / Link header and
 		// from registering rewrite rules we would never use. See
 		// VigIA_Sibling_Visibility for the emit/observe split.
-		if ( VigIA_Sibling_Visibility::should_defer( 'markdown' ) ) {
+		if ( $now_defers ) {
 			return;
 		}
 
@@ -249,20 +267,73 @@ class VigIA_Markdown_Endpoints {
 
 	/**
 	 * Add rewrite rules for .md endpoints
+	 *
+	 * Registration only; flushing is maybe_flush_pending()'s job, and only
+	 * that order lets a flush see this call's own add_rewrite_rule() for the
+	 * current request (see maybe_flush_pending()).
 	 */
 	public static function add_rewrite_rules() {
-		// Flush if needed (after settings change).
-		if ( get_option( 'vigia_flush_rewrite' ) ) {
-			delete_option( 'vigia_flush_rewrite' );
-			flush_rewrite_rules();
-		}
-
 		// Match any path ending in .md.
 		add_rewrite_rule(
 			'^(.+)\.md$',
 			'index.php?vigia_markdown=1&vigia_markdown_path=$matches[1]',
 			'top'
 		);
+	}
+
+	/**
+	 * Track the cession state for the `markdown` signal across requests, and
+	 * mark a flush pending when it changes.
+	 *
+	 * add_rewrite_rules() only runs on `init` while NOT deferring to
+	 * Visibility, so nothing ever regenerates the rewrite rules when deferring
+	 * STARTS: `^(.+)\.md$` stays behind in the saved `rewrite_rules` option,
+	 * matched on every request that reaches it even though this class no
+	 * longer hooks its query var or its template_redirect handler either.
+	 * Measured on ayudawp.com (2.7.0 of the Visibility sibling): a stale match
+	 * fed WordPress's canonical redirect an object it does not recognize,
+	 * which appended a trailing slash the sibling's own routing then stripped
+	 * again, an infinite 301 loop on any nonexistent `.md` URL including
+	 * `/index.md`. A stored marker, compared on every request, is the only way
+	 * to notice the flip from a hook that itself only fires on one side of it.
+	 *
+	 * @since 2.6.6
+	 * @param bool $now_defers Current cession state for the markdown signal.
+	 */
+	private static function maybe_mark_defer_change( $now_defers ) {
+		$stored = get_option( 'vigia_markdown_defer_state', '' );
+
+		// No marker yet: a fresh install, or an upgrade from a version that
+		// did not track this. Record the current state without flushing;
+		// there is nothing stale left behind to clean up yet.
+		if ( '' === $stored ) {
+			update_option( 'vigia_markdown_defer_state', $now_defers ? '1' : '0' );
+			return;
+		}
+
+		if ( ( '1' === $stored ) !== $now_defers ) {
+			update_option( 'vigia_flush_rewrite', true );
+			update_option( 'vigia_markdown_defer_state', $now_defers ? '1' : '0' );
+		}
+	}
+
+	/**
+	 * Flush rewrite rules once if a settings save (see save_settings()) or a
+	 * cession-state flip (see maybe_mark_defer_change()) left one pending.
+	 *
+	 * Hooked at a priority late enough (999) to run after every other `init`
+	 * callback this class registers, including add_rewrite_rules() at 20:
+	 * flushing earlier would persist a rule set built before this request's
+	 * own add_rewrite_rule() call, so a rule that just started being needed
+	 * again would still be missing from what gets saved.
+	 *
+	 * @since 2.6.6
+	 */
+	public static function maybe_flush_pending() {
+		if ( get_option( 'vigia_flush_rewrite' ) ) {
+			delete_option( 'vigia_flush_rewrite' );
+			flush_rewrite_rules();
+		}
 	}
 
 	/**
@@ -294,7 +365,13 @@ class VigIA_Markdown_Endpoints {
 			// serve the same document at a second URL, with no canonical of its own
 			// pointing back. A .md address is a file name, never a directory, so the
 			// slashed form is redirected to the real one instead of answered.
-			$requested = isset( $_SERVER['REQUEST_URI'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
+			//
+			// esc_url_raw(), not sanitize_text_field(): the latter drops every
+			// %XX octet (_sanitize_text_fields(), wp-includes/formatting.php), so
+			// a non-Latin path segment (stored percent-encoded, like any other
+			// WordPress slug) came out empty and the redirect landed on the
+			// wrong URL instead of the requested one.
+			$requested = isset( $_SERVER['REQUEST_URI'] ) ? esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
 			$only_path = (string) wp_parse_url( $requested, PHP_URL_PATH );
 			if ( '' !== $only_path && '/' === substr( $only_path, -1 ) ) {
 				$query  = (string) wp_parse_url( $requested, PHP_URL_QUERY );
@@ -303,9 +380,22 @@ class VigIA_Markdown_Endpoints {
 				exit;
 			}
 
+			// The rewrite match arrives still percent-encoded (confirmed against
+			// Testing: get_query_var() does not run it through urldecode()), same
+			// as it would sit in a WordPress post_name for a non-Latin slug, so
+			// serve_markdown_by_path() → find_post_by_path() / find_term_by_path()
+			// can compare it directly. sanitize_text_field() used to sit here and
+			// strip every %XX octet the same way as above, turning a non-Latin
+			// entry, page or term 404, and a non-Latin child page into its parent
+			// (whatever survived up to the first surviving slash). The one thing
+			// still needed is lowercasing: a browser or agent writes the percent
+			// encoding of what someone typed in uppercase hex, WordPress always
+			// stores the slug in lowercase, and get_terms()'s exact 'slug' match
+			// (unlike get_page_by_path()'s own decode/re-encode round trip) does
+			// not normalize case on its own.
 			$path = get_query_var( 'vigia_markdown_path' );
 			if ( $path ) {
-				self::serve_markdown_by_path( sanitize_text_field( $path ) );
+				self::serve_markdown_by_path( strtolower( (string) $path ) );
 				return;
 			}
 		}
@@ -1154,7 +1244,11 @@ class VigIA_Markdown_Endpoints {
 			return;
 		}
 
-		$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '/';
+		// esc_url_raw(), not sanitize_text_field(): a non-Latin path is stored
+		// percent-encoded, all %XX octets, so sanitize_text_field() (which
+		// strips every one of them) recorded it with the whole segment gone
+		// instead of the page actually visited.
+		$request_uri = isset( $_SERVER['REQUEST_URI'] ) ? esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '/';
 
 		VigIA_Database::insert_visit(
 			array(
@@ -1861,6 +1955,16 @@ class VigIA_Markdown_Endpoints {
 	 * reconstruction that the first fix introduced, come from the two cross-review
 	 * rounds of 2.6.5.
 	 *
+	 * A tag-shaped construct with an unpaired quote (`<a href="javascript:alert(1)>click`)
+	 * never finds the closing `>` the attribute-aware alternatives look for, so the
+	 * loop above leaves the opening `<a` in place; measured with the AyudaWP
+	 * Visibility sibling's fuzz harness at 3.108 surviving tags per 5.000 adversarial
+	 * inputs without this net. Visibility's own fix (2.7.1): a final pass, after the
+	 * loop reaches its fixed point, for any `<` (or run of them, so trimming one from
+	 * `<<a` cannot weld the rest to the following letter) immediately before the four
+	 * characters that open an HTML tag. `5<10`, `<5 minutes` and `a < b` keep their
+	 * `<`, same as `x<y` already lost it to strip_tags().
+	 *
 	 * @param string $text Text that may carry decoded markup.
 	 * @return string
 	 */
@@ -1877,7 +1981,7 @@ class VigIA_Markdown_Endpoints {
 			}
 		}
 
-		return $text;
+		return (string) preg_replace( '#<+(?=[a-z/!?])#i', '', $text );
 	}
 
 	/**

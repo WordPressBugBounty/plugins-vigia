@@ -1068,10 +1068,29 @@ class VigIA_LLMS_Generator {
      * purpose. Both findings, and the reconstruction the first fix introduced,
      * come from the two cross-review rounds of 2.6.5.
      *
+     * A tag-shaped construct with an unpaired quote (`<a href="javascript:alert(1)>click`)
+     * never finds the closing `>` the attribute-aware alternatives look for, so the
+     * loop above leaves the opening `<a` in place; measured with the AyudaWP
+     * Visibility sibling's fuzz harness at 3.108 surviving tags per 5.000 adversarial
+     * inputs without this net. Visibility's own fix (2.7.1): a final pass, after the
+     * loop reaches its fixed point, for any `<` (or run of them, so trimming one from
+     * `<<a` cannot weld the rest to the following letter) immediately before the four
+     * characters that open an HTML tag. `5<10`, `<5 minutes` and `a < b` keep their
+     * `<`, same as `x<y` already lost it to strip_tags().
+     *
+     * Public so vigia_get_site_name() / vigia_get_site_description() (vigia.php)
+     * can run the decoded site name and tagline through the same net: `blogname`
+     * and `blogdescription` come back from get_bloginfo() through the core
+     * esc_html() sanitize_option() runs on them (used verbatim wherever else this
+     * plugin decodes site strings), so a `<script>` typed into either, saved as
+     * `&lt;script&gt;`, decodes back into a live tag with no HTML tags of its own
+     * to be stripped by the loop above alone.
+     *
+     * @since 2.6.6 Public, and the final net.
      * @param string $text Text that may carry decoded markup.
      * @return string
      */
-    private static function remove_tag_shapes( $text ) {
+    public static function remove_tag_shapes( $text ) {
         $text = (string) $text;
 
         for ( $pass = 0; $pass < 10; $pass++ ) {
@@ -1084,7 +1103,7 @@ class VigIA_LLMS_Generator {
             }
         }
 
-        return $text;
+        return (string) preg_replace( '#<+(?=[a-z/!?])#i', '', $text );
     }
 
     /**
@@ -1791,6 +1810,34 @@ class VigIA_LLMS_Generator {
         // ALWAYS run strip_shortcodes as final safety net.
         $content = strip_shortcodes( $content );
 
+        // Shield a code sample's own text before wp_strip_all_tags() below
+        // removes the <pre>/<code> tags around it. WordPress stores what a
+        // code block displays as entities (`&lt;?php`), so it already survived
+        // strip_all_tags() as text; decode_entities() further down would then
+        // decode it back into `<?php`, and the tag-shape net added in 2.6.6
+        // matches `<!` and `<?` on top of the letters it already matched,
+        // taking the leading `<` off a PHP opening tag, an HTML doctype or an
+        // HTML comment used as a code sample. A placeholder here, restored
+        // verbatim after decode_entities(), keeps the sample intact: it is the
+        // subject of the page, not markup, same reasoning as the fenced code
+        // and inline spans VigIA_Markdown_Endpoints::html_to_markdown()
+        // already protects from remove_tag_shapes() the same way.
+        $code_blocks = array();
+        $content     = preg_replace_callback(
+            '#<(pre|code)\b[^>]*>(.*?)</\1>#is',
+            function ( $matches ) use ( &$code_blocks ) {
+                // A <pre><code>…</code></pre> pair (the block editor's own markup)
+                // matches on the outer <pre>, with the inner <code> real tags
+                // caught inside $matches[2]: strip those before decoding, or
+                // they would survive as live tags with no strip_all_tags() pass
+                // left to reach them.
+                $inner         = wp_strip_all_tags( $matches[2] );
+                $code_blocks[] = html_entity_decode( $inner, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+                return 'VIGIALLMSCODE' . ( count( $code_blocks ) - 1 ) . 'END';
+            },
+            $content
+        );
+
         // Remove common page builder artifacts and empty divs/sections.
         $content = preg_replace( '/<(div|section|article|aside|header|footer|nav|main)[^>]*>\s*<\/\1>/is', '', $content );
 
@@ -1817,6 +1864,21 @@ class VigIA_LLMS_Generator {
         // literally, and decode_entities() strips again afterwards so decoding
         // cannot put a real tag back into a document already stripped.
         $content = self::decode_entities( $content );
+
+        // Restore the protected code samples verbatim, already decoded, with no
+        // pass through remove_tag_shapes(): a code sample is the subject of the
+        // page in a plain-text file nothing renders as HTML, not markup to be
+        // cleaned, same as a fenced block in the per-post .md document.
+        if ( ! empty( $code_blocks ) ) {
+            $content = preg_replace_callback(
+                '/VIGIALLMSCODE(\d+)END/',
+                function ( $matches ) use ( $code_blocks ) {
+                    $index = (int) $matches[1];
+                    return isset( $code_blocks[ $index ] ) ? $code_blocks[ $index ] : '';
+                },
+                $content
+            );
+        }
 
         return trim( $content );
     }

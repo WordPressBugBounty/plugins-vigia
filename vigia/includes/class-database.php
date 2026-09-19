@@ -720,7 +720,12 @@ class VigIA_Database {
         $data['crawler_category'] = sanitize_text_field( $data['crawler_category'] );
         $data['user_agent']       = sanitize_text_field( $data['user_agent'] );
         $data['request_url']      = esc_url_raw( $data['request_url'] );
-        $data['request_path']     = sanitize_text_field( $data['request_path'] );
+        // esc_url_raw(), not sanitize_text_field(): every caller already
+        // passes a path, not a full REQUEST_URI, but this is the one place all
+        // of them funnel through, so it is also the one place a non-Latin
+        // path (stored percent-encoded, all %XX octets) survived being
+        // recorded before this fix, whatever the caller itself did right.
+        $data['request_path']     = esc_url_raw( $data['request_path'] );
         $data['ip_address']       = sanitize_text_field( $data['ip_address'] );
         $data['http_status']      = absint( $data['http_status'] );
 

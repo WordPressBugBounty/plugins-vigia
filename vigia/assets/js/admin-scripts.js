@@ -999,7 +999,8 @@ window.VigiaPaginator = (function($) {
      */
     function renderPageRow(row, clickData) {
         var path = row.request_path || '/';
-        var truncatedPath = path.length > 50 ? path.substring(0, 50) + '...' : path;
+        var displayPath = decodePathForDisplay(path);
+        var truncatedPath = displayPath.length > 50 ? displayPath.substring(0, 50) + '...' : displayPath;
         var fullUrl = vigiaData.siteUrl + path;
 
         var contentType = row.content_type || 'other';
@@ -1009,7 +1010,7 @@ window.VigiaPaginator = (function($) {
         var crawlerCount = parseInt(row.crawler_count, 10) || 0;
 
         var html = '<tr>';
-        html += '<td title="' + escapeHtml(path) + '">';
+        html += '<td title="' + escapeHtml(displayPath) + '">';
         html += '<a href="' + escapeHtml(fullUrl) + '" target="_blank" rel="noopener noreferrer"><code>' + escapeHtml(truncatedPath) + '</code></a>';
         html += '</td>';
         html += '<td class="vigia-content-type vigia-content-type-' + escapeHtml(contentType) + '">';
@@ -1295,7 +1296,8 @@ window.VigiaPaginator = (function($) {
             var categoryLabel = vigiaDataCategories.labels[row.crawler_category] || row.crawler_category;
             var categoryColor = vigiaDataCategories.colors[row.crawler_category] || '#95a5a6';
             var path = row.request_path || '/';
-            var truncatedPath = path.length > 30 ? path.substring(0, 30) + '...' : path;
+            var displayPath = decodePathForDisplay(path);
+            var truncatedPath = displayPath.length > 30 ? displayPath.substring(0, 30) + '...' : displayPath;
             var ip = row.ip_address || '-';
             var actionsHtml = getActionsDropdownHTML(row.crawler_name, ip);
 
@@ -1307,7 +1309,7 @@ window.VigiaPaginator = (function($) {
             html += '<td><strong>' + escapeHtml(row.crawler_name) + '</strong></td>';
             html += '<td><span class="vigia-category-badge" style="background-color:' + categoryColor + '">' + escapeHtml(categoryLabel) + '</span></td>';
             var fullUrl = vigiaData.siteUrl + path;
-            html += '<td title="' + escapeHtml(path) + '"><a href="' + escapeHtml(fullUrl) + '" target="_blank" rel="noopener noreferrer"><code>' + escapeHtml(truncatedPath) + '</code></a></td>';
+            html += '<td title="' + escapeHtml(displayPath) + '"><a href="' + escapeHtml(fullUrl) + '" target="_blank" rel="noopener noreferrer"><code>' + escapeHtml(truncatedPath) + '</code></a></td>';
             html += '<td class="vigia-content-type vigia-content-type-' + escapeHtml(contentType) + '">' + escapeHtml(contentTypeLabel) + '</td>';
             html += '<td class="vigia-http-status vigia-http-' + escapeHtml(String(httpStatus).charAt(0)) + 'xx">' + escapeHtml(String(httpStatus)) + '</td>';
             html += '<td><code>' + escapeHtml(ip) + '</code></td>';
@@ -1819,6 +1821,34 @@ window.VigiaPaginator = (function($) {
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
+    }
+
+    /**
+     * Decode a request_path for display only.
+     *
+     * request_path comes from the tracker's REQUEST_URI, stored percent-encoded
+     * (esc_url_raw() server-side), same as any non-Latin WordPress slug — a
+     * cyrillic, greek, arabic or CJK path is nothing but %XX octets. Left
+     * encoded, a row shows unreadable escapes instead of the page a person can
+     * recognize. Only for what gets read as text (title, the truncated label):
+     * the href built from the original, still-encoded path stays untouched, so
+     * the link keeps working. decodeURIComponent() throws on a malformed
+     * sequence (a lone `%` from something that was never meant to be a path),
+     * so a decode failure falls back to the original string rather than
+     * breaking the row.
+     *
+     * @param {string} path Percent-encoded request path.
+     * @return {string} Decoded path, or the original if it does not decode.
+     */
+    function decodePathForDisplay(path) {
+        if (!path) {
+            return path;
+        }
+        try {
+            return decodeURIComponent(path);
+        } catch (e) {
+            return path;
+        }
     }
 
     // ==========================================================================
