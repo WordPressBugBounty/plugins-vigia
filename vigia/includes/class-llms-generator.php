@@ -331,11 +331,16 @@ class VigIA_LLMS_Generator {
         // the current one, which is the cron case.
         $switched = switch_to_locale( get_locale() );
 
+        // And without the pieces that paint the session of whoever builds them,
+        // which the anonymous context does not reach: see
+        // VigIA_Content_Access::begin_sessionless_render().
         VigIA_Content_Access::begin_anonymous_context();
+        VigIA_Content_Access::begin_sessionless_render();
 
         try {
             return self::build_and_write( $settings );
         } finally {
+            VigIA_Content_Access::end_sessionless_render();
             VigIA_Content_Access::end_anonymous_context();
 
             if ( $switched ) {
@@ -423,10 +428,12 @@ class VigIA_LLMS_Generator {
         $switched = switch_to_locale( get_locale() );
 
         VigIA_Content_Access::begin_anonymous_context();
+        VigIA_Content_Access::begin_sessionless_render();
 
         try {
             return self::rebuild_one( $settings, $which );
         } finally {
+            VigIA_Content_Access::end_sessionless_render();
             VigIA_Content_Access::end_anonymous_context();
 
             if ( $switched ) {
@@ -531,10 +538,10 @@ class VigIA_LLMS_Generator {
      * @param string $frequency Frequency.
      */
     public static function schedule_regeneration( $frequency ) {
-        $timestamp = wp_next_scheduled( self::CRON_HOOK );
-        if ( $timestamp ) {
-            wp_unschedule_event( $timestamp, self::CRON_HOOK );
-        }
+        // Every event of the hook, not only the next one: cron_regenerate() can
+        // leave a one-off retry ahead of the recurring event, and unscheduling
+        // just the first would keep the old recurrence and add a second one.
+        wp_clear_scheduled_hook( self::CRON_HOOK );
 
         if ( 'manual' === $frequency ) {
             return;
@@ -582,9 +589,42 @@ class VigIA_LLMS_Generator {
             return;
         }
 
-        $settings = self::get_settings();
+        // With ALTERNATE_WP_CRON the scheduled events do not run in a request of
+        // their own: WordPress runs them inside the page view of whoever happened
+        // to visit (`spawn_cron()`, `wp-includes/cron.php:937-955` in 7.1.2), after
+        // that visitor's store session has been loaded. Both files would be built
+        // with it and served to everybody until the next run. So a request that
+        // brings cookies or a user does not build them: it leaves a retry a few
+        // minutes ahead, for a request that brings neither. The ordinary cron,
+        // a loopback request to wp-cron.php, a system cron and WP-CLI carry no
+        // cookies, and nothing changes for them.
+        if ( ! ( defined( 'WP_CLI' ) && WP_CLI ) && ! VigIA_Content_Access::is_shareable_request() ) {
+            // Core ignores a one-off event identical to another within ten
+            // minutes (`wp-includes/cron.php:129-151`), so retries do not pile up.
+            wp_schedule_single_event( time() + 5 * MINUTE_IN_SECONDS, self::CRON_HOOK );
+            return;
+        }
+
+        // Only the date is stored here, and not through save_settings() (2.6.7).
+        // That one also schedules the event again, an hour from now, and by the
+        // time this runs WordPress has already scheduled the next one at the
+        // frequency chosen (`wp-cron.php:129` reschedules, `:191` calls the hook,
+        // in 7.1.2). The hour won every time: the files were rebuilt every hour
+        // whether the setting said daily, weekly or monthly, and each run flushed
+        // the whole object cache on its way through save_settings().
+        $settings                   = self::get_settings();
         $settings['last_generated'] = time();
-        self::save_settings( $settings );
+        update_option( self::OPTION_NAME, self::normalize_settings( $settings ), false );
+
+        // What save_settings() did besides, and still belongs here: the lines of
+        // robots.txt that point to the files.
+        if ( class_exists( 'VigIA_Robots_Manager' ) ) {
+            VigIA_Robots_Manager::update_llms_references(
+                $settings['robots_llms'],
+                $settings['robots_llms_full'] && $settings['generate_full']
+            );
+        }
+
         self::generate( $settings );
     }
 
@@ -1022,7 +1062,7 @@ class VigIA_LLMS_Generator {
      * @return string
      */
     private static function one_line( $text ) {
-        return trim( (string) preg_replace( '/\s+/', ' ', (string) $text ) );
+        return trim( (string) self::keep_replace( '/\s+/', ' ', (string) $text ) );
     }
 
     /**
@@ -1095,15 +1135,79 @@ class VigIA_LLMS_Generator {
 
         for ( $pass = 0; $pass < 10; $pass++ ) {
             $before = $text;
-            $text   = (string) preg_replace( '#<!--.*?-->#s', '', $text );
-            $text   = (string) preg_replace( '#</?[a-z](?:[^<>"\']|"[^"]*"|\'[^\']*\')*>#i', '', $text );
+            $text   = preg_replace( '#<!--.*?-->#s', '', $text );
+            $text   = null === $text ? null : preg_replace( '#</?[a-z](?:[^<>"\']|"[^"]*"|\'[^\']*\')*>#i', '', $text );
+
+            // The one step that must not keep what it had when the engine gives
+            // up (see keep_replace()): what it had may carry a live tag.
+            if ( null === $text ) {
+                return self::strip_when_filter_fails( $before );
+            }
 
             if ( $text === $before ) {
                 break;
             }
         }
 
-        return (string) preg_replace( '#<+(?=[a-z/!?])#i', '', $text );
+        $clean = preg_replace( '#<+(?=[a-z/!?])#i', '', $text );
+
+        return null === $clean ? self::strip_when_filter_fails( $text ) : $clean;
+    }
+
+    /**
+     * What remove_tag_shapes() falls back to when its expression cannot run.
+     *
+     * The plain strip is the very thing that function avoids, because it drops
+     * the text after a lone `<`. Here that loss is the lesser harm: the other
+     * choice is to hand over text nobody filtered. Twin of the method of the
+     * same name in VigIA_Markdown_Endpoints.
+     *
+     * @since 2.6.7
+     * @param string $text Text the filter could not process.
+     * @return string
+     */
+    private static function strip_when_filter_fails( $text ) {
+        return wp_strip_all_tags( $text );
+    }
+
+    /**
+     * preg_replace() that keeps the subject when the engine gives up.
+     *
+     * A PCRE call that runs out of backtracking or of stack returns null, and
+     * every step here used to assign its result straight back: one failed step
+     * and the entry went into llms-full.txt with an empty body (measured with
+     * 1,500 KB inside a paragraph, a link or a list item), and the step that
+     * takes the byte order mark off would have written an empty file. A step
+     * that fails now leaves the text as it was. Twin of the method of the same
+     * name in VigIA_Markdown_Endpoints.
+     *
+     * @since 2.6.7
+     * @param string $pattern     Pattern.
+     * @param string $replacement Replacement.
+     * @param mixed  $subject     Subject.
+     * @return string
+     */
+    private static function keep_replace( $pattern, $replacement, $subject ) {
+        $subject = (string) $subject;
+        $result  = preg_replace( $pattern, $replacement, $subject );
+
+        return null === $result ? $subject : $result;
+    }
+
+    /**
+     * preg_replace_callback() on the same terms as keep_replace().
+     *
+     * @since 2.6.7
+     * @param string   $pattern  Pattern.
+     * @param callable $callback Callback.
+     * @param mixed    $subject  Subject.
+     * @return string
+     */
+    private static function keep_replace_callback( $pattern, $callback, $subject ) {
+        $subject = (string) $subject;
+        $result  = preg_replace_callback( $pattern, $callback, $subject );
+
+        return null === $result ? $subject : $result;
     }
 
     /**
@@ -1195,8 +1299,8 @@ class VigIA_LLMS_Generator {
         // Every boundary the markup draws becomes a newline first, so the split
         // below sees the same thing whether the break was a closing tag or a
         // line break the author typed.
-        $html = preg_replace( '#<(?:br|hr)\b[^>]*>#i', "\n", $html );
-        $html = preg_replace(
+        $html = self::keep_replace( '#<(?:br|hr)\b[^>]*>#i', "\n", $html );
+        $html = self::keep_replace(
             '#</(?:p|div|section|article|aside|header|footer|main|nav|h[1-6]|li|ul|ol|dl|dt|dd|blockquote|pre|figure|figcaption|table|thead|tbody|tfoot|tr|td|th|address|form|fieldset|details|summary)\s*>#i',
             "\n",
             (string) $html
@@ -1347,6 +1451,18 @@ class VigIA_LLMS_Generator {
                 return '';
             }
 
+            // The cart, the checkout and My Account of a store show whoever visits
+            // them their own session, and the summary below runs their shortcodes.
+            // This file is built from admin-ajax, which WooCommerce counts as a
+            // front-end request and loads the basket for
+            // (`includes/class-woocommerce.php:709` and `:1008-1010` in 11.1.2): the
+            // basket of whoever pressed the button would be the description of the
+            // cart page in a file served to everybody. They stay listed, with their
+            // title and their address, and are not rendered (2.6.7).
+            if ( VigIA_Content_Access::is_visitor_page( $the_post ) ) {
+                return '';
+            }
+
             // Process shortcodes first for page builders.
             $content          = $the_post->post_content;
             $original_content = $content;
@@ -1384,8 +1500,8 @@ class VigIA_LLMS_Generator {
             $excerpt = self::blocks_to_line( $excerpt );
 
             // Final cleanup: remove any shortcode-like patterns that might remain.
-            $excerpt = preg_replace( '/\[[a-z][a-z0-9_-]*[^\]]*\]/is', '', $excerpt );
-            $excerpt = preg_replace( '/\[\/[a-z][a-z0-9_-]*\]/is', '', $excerpt );
+            $excerpt = self::keep_replace( '/\[[a-z][a-z0-9_-]*[^\]]*\]/is', '', $excerpt );
+            $excerpt = self::keep_replace( '/\[\/[a-z][a-z0-9_-]*\]/is', '', $excerpt );
         }
 
         // A hand-written excerpt can carry markup too, and it reaches the same
@@ -1436,11 +1552,11 @@ class VigIA_LLMS_Generator {
         // =====================================================================
 
         // Remove global_colors_info and similar JSON attributes that break parsing.
-        $content = preg_replace( '/\s+global_colors_info="[^"]*"/i', '', $content );
-        $content = preg_replace( '/\s+_builder_version="[^"]*"/i', '', $content );
-        $content = preg_replace( '/\s+custom_css_[a-z_]+="[^"]*"/i', '', $content );
-        $content = preg_replace( '/\s+hover_enabled="[^"]*"/i', '', $content );
-        $content = preg_replace( '/\s+sticky_enabled="[^"]*"/i', '', $content );
+        $content = self::keep_replace( '/\s+global_colors_info="[^"]*"/i', '', $content );
+        $content = self::keep_replace( '/\s+_builder_version="[^"]*"/i', '', $content );
+        $content = self::keep_replace( '/\s+custom_css_[a-z_]+="[^"]*"/i', '', $content );
+        $content = self::keep_replace( '/\s+hover_enabled="[^"]*"/i', '', $content );
+        $content = self::keep_replace( '/\s+sticky_enabled="[^"]*"/i', '', $content );
 
         // =====================================================================
         // PASS 0.5: Remove shortcodes from common plugins that don't provide useful text.
@@ -1449,59 +1565,59 @@ class VigIA_LLMS_Generator {
         // =====================================================================
 
         // Contact forms.
-        $content = preg_replace( '/\[contact-form-7[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[wpforms[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[gravityform[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[formidable[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[ninja_form[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[fluentform[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[contact-form-7[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[wpforms[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[gravityform[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[formidable[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[ninja_form[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[fluentform[^\]]*\]/is', '', $content );
 
         // Tables.
-        $content = preg_replace( '/\[tableon[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[posts_table[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[table[^\]]*\].*?\[\/table\]/is', '', $content );
-        $content = preg_replace( '/\[tablepress[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[supsystic-tables[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[wpdatatable[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[tableon[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[posts_table[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[table[^\]]*\].*?\[\/table\]/is', '', $content );
+        $content = self::keep_replace( '/\[tablepress[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[supsystic-tables[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[wpdatatable[^\]]*\]/is', '', $content );
 
         // Galleries and media.
-        $content = preg_replace( '/\[gallery[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[envira-gallery[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[ngg[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[foogallery[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[video[^\]]*\].*?\[\/video\]/is', '', $content );
-        $content = preg_replace( '/\[audio[^\]]*\].*?\[\/audio\]/is', '', $content );
-        $content = preg_replace( '/\[playlist[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[gallery[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[envira-gallery[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[ngg[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[foogallery[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[video[^\]]*\].*?\[\/video\]/is', '', $content );
+        $content = self::keep_replace( '/\[audio[^\]]*\].*?\[\/audio\]/is', '', $content );
+        $content = self::keep_replace( '/\[playlist[^\]]*\]/is', '', $content );
 
         // Sliders and carousels.
-        $content = preg_replace( '/\[rev_slider[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[smartslider3[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[metaslider[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[soliloquy[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[rev_slider[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[smartslider3[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[metaslider[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[soliloquy[^\]]*\]/is', '', $content );
 
         // Maps.
-        $content = preg_replace( '/\[wpgmza[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[google-map[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[maps-marker[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[wpgmza[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[google-map[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[maps-marker[^\]]*\]/is', '', $content );
 
         // Social and embeds.
-        $content = preg_replace( '/\[embed[^\]]*\].*?\[\/embed\]/is', '', $content );
-        $content = preg_replace( '/\[instagram-feed[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[twitter-feed[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[facebook-feed[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[youtube[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[embed[^\]]*\].*?\[\/embed\]/is', '', $content );
+        $content = self::keep_replace( '/\[instagram-feed[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[twitter-feed[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[facebook-feed[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[youtube[^\]]*\]/is', '', $content );
 
         // WooCommerce (functional shortcodes, not content).
-        $content = preg_replace( '/\[product[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[products[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[add_to_cart[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[woocommerce_[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[product[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[products[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[add_to_cart[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[woocommerce_[^\]]*\]/is', '', $content );
 
         // Other common plugins.
-        $content = preg_replace( '/\[vc_[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[caption[^\]]*\].*?\[\/caption\]/is', '$1', $content );
-        $content = preg_replace( '/\[su_[^\]]*\].*?\[\/su_[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[su_[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[vc_[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[caption[^\]]*\].*?\[\/caption\]/is', '$1', $content );
+        $content = self::keep_replace( '/\[su_[^\]]*\].*?\[\/su_[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[su_[^\]]*\]/is', '', $content );
 
         // Pattern for matching shortcode attributes (now simplified after cleanup).
         // Matches: attribute="value" or attribute='value' or just attribute.
@@ -1514,98 +1630,98 @@ class VigIA_LLMS_Generator {
         // =====================================================================
 
         // Divi Builder: [et_pb_text]content[/et_pb_text].
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[et_pb_text' . $attr_pattern . '\](.*?)\[\/et_pb_text\]/is',
             "\n$1\n",
             $content
         );
 
         // Divi Builder: [et_pb_code]content[/et_pb_code] - may contain HTML/text.
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[et_pb_code' . $attr_pattern . '\](.*?)\[\/et_pb_code\]/is',
             "\n$1\n",
             $content
         );
 
         // Divi Builder: [et_pb_blurb] - extracts title and content.
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[et_pb_blurb' . $attr_pattern . '\](.*?)\[\/et_pb_blurb\]/is',
             "\n$1\n",
             $content
         );
 
         // Divi Builder: [et_pb_accordion_item] - FAQ items.
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[et_pb_accordion_item' . $attr_pattern . '\](.*?)\[\/et_pb_accordion_item\]/is',
             "\n$1\n",
             $content
         );
 
         // Divi Builder: [et_pb_tab] - Tab content.
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[et_pb_tab' . $attr_pattern . '\](.*?)\[\/et_pb_tab\]/is',
             "\n$1\n",
             $content
         );
 
         // Divi Builder: [et_pb_toggle] - Toggle content.
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[et_pb_toggle' . $attr_pattern . '\](.*?)\[\/et_pb_toggle\]/is',
             "\n$1\n",
             $content
         );
 
         // Divi Builder: [et_pb_slide] - Slider content.
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[et_pb_slide' . $attr_pattern . '\](.*?)\[\/et_pb_slide\]/is',
             "\n$1\n",
             $content
         );
 
         // Divi Builder: [et_pb_cta] - Call to action (has heading/button_text in attrs).
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[et_pb_cta' . $attr_pattern . '\](.*?)\[\/et_pb_cta\]/is',
             "\n$1\n",
             $content
         );
 
         // WPBakery: [vc_column_text]content[/vc_column_text].
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[vc_column_text' . $attr_pattern . '\](.*?)\[\/vc_column_text\]/is',
             "\n$1\n",
             $content
         );
 
         // WPBakery: [vc_raw_html]content[/vc_raw_html].
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[vc_raw_html' . $attr_pattern . '\](.*?)\[\/vc_raw_html\]/is',
             "\n$1\n",
             $content
         );
 
         // Avada/Fusion: [fusion_text]content[/fusion_text].
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[fusion_text' . $attr_pattern . '\](.*?)\[\/fusion_text\]/is',
             "\n$1\n",
             $content
         );
 
         // Avada/Fusion: [fusion_code]content[/fusion_code].
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[fusion_code' . $attr_pattern . '\](.*?)\[\/fusion_code\]/is',
             "\n$1\n",
             $content
         );
 
         // Themify: [themify_text]content[/themify_text].
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[themify_text' . $attr_pattern . '\](.*?)\[\/themify_text\]/is',
             "\n$1\n",
             $content
         );
 
         // Generic text containers used by various builders.
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[(text|content|column_text|raw_content)' . $attr_pattern . '\](.*?)\[\/\1\]/is',
             "\n$2\n",
             $content
@@ -1619,97 +1735,97 @@ class VigIA_LLMS_Generator {
 
         // Divi Builder structural shortcodes (et_pb_*).
         // Remove opening tags with any attributes.
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[et_pb_[a-z0-9_]+' . $attr_pattern . '\]/is',
             '',
             $content
         );
         // Remove closing tags.
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[\/et_pb_[a-z0-9_]+\]/is',
             '',
             $content
         );
 
         // WPBakery/Visual Composer structural shortcodes (vc_*).
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[vc_[a-z0-9_]+' . $attr_pattern . '\]/is',
             '',
             $content
         );
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[\/vc_[a-z0-9_]+\]/is',
             '',
             $content
         );
 
         // Avada/Fusion Builder structural shortcodes (fusion_*).
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[fusion_[a-z0-9_]+' . $attr_pattern . '\]/is',
             '',
             $content
         );
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[\/fusion_[a-z0-9_]+\]/is',
             '',
             $content
         );
 
         // Themify Builder shortcodes.
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[themify_[a-z0-9_]+' . $attr_pattern . '\]/is',
             '',
             $content
         );
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[\/themify_[a-z0-9_]+\]/is',
             '',
             $content
         );
 
         // Beaver Builder shortcodes (fl_*).
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[fl_[a-z0-9_]+' . $attr_pattern . '\]/is',
             '',
             $content
         );
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[\/fl_[a-z0-9_]+\]/is',
             '',
             $content
         );
 
         // Elementor shortcodes and template references.
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[elementor[a-z0-9_-]*' . $attr_pattern . '\]/is',
             '',
             $content
         );
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[\/elementor[a-z0-9_-]*\]/is',
             '',
             $content
         );
 
         // Oxygen Builder.
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[oxygen[a-z0-9_-]*' . $attr_pattern . '\]/is',
             '',
             $content
         );
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[\/oxygen[a-z0-9_-]*\]/is',
             '',
             $content
         );
 
         // Brizy Builder.
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[brizy[a-z0-9_-]*' . $attr_pattern . '\]/is',
             '',
             $content
         );
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[\/brizy[a-z0-9_-]*\]/is',
             '',
             $content
@@ -1721,7 +1837,7 @@ class VigIA_LLMS_Generator {
 
         // Remove any leftover shortcodes that look like page builder shortcodes.
         // Pattern matches [anything_with_underscores ...] or [/anything_with_underscores].
-        $content = preg_replace(
+        $content = self::keep_replace(
             '/\[\/?[a-z]+_[a-z0-9_]+' . $attr_pattern . '\]/is',
             '',
             $content
@@ -1734,21 +1850,21 @@ class VigIA_LLMS_Generator {
 
         // Remove any remaining opening shortcode tags with attributes.
         // Pattern includes letters, numbers, underscores, and hyphens in shortcode names.
-        $content = preg_replace( '/\[[a-z_][a-z0-9_-]*\s+[^\]]+\]/is', '', $content );
+        $content = self::keep_replace( '/\[[a-z_][a-z0-9_-]*\s+[^\]]+\]/is', '', $content );
 
         // Remove any remaining self-closing or simple shortcodes (with hyphens support).
-        $content = preg_replace( '/\[\/?[a-z_][a-z0-9_-]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[\/?[a-z_][a-z0-9_-]*\]/is', '', $content );
 
         // Final nuclear option: remove ANYTHING that looks like a shortcode.
         // Matches [word...] or [word ...] patterns that might have been missed.
-        $content = preg_replace( '/\[[a-z][a-z0-9_-]*[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[[a-z][a-z0-9_-]*[^\]]*\]/is', '', $content );
 
         // Also remove closing tags that might be orphaned.
-        $content = preg_replace( '/\[\/[a-z][a-z0-9_-]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[\/[a-z][a-z0-9_-]*\]/is', '', $content );
 
         // Clean up excessive whitespace from removed shortcodes.
-        $content = preg_replace( '/\n{3,}/', "\n\n", $content );
-        $content = preg_replace( '/[ \t]+/', ' ', $content );
+        $content = self::keep_replace( '/\n{3,}/', "\n\n", $content );
+        $content = self::keep_replace( '/[ \t]+/', ' ', $content );
 
         return trim( $content );
     }
@@ -1763,6 +1879,13 @@ class VigIA_LLMS_Generator {
      * @return string
      */
     private static function get_clean_content( $the_post ) {
+        // Not rendered, for the same reason as in get_clean_excerpt(): what the
+        // cart, the checkout and My Account of a store paint belongs to the
+        // session of the request that builds this file (2.6.7).
+        if ( VigIA_Content_Access::is_visitor_page( $the_post ) ) {
+            return '';
+        }
+
         $content = $the_post->post_content;
 
         // Save current global post and set up new one for shortcode context. This
@@ -1822,43 +1945,115 @@ class VigIA_LLMS_Generator {
         // subject of the page, not markup, same reasoning as the fenced code
         // and inline spans VigIA_Markdown_Endpoints::html_to_markdown()
         // already protects from remove_tag_shapes() the same way.
+        //
+        // A <pre> comes back as a fenced block on lines of its own (2.6.7). It
+        // used to come back as bare text wherever its placeholder had landed, so a
+        // code sample ran straight on from the sentence before it and two samples
+        // in a row came out welded together (`total( $i ); }grep -rn ...`), with
+        // nothing to tell a model where the code started or stopped. Inline <code>
+        // stays as the text it was.
+        //
+        // The placeholder carries a value drawn for this call (2.6.7): with a
+        // fixed one, an entry whose text read `VIGIALLMSCODE0END` got its first
+        // code sample put there instead.
+        try {
+            $token = 'VIGIALLMSCODE' . bin2hex( random_bytes( 8 ) ) . 'X';
+        } catch ( \Exception $e ) {
+            $token = 'VIGIALLMSCODE' . substr( md5( uniqid( (string) wp_rand(), true ) ), 0, 16 ) . 'X';
+        }
+
         $code_blocks = array();
-        $content     = preg_replace_callback(
-            '#<(pre|code)\b[^>]*>(.*?)</\1>#is',
-            function ( $matches ) use ( &$code_blocks ) {
+        $content     = self::keep_replace_callback(
+            '#<(pre|code)\b([^>]*)>(.*?)</\1>#is',
+            function ( $matches ) use ( &$code_blocks, $token ) {
                 // A <pre><code>…</code></pre> pair (the block editor's own markup)
                 // matches on the outer <pre>, with the inner <code> real tags
-                // caught inside $matches[2]: strip those before decoding, or
+                // caught inside $matches[3]: strip those before decoding, or
                 // they would survive as live tags with no strip_all_tags() pass
                 // left to reach them.
-                $inner         = wp_strip_all_tags( $matches[2] );
-                $code_blocks[] = html_entity_decode( $inner, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-                return 'VIGIALLMSCODE' . ( count( $code_blocks ) - 1 ) . 'END';
+                $inner = html_entity_decode( wp_strip_all_tags( $matches[3] ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+
+                if ( 'pre' !== strtolower( $matches[1] ) ) {
+                    $code_blocks[] = $inner;
+                    return $token . ( count( $code_blocks ) - 1 ) . 'END';
+                }
+
+                // The language, when the <pre> or the <code> right inside it
+                // declares one the way the block editor and the highlighters do.
+                $language = '';
+                $opening  = $matches[2] . ' ' . ( preg_match( '#^\s*<code\b([^>]*)>#i', $matches[3], $code_tag ) ? $code_tag[1] : '' );
+                if ( preg_match( '/language-([a-z0-9_+#-]+)/i', $opening, $found ) ) {
+                    $language = strtolower( $found[1] );
+                }
+
+                // A fence longer than any run of backticks inside the sample.
+                $fence = '```';
+                if ( preg_match_all( '/`{3,}/', $inner, $runs ) ) {
+                    $fence = str_repeat( '`', max( array_map( 'strlen', $runs[0] ) ) + 1 );
+                }
+
+                $code_blocks[] = $fence . $language . "\n" . $inner . "\n" . $fence;
+                return "\n\n" . $token . ( count( $code_blocks ) - 1 ) . "END\n\n";
             },
             $content
         );
+        // A replace that fails keeps the body as it was (see keep_replace()): its
+        // code then stays as the markup it was, which the passes below flatten.
 
         // Remove common page builder artifacts and empty divs/sections.
-        $content = preg_replace( '/<(div|section|article|aside|header|footer|nav|main)[^>]*>\s*<\/\1>/is', '', $content );
+        $content = self::keep_replace( '/<(div|section|article|aside|header|footer|nav|main)[^>]*>\s*<\/\1>/is', '', $content );
 
-        // HTML to markdown-like.
-        $content = preg_replace( '/<h1[^>]*>(.*?)<\/h1>/is', "# $1\n\n", $content );
-        $content = preg_replace( '/<h2[^>]*>(.*?)<\/h2>/is', "## $1\n\n", $content );
-        $content = preg_replace( '/<h3[^>]*>(.*?)<\/h3>/is', "### $1\n\n", $content );
-        $content = preg_replace( '/<h[4-6][^>]*>(.*?)<\/h[4-6]>/is', "#### $1\n\n", $content );
-        $content = preg_replace( '/<p[^>]*>(.*?)<\/p>/is', "$1\n\n", $content );
-        $content = preg_replace( '/<li[^>]*>(.*?)<\/li>/is', "- $1\n", $content );
-        $content = preg_replace( '/<\/?[ou]l[^>]*>/is', "\n", $content );
-        $content = preg_replace( '/<a[^>]*>(.*?)<\/a>/is', '$1', $content );
-        $content = preg_replace( '/<(strong|b)[^>]*>(.*?)<\/(strong|b)>/is', '**$2**', $content );
-        $content = preg_replace( '/<(em|i)[^>]*>(.*?)<\/(em|i)>/is', '*$2*', $content );
-        $content = wp_strip_all_tags( $content );
-        $content = preg_replace( '/\n{3,}/', "\n\n", $content );
-        $content = preg_replace( '/[ \t]+/', ' ', $content );
+        // The counter of Elementor is printed at the number it starts from and
+        // counts up to the one in `data-to-value` once it is on screen. Twin of
+        // VigIA_Markdown_Endpoints::html_to_markdown().
+        $content = self::keep_replace( '#(<span\b[^>]*\belementor-counter-number\b[^>]*\bdata-to-value="([^"]*)"[^>]*>)[^<]*(</span>)#i', '$1$2$3', $content );
+
+        // HTML to markdown-like. A heading and a list item on one line (2.6.7): a
+        // page builder writes their text inside nested elements, each on its own
+        // line, and the `###` or the `-` came out alone, with the text lines below.
+        // One holding a code sample is left alone: the sample needs its lines.
+        $one_line = static function ( $text ) use ( $token ) {
+            return false !== strpos( $text, $token ) ? $text : trim( self::keep_replace( '/\s+/', ' ', $text ) );
+        };
+        // List items before headings: a heading inside an item (the title of a
+        // product in a shop loop) is text of that item, not a heading of the page.
+        // And with nothing between one item and the next: the line break a page
+        // builder leaves there put a blank line between every two items.
+        $content = self::keep_replace( '#</li>\s+<li\b#i', '</li><li', $content );
+        $content  = self::keep_replace_callback(
+            '/<li[^>]*>(.*?)<\/li>/is',
+            static function ( $matches ) use ( $one_line ) {
+                return '- ' . $one_line( self::keep_replace( '#</?h[1-6]\b[^>]*>#i', ' ', $matches[1] ) ) . "\n";
+            },
+            $content
+        );
+        $content  = self::keep_replace_callback(
+            '/<h([1-6])\b[^>]*>(.*?)<\/h\1>/is',
+            static function ( $matches ) use ( $one_line ) {
+                $text = $one_line( $matches[2] );
+
+                return '' === trim( wp_strip_all_tags( $text ) ) ? '' : str_repeat( '#', min( 4, (int) $matches[1] ) ) . ' ' . $text . "\n\n";
+            },
+            $content
+        );
+        $content  = self::keep_replace( '/<p[^>]*>(.*?)<\/p>/is', "$1\n\n", $content );
+        $content  = self::keep_replace( '/<\/?[ou]l[^>]*>/is', "\n", $content );
+        $content  = self::keep_replace( '/<a[^>]*>(.*?)<\/a>/is', '$1', $content );
+        $content  = self::keep_replace( '/<(strong|b)[^>]*>(.*?)<\/(strong|b)>/is', '**$2**', $content );
+        $content  = self::keep_replace( '/<(em|i)[^>]*>(.*?)<\/(em|i)>/is', '*$2*', $content );
+        $content  = wp_strip_all_tags( $content );
+
+        // Spaces first, then the lines. The other way round (as it was until
+        // 2.6.7), a line that held only tabs became a line holding one space,
+        // which is not an empty line: the content of a page builder, all nested
+        // wrappers, came out with more of those than lines of text.
+        $content = self::keep_replace( '/[ \t]+/', ' ', $content );
+        $content = self::keep_replace( '/ ?\n ?/', "\n", $content );
+        $content = self::keep_replace( '/\n{3,}/', "\n\n", $content );
 
         // Final cleanup: remove any shortcode-like patterns that might remain after all processing.
-        $content = preg_replace( '/\[[a-z][a-z0-9_-]*[^\]]*\]/is', '', $content );
-        $content = preg_replace( '/\[\/[a-z][a-z0-9_-]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[[a-z][a-z0-9_-]*[^\]]*\]/is', '', $content );
+        $content = self::keep_replace( '/\[\/[a-z][a-z0-9_-]*\]/is', '', $content );
 
         // Entities last. The body carries `&amp;` and `&#038;` that a model reads
         // literally, and decode_entities() strips again afterwards so decoding
@@ -1870,8 +2065,8 @@ class VigIA_LLMS_Generator {
         // page in a plain-text file nothing renders as HTML, not markup to be
         // cleaned, same as a fenced block in the per-post .md document.
         if ( ! empty( $code_blocks ) ) {
-            $content = preg_replace_callback(
-                '/VIGIALLMSCODE(\d+)END/',
+            $content = self::keep_replace_callback(
+                '/' . $token . '(\d+)END/',
                 function ( $matches ) use ( $code_blocks ) {
                     $index = (int) $matches[1];
                     return isset( $code_blocks[ $index ] ) ? $code_blocks[ $index ] : '';
@@ -1929,7 +2124,7 @@ class VigIA_LLMS_Generator {
         // position zero and a strict Markdown parser reads it as a paragraph. We
         // used to prepend one on purpose; 2.6.5 stops, and strips one arriving in
         // the content so a title pasted from a BOM'd editor cannot put it back.
-        $content = (string) preg_replace( '/^\xEF\xBB\xBF/', '', (string) $content );
+        $content = (string) self::keep_replace( '/^\xEF\xBB\xBF/', '', (string) $content );
 
         if ( ! $wp_filesystem->put_contents( $path, $content, FS_CHMOD_FILE ) ) {
             /* translators: %s: filename (e.g., llms.txt or llms-full.txt) */

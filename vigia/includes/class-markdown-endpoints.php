@@ -74,6 +74,21 @@ class VigIA_Markdown_Endpoints {
 	);
 
 	/**
+	 * What every placeholder of html_to_markdown() starts with.
+	 *
+	 * The converter sets its code blocks, its code spans and its lists aside
+	 * under a placeholder and puts them back at the end, untouched by the passes
+	 * in between. Each call draws its own value for it (2.6.7): with a fixed
+	 * one, an author who wrote the placeholder in a paragraph got the content
+	 * of a code block of the same page put back there, in the middle of a line,
+	 * where its fence is no fence and its `<img onerror>` is markup again.
+	 *
+	 * @since 2.6.7
+	 * @var string
+	 */
+	private static $marker = 'VIGIAPLACEHOLDER';
+
+	/**
 	 * Initialize hooks
 	 */
 	public static function init() {
@@ -360,23 +375,67 @@ class VigIA_Markdown_Endpoints {
 
 		// Check for .md URL endpoint.
 		if ( $settings['enable_md_urls'] && get_query_var( 'vigia_markdown' ) ) {
-			// WordPress strips the trailing slash before matching the rewrite rule,
-			// so `/entry.md/` reaches this rule exactly like `/entry.md` and used to
-			// serve the same document at a second URL, with no canonical of its own
-			// pointing back. A .md address is a file name, never a directory, so the
-			// slashed form is redirected to the real one instead of answered.
+			// What decides is the address that was asked, not the query variable. The
+			// two variables of the rewrite rule are public, and WordPress takes a
+			// public variable from a POST body or from the query string before it
+			// takes it from the rule (`wp-includes/class-wp.php:319-336` in 7.1.2).
+			// So `/any-page?vigia_markdown=1&vigia_markdown_path=other` used to serve
+			// the document of `other`, and `/a.md?vigia_markdown_path=b` the one of
+			// `b`: a second address for every document, and one that builds with
+			// whatever else the query string carries.
 			//
 			// esc_url_raw(), not sanitize_text_field(): the latter drops every
 			// %XX octet (_sanitize_text_fields(), wp-includes/formatting.php), so
 			// a non-Latin path segment (stored percent-encoded, like any other
 			// WordPress slug) came out empty and the redirect landed on the
 			// wrong URL instead of the requested one.
-			$requested = isset( $_SERVER['REQUEST_URI'] ) ? esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
-			$only_path = (string) wp_parse_url( $requested, PHP_URL_PATH );
-			if ( '' !== $only_path && '/' === substr( $only_path, -1 ) ) {
-				$query  = (string) wp_parse_url( $requested, PHP_URL_QUERY );
-				$target = untrailingslashit( $only_path ) . ( '' !== $query ? '?' . $query : '' );
-				wp_safe_redirect( $target, 301 );
+			$requested                       = isset( $_SERVER['REQUEST_URI'] ) ? esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
+			list( $only_path, $query_string ) = self::split_request_uri( $requested );
+
+			// WordPress strips the trailing slash before matching the rewrite rule,
+			// so `/entry.md/` reaches this rule exactly like `/entry.md` and used to
+			// serve the same document at a second URL, with no canonical of its own
+			// pointing back. A .md address is a file name, never a directory, so the
+			// slashed form is redirected to the real one instead of answered. Without
+			// its query, for the reason below.
+			//
+			// The same goes for the suffix written with percent-encoded characters:
+			// WordPress matches its rules against the decoded path as well, so
+			// `/entry%2Emd` reaches this rule too. It is the same address spelled
+			// another way, and it is sent to the plain one.
+			$without_slash = rtrim( $only_path, '/' );
+			if ( '.md' !== substr( $without_slash, -3 )
+				&& preg_match( '/(?:\.|%2e)(?:m|%6d)(?:d|%64)$/i', $without_slash, $suffix )
+				&& '.md' === rawurldecode( $suffix[0] ) ) {
+				$without_slash = substr( $without_slash, 0, -strlen( $suffix[0] ) ) . '.md';
+			}
+			if ( $without_slash !== $only_path && '.md' === substr( $without_slash, -3 ) ) {
+				wp_safe_redirect( $without_slash, 301 );
+				exit;
+			}
+
+			// The variables arrived on an address that is not a `.md`: nothing here
+			// answers it.
+			if ( '.md' !== substr( $only_path, -3 ) ) {
+				self::send_404();
+				return;
+			}
+
+			// A document is built for a read of its own address and for nothing else,
+			// the rule the page address follows too (is_request_for(), in the access
+			// class). A write sent to a `.md` is refused and not answered with the
+			// document. And a query is redirected away, because a block can read it
+			// even though the document does not: the query loop takes its page from
+			// `$_GET` (`wp-includes/blocks/post-template.php:50-52`), which the neutral
+			// context leaves alone, so `/my-courses.md?query-0-page=2` built the second
+			// page of the loop and stored it as the document of everybody.
+			if ( ! VigIA_Content_Access::is_read_request() ) {
+				self::send_405();
+				return;
+			}
+
+			if ( '' !== $query_string ) {
+				wp_safe_redirect( $only_path, 301 );
 				exit;
 			}
 
@@ -393,27 +452,65 @@ class VigIA_Markdown_Endpoints {
 			// stores the slug in lowercase, and get_terms()'s exact 'slug' match
 			// (unlike get_page_by_path()'s own decode/re-encode round trip) does
 			// not normalize case on its own.
-			$path = get_query_var( 'vigia_markdown_path' );
-			if ( $path ) {
-				self::serve_markdown_by_path( strtolower( (string) $path ) );
-				return;
-			}
+			// Whatever the path is, a `.md` address is answered here: `/0.md` used to
+			// slip past a truthiness test and was handed on to WordPress, which
+			// answered it with a redirect instead of this endpoint's 404.
+			self::serve_markdown_by_path( strtolower( (string) get_query_var( 'vigia_markdown_path' ) ) );
+			return;
 		}
 
 		// Check for Accept: text/markdown content negotiation.
-		if ( $settings['enable_negotiation'] && self::accepts_markdown() ) {
+		//
+		// Only a read of the address of the page is answered with its document, as
+		// only a read of its `.md` is (see above). The page with a parameter, the
+		// second page of an archive, `/feed/` or an endpoint of My Account reach
+		// this point with the same queried object, and what they show would be
+		// stored as the document of everybody. They get the web page, which still
+		// announces the alternate in its Link header.
+		if ( $settings['enable_negotiation'] && self::accepts_markdown() && VigIA_Content_Access::is_read_request() ) {
 			if ( is_singular() ) {
 				$the_post = get_queried_object();
-				if ( $the_post && self::is_post_eligible( $the_post ) ) {
+				if ( $the_post instanceof WP_Post
+					&& self::is_post_eligible( $the_post )
+					&& VigIA_Content_Access::is_request_for( get_permalink( $the_post ) ) ) {
 					self::serve_markdown_response( $the_post );
 				}
 			} elseif ( is_tax() || is_category() || is_tag() ) {
 				$term = get_queried_object();
-				if ( $term instanceof WP_Term && self::is_term_eligible( $term ) ) {
+				if ( $term instanceof WP_Term
+					&& self::is_term_eligible( $term )
+					&& VigIA_Content_Access::is_request_for( get_term_link( $term ) ) ) {
 					self::serve_markdown_response_for_term( $term );
 				}
 			}
 		}
+	}
+
+	/**
+	 * A request URI split into its path and its query, cut by hand.
+	 *
+	 * Not with wp_parse_url(): parse_url() turns some bytes of raw UTF-8 into
+	 * underscores, and a path that reaches the server undecoded is exactly that.
+	 * The path comes back with a single leading slash whatever it brought, because
+	 * it is what the redirects of handle_request() send the client to, and a
+	 * browser reads `//host/x` and `/\host/x` as another domain.
+	 *
+	 * @since 2.6.7
+	 * @param string $request_uri Request URI, already read with esc_url_raw().
+	 * @return array{0:string,1:string} Path and query, the latter without its `?`.
+	 */
+	private static function split_request_uri( $request_uri ) {
+		$request_uri = (string) $request_uri;
+
+		// A request carries no fragment, and its query starts at the first `?`.
+		$request_uri = substr( $request_uri, 0, strcspn( $request_uri, '#' ) );
+		$cut         = strcspn( $request_uri, '?' );
+
+		// The casts are for PHP 7, where substr() gives false past the end.
+		$path  = '/' . ltrim( (string) substr( $request_uri, 0, $cut ), '/\\' );
+		$query = (string) substr( $request_uri, $cut + 1 );
+
+		return array( $path, $query );
 	}
 
 	/**
@@ -449,6 +546,21 @@ class VigIA_Markdown_Endpoints {
 			}
 
 			$the_post = self::find_post_by_path( $candidate );
+
+			// find_post_by_path() falls back to the last segment of the path, so the
+			// address of a term archive resolved to whatever entry shared its slug:
+			// `/product-category/clothing/sweater.md`, which the archive of that
+			// category advertises as its own, served the product called `sweater`.
+			// A term whose address is exactly this path owns it, unless the entry
+			// found lives at this very path too.
+			if ( ! $the_post || ! self::is_own_path( $the_post, $candidate ) ) {
+				$term = self::find_term_by_path( $candidate, true );
+
+				if ( $term && self::is_term_eligible( $term ) ) {
+					self::serve_markdown_response_for_term( $term );
+					return;
+				}
+			}
 
 			if ( $the_post && self::is_post_eligible( $the_post ) ) {
 				self::serve_markdown_response( $the_post );
@@ -551,6 +663,28 @@ class VigIA_Markdown_Endpoints {
 	}
 
 	/**
+	 * Is this request path the one the entry's own .md address has?
+	 *
+	 * Only used to settle who answers a path that is also the exact address of a
+	 * term archive (see serve_markdown_by_path()), never to turn an entry away: a
+	 * permalink structure this comparison does not understand must keep working as
+	 * it did.
+	 *
+	 * @since 2.6.7
+	 * @param WP_Post $the_post Entry found for the path.
+	 * @param string  $path     Request path without the .md suffix, slashes trimmed.
+	 * @return bool
+	 */
+	private static function is_own_path( $the_post, $path ) {
+		$url = self::get_markdown_url( $the_post );
+		if ( ! $url ) {
+			return false;
+		}
+
+		return self::same_path( self::request_path_from_url( $url ), trim( (string) $path, '/' ) );
+	}
+
+	/**
 	 * Is this post the page assigned as the static front page?
 	 *
 	 * @param WP_Post $the_post Post object.
@@ -583,11 +717,23 @@ class VigIA_Markdown_Endpoints {
 	}
 
 	/**
-	 * Check if a post is eligible for markdown serving
+	 * Is this post the page WooCommerce has assigned as its shop?
 	 *
+	 * @since 2.6.7
 	 * @param WP_Post $the_post Post object.
 	 * @return bool
 	 */
+	private static function is_shop_page( $the_post ) {
+		if ( ! function_exists( 'wc_get_page_id' ) ) {
+			return false;
+		}
+
+		// `wc_get_page_id()` gives -1 when no page is assigned.
+		$shop_id = (int) wc_get_page_id( 'shop' );
+
+		return $shop_id > 0 && $shop_id === (int) $the_post->ID;
+	}
+
 	/**
 	 * Is this plugin actually answering .md URLs on this site right now?
 	 *
@@ -677,10 +823,9 @@ class VigIA_Markdown_Endpoints {
 	 * @return string
 	 */
 	private static function request_path_from_url( $url ) {
-		$path  = (string) wp_parse_url( $url, PHP_URL_PATH );
-		$clean = trim( substr( $path, 0, -3 ), '/' );
+		$clean = trim( (string) substr( self::path_of( $url ), 0, -3 ), '/' );
 
-		$home_path = trim( (string) wp_parse_url( home_url(), PHP_URL_PATH ), '/' );
+		$home_path = trim( self::path_of( home_url() ), '/' );
 		if ( '' !== $home_path && 0 === strpos( $clean, $home_path ) ) {
 			$clean = ltrim( substr( $clean, strlen( $home_path ) ), '/' );
 		}
@@ -688,12 +833,64 @@ class VigIA_Markdown_Endpoints {
 		return $clean;
 	}
 
+	/**
+	 * The path of a URL, cut by hand.
+	 *
+	 * Not with wp_parse_url(): parse_url() turns some bytes of raw UTF-8 into
+	 * underscores, and a link under a base that is not ASCII carries them raw
+	 * (`/categoría/news/` came back as `/categor_a/news/`). With that, the .md
+	 * address of every term under such a base failed the round trip of
+	 * linkable_url_for_term() and was never offered.
+	 *
+	 * @since 2.6.7
+	 * @param string $url Absolute URL.
+	 * @return string
+	 */
+	private static function path_of( $url ) {
+		$uri = VigIA_Content_Access::request_uri_of( $url );
+
+		return (string) substr( $uri, 0, strcspn( $uri, '?' ) );
+	}
+
+	/**
+	 * Are these two request paths the same address?
+	 *
+	 * Compared decoded and without regard to case: a request brings the octets
+	 * of a path that is not ASCII percent-encoded (and handle_request() lowers
+	 * them), while a link WordPress builds carries a base that is not ASCII raw.
+	 * Compared as they came, `categor%c3%ada/news` and `categoría/news` were two
+	 * addresses, and the .md of a term under such a base answered 404 while its
+	 * page advertised it.
+	 *
+	 * @since 2.6.7
+	 * @param string $one   Path, slashes trimmed.
+	 * @param string $other Path, slashes trimmed.
+	 * @return bool
+	 */
+	private static function same_path( $one, $other ) {
+		return 0 === strcasecmp( rawurldecode( (string) $one ), rawurldecode( (string) $other ) );
+	}
+
+	/**
+	 * Check if a post is eligible for markdown serving
+	 *
+	 * @param WP_Post $the_post Post object.
+	 * @return bool
+	 */
 	public static function is_post_eligible( $the_post ) {
 		// Status, password, and whatever the LMS and membership plugins on this
 		// site have to say about this entry. A `.md` is a second representation of
 		// the page, so it answers to the same access rules the page does; rebuilt
 		// outside the template, none of them apply unless we ask on purpose.
 		if ( ! VigIA_Content_Access::is_public( $the_post ) ) {
+			return false;
+		}
+
+		// The cart, the checkout and My Account are not content: they show whoever
+		// visits them their own session, and a document is built once and kept for
+		// everybody. Not served, not advertised and not linked from llms.txt, which
+		// all ask here.
+		if ( VigIA_Content_Access::is_visitor_page( $the_post ) ) {
 			return false;
 		}
 
@@ -715,6 +912,17 @@ class VigIA_Markdown_Endpoints {
 		// post_content as markdown would hand agents something the site itself
 		// never displays, and that content is empty on most installs.
 		if ( self::is_posts_page( $the_post ) ) {
+			return false;
+		}
+
+		// Nor does the page WooCommerce shows its product archive on: that
+		// address is a listing, and of what the page itself holds the shop prints
+		// at most a description above it (`woocommerce_product_archive_description()`,
+		// `includes/wc-template-functions.php:1380` in 11.1.2), empty on most
+		// stores. Its `.md` used to serve that text as if it were the page, while
+		// the page asked with `Accept: text/markdown` gave the web page, because
+		// an archive is not a single view.
+		if ( self::is_shop_page( $the_post ) ) {
 			return false;
 		}
 
@@ -821,10 +1029,13 @@ class VigIA_Markdown_Endpoints {
 	 * the same taxonomy, so we re-verify by comparing the resolved term link
 	 * against the original request path.
 	 *
-	 * @param string $path Request path without the .md suffix and trimmed slashes.
+	 * @since 2.6.7 The `$strict` parameter.
+	 *
+	 * @param string $path   Request path without the .md suffix and trimmed slashes.
+	 * @param bool   $strict Only a term whose archive address is exactly this path.
 	 * @return WP_Term|null
 	 */
-	private static function find_term_by_path( $path ) {
+	private static function find_term_by_path( $path, $strict = false ) {
 		$settings = self::get_settings();
 
 		if ( empty( $settings['taxonomies'] ) ) {
@@ -866,13 +1077,13 @@ class VigIA_Markdown_Endpoints {
 
 				$link_path = trim( str_replace( $home_url, '', trailingslashit( $link ) ), '/' );
 
-				if ( $link_path === $path ) {
+				if ( self::same_path( $link_path, $path ) ) {
 					return $term;
 				}
 			}
 
 			// Single slug match with no path collision is good enough.
-			if ( 1 === count( $terms ) && count( $segments ) === 1 ) {
+			if ( ! $strict && 1 === count( $terms ) && count( $segments ) === 1 ) {
 				return $terms[0];
 			}
 		}
@@ -977,9 +1188,14 @@ class VigIA_Markdown_Endpoints {
 	 * @param WP_Post $the_post Post object.
 	 */
 	private static function serve_markdown_response( $the_post ) {
+		self::deny_blocked_crawler();
+
+		$document = self::cached_post_markdown( $the_post );
+
 		self::send_markdown_response(
-			self::cached_post_markdown( $the_post ),
-			get_permalink( $the_post )
+			$document['content'],
+			get_permalink( $the_post ),
+			$document['shared']
 		);
 	}
 
@@ -995,14 +1211,54 @@ class VigIA_Markdown_Endpoints {
 			return;
 		}
 
+		self::deny_blocked_crawler();
+
+		$document = self::cached_term_markdown( $term );
+
 		self::send_markdown_response(
-			self::cached_term_markdown( $term ),
-			$link
+			$document['content'],
+			$link,
+			$document['shared']
 		);
 	}
 
 	/**
-	 * Build a markdown document as a logged-out visitor.
+	 * Turn away a crawler blocked by its user agent, before anything is built.
+	 *
+	 * VigIA_Blocker already answers these on `plugins_loaded`, well before this
+	 * endpoint runs, so in practice nothing gets here (measured: a blocked user
+	 * agent got its 403 and no document was built). This is the same check as a
+	 * second line, for a site where that early hook was taken off, and it now
+	 * comes ahead of the build instead of after it.
+	 *
+	 * @since 2.6.7
+	 */
+	private static function deny_blocked_crawler() {
+		$blocks = class_exists( 'VigIA_Blocker' ) ? VigIA_Blocker::get_all_blocks() : array();
+		if ( empty( $blocks ) ) {
+			return;
+		}
+
+		$user_agent = isset( $_SERVER['HTTP_USER_AGENT'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_USER_AGENT'] ) ) : '';
+		if ( '' === $user_agent ) {
+			return;
+		}
+
+		foreach ( $blocks as $block ) {
+			if ( 'useragent' === $block['type'] && false !== stripos( $user_agent, $block['pattern'] ) ) {
+				status_header( 403 );
+				nocache_headers();
+				header( 'Content-Type: text/plain; charset=utf-8' );
+				header( 'X-Content-Type-Options: nosniff' );
+				echo 'Access denied';
+				exit;
+			}
+		}
+	}
+
+	/**
+	 * Build a markdown document as a logged-out visitor, outside the page the
+	 * request is for.
 	 *
 	 * The document is the same for everybody who asks for the URL, so it is built
 	 * as the visitor everybody has in common. Two things depend on it: the access
@@ -1014,16 +1270,31 @@ class VigIA_Markdown_Endpoints {
 	 * `sensei_all_access()`, would be handed the full body of a paid lesson at its
 	 * `.md` URL while the HTML page still showed them the not-enrolled notice.
 	 *
+	 * And outside the main query (2.6.7). The same transient serves the `.md`
+	 * address and the page address asked with `Accept: text/markdown`, and the two
+	 * reach this point with a different main query: whichever was asked first
+	 * decided which of two documents both served. See
+	 * VigIA_Content_Access::begin_neutral_query().
+	 *
+	 * The address is an argument, so the caller has worked it out before either
+	 * context opens: a filter on the permalink that threw from inside would
+	 * otherwise leave the request running as user 0.
+	 *
+	 * @since 2.6.7 The `$address` parameter.
+	 *
 	 * @param callable $builder Generator to run.
 	 * @param mixed    $subject Post or term to pass to it.
+	 * @param mixed    $address URL of the page the document belongs to.
 	 * @return string Markdown document.
 	 */
-	private static function build_as_anonymous( $builder, $subject ) {
+	private static function build_as_anonymous( $builder, $subject, $address ) {
 		VigIA_Content_Access::begin_anonymous_context();
+		VigIA_Content_Access::begin_neutral_query( $address );
 
 		try {
 			return (string) call_user_func( $builder, $subject );
 		} finally {
+			VigIA_Content_Access::end_neutral_query();
 			VigIA_Content_Access::end_anonymous_context();
 		}
 	}
@@ -1037,46 +1308,90 @@ class VigIA_Markdown_Endpoints {
 	 *
 	 * Building one converts the whole entry to markdown on every request, which
 	 * is the most expensive thing this class does and gives the same answer every
-	 * time: the document is built in anonymous context, so it does not depend on
-	 * who is asking and one cache entry serves everybody.
+	 * time: the document is built as a logged-out visitor and outside the page the
+	 * request is for, so one cache entry serves everybody. What is stored is always
+	 * the copy of everybody; see store() for who may write it.
 	 *
 	 * @since 2.6.1
+	 * @since 2.6.7 Returns the document and whether it is the shared copy.
 	 * @param WP_Post $the_post Post object.
-	 * @return string
+	 * @return array{content:string,shared:bool}
 	 */
 	private static function cached_post_markdown( $the_post ) {
 		$key    = self::cache_key( (int) $the_post->ID );
 		$cached = get_transient( $key );
 
 		if ( false !== $cached ) {
-			return (string) $cached;
+			return array(
+				'content' => (string) $cached,
+				'shared'  => true,
+			);
 		}
 
-		$markdown = self::build_as_anonymous( array( __CLASS__, 'generate_post_markdown' ), $the_post );
-		set_transient( $key, $markdown, self::CACHE_TTL );
+		$markdown = self::build_as_anonymous( array( __CLASS__, 'generate_post_markdown' ), $the_post, get_permalink( $the_post ) );
 
-		return $markdown;
+		return self::store( $key, $markdown );
 	}
 
 	/**
 	 * Cached markdown document for a taxonomy term.
 	 *
 	 * @since 2.6.1
+	 * @since 2.6.7 Returns the document and whether it is the shared copy.
 	 * @param WP_Term $term Term object.
-	 * @return string
+	 * @return array{content:string,shared:bool}
 	 */
 	private static function cached_term_markdown( $term ) {
 		$key    = self::cache_key( (int) $term->term_id, 'term' );
 		$cached = get_transient( $key );
 
 		if ( false !== $cached ) {
-			return (string) $cached;
+			return array(
+				'content' => (string) $cached,
+				'shared'  => true,
+			);
 		}
 
-		$markdown = self::build_as_anonymous( array( __CLASS__, 'generate_term_markdown' ), $term );
+		$markdown = self::build_as_anonymous( array( __CLASS__, 'generate_term_markdown' ), $term, get_term_link( $term ) );
+
+		return self::store( $key, $markdown );
+	}
+
+	/**
+	 * Cache a freshly built document, when the request may write the copy
+	 * everybody is served, and return it.
+	 *
+	 * The only place a document is written, for both builders, and only a request
+	 * with no cookies and nobody logged in writes it
+	 * (VigIA_Content_Access::is_shareable_request()). What a block paints from a
+	 * visitor's cookie belongs to that visitor: the basket and the notices a store
+	 * ties to its session cookie, the currency or the language another plugin
+	 * remembers. A mini-cart block set inside the content of an entry would paint
+	 * the basket of whoever asked first into the document, and the transient hands
+	 * it to everybody for twelve hours. The anonymous context does not reach it (it
+	 * takes the user away and leaves the cookies). So a request with cookies still
+	 * gets the document it asked for, marked as not shared, and the copy is left
+	 * for one without them.
+	 *
+	 * @since 2.6.7
+	 * @param string $key      Transient key.
+	 * @param string $markdown Document.
+	 * @return array{content:string,shared:bool}
+	 */
+	private static function store( $key, $markdown ) {
+		if ( ! VigIA_Content_Access::is_shareable_request() ) {
+			return array(
+				'content' => $markdown,
+				'shared'  => false,
+			);
+		}
+
 		set_transient( $key, $markdown, self::CACHE_TTL );
 
-		return $markdown;
+		return array(
+			'content' => $markdown,
+			'shared'  => true,
+		);
 	}
 
 	/**
@@ -1095,7 +1410,14 @@ class VigIA_Markdown_Endpoints {
 	private static function cache_key( $id, $kind = 'post' ) {
 		$salt = (int) get_option( self::CACHE_SALT_OPTION, 0 );
 
-		return self::CACHE_PREFIX . $salt . '_' . ( 'term' === $kind ? 't' : 'p' ) . $id;
+		// The version is part of the key (2.6.7), so an update leaves the documents
+		// the previous one built unread. The salt is bumped on an update too, but
+		// from `admin_init`: after an automatic update nobody visits wp-admin, and
+		// an update whose whole point was what those documents carry kept serving
+		// the old ones for up to twelve hours.
+		$version = defined( 'VIGIA_VERSION' ) ? VIGIA_VERSION : '0';
+
+		return self::CACHE_PREFIX . $salt . '_' . $version . '_' . ( 'term' === $kind ? 't' : 'p' ) . $id;
 	}
 
 	/**
@@ -1162,27 +1484,19 @@ class VigIA_Markdown_Endpoints {
 	 * Handles user-agent based blocking, analytics tracking, headers and the
 	 * actual body output. Exits on completion.
 	 *
+	 * @since 2.6.7 The `$shared` parameter, required on purpose: a call that forgot
+	 *              it would otherwise let a document built for one visitor be reused.
+	 *
 	 * @param string $markdown      Markdown body to serve.
 	 * @param string $canonical_url Canonical URL for the Link header.
+	 * @param bool   $shared        Whether the document is the copy of everybody. One
+	 *                              built for a request with cookies is not (see store()).
 	 */
-	private static function send_markdown_response( $markdown, $canonical_url ) {
+	private static function send_markdown_response( $markdown, $canonical_url, $shared ) {
+		// A blocked crawler was turned away before the document was built: see
+		// deny_blocked_crawler(). The list is read again only to decide how widely
+		// the response may be reused.
 		$blocks = class_exists( 'VigIA_Blocker' ) ? VigIA_Blocker::get_all_blocks() : array();
-
-		if ( ! empty( $blocks ) ) {
-			$user_agent = isset( $_SERVER['HTTP_USER_AGENT'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_USER_AGENT'] ) ) : '';
-			if ( ! empty( $user_agent ) ) {
-				foreach ( $blocks as $block ) {
-					if ( 'useragent' === $block['type'] && false !== stripos( $user_agent, $block['pattern'] ) ) {
-						status_header( 403 );
-						nocache_headers();
-						header( 'Content-Type: text/plain; charset=utf-8' );
-						header( 'X-Content-Type-Options: nosniff' );
-						echo 'Access denied';
-						exit;
-					}
-				}
-			}
-		}
 
 		self::maybe_track_request();
 
@@ -1190,17 +1504,24 @@ class VigIA_Markdown_Endpoints {
 
 		status_header( 200 );
 
-		// The document is built in anonymous context, so it is the same one for
-		// everybody who asks and can be reused. What decides how widely: a blocked
-		// crawler is turned away here, at the origin, and a shared cache in front
-		// of the site never asks, so with blocks configured the response is kept
-		// out of those and only the client it was served to may reuse it.
-		$reuse = empty( $blocks ) ? '' : 'private, ';
-		header( 'Cache-Control: ' . $reuse . 'max-age=' . (int) self::HTTP_MAX_AGE );
-		// WordPress sends the nocache set on requests from a logged-in user, and
-		// its Expires date is in the past. Cache-Control takes precedence over it,
-		// but leaving both in a response that may now be reused is contradictory.
-		header_remove( 'Expires' );
+		if ( $shared ) {
+			// The copy of everybody is the same document for whoever asks and can be
+			// reused. What decides how widely: a blocked crawler is turned away here,
+			// at the origin, and a shared cache in front of the site never asks, so
+			// with blocks configured the response is kept out of those and only the
+			// client it was served to may reuse it.
+			$reuse = empty( $blocks ) ? '' : 'private, ';
+			header( 'Cache-Control: ' . $reuse . 'max-age=' . (int) self::HTTP_MAX_AGE );
+			// WordPress sends the nocache set on requests from a logged-in user, and
+			// its Expires date is in the past. Cache-Control takes precedence over it,
+			// but leaving both in a response that may now be reused is contradictory.
+			header_remove( 'Expires' );
+		} else {
+			// A document built for a request that carried cookies, or a logged-in
+			// user, is for that request alone: neither a proxy nor a CDN nor the
+			// client may keep it for the next visitor.
+			header( 'Cache-Control: private, no-store' );
+		}
 
 		header( 'Content-Type: text/markdown; charset=utf-8' );
 		// The body is plain Markdown, never HTML, and the generator strips script
@@ -1210,7 +1531,7 @@ class VigIA_Markdown_Endpoints {
 		header( 'X-Content-Type-Options: nosniff' );
 		self::merge_vary_header( 'Accept' );
 		header( 'X-Markdown-Tokens: ' . $token_count );
-		header( 'Link: <' . esc_url( $canonical_url ) . '>; rel="canonical"' );
+		header( 'Link: <' . self::header_url( $canonical_url ) . '>; rel="canonical"' );
 
 		// A Markdown document has no head to carry link relations, which is the
 		// case the spec singles out for the header form. Only when we are the one
@@ -1319,6 +1640,29 @@ class VigIA_Markdown_Endpoints {
 	 * @return string
 	 */
 	private static function generate_term_markdown( $term ) {
+		// The two addresses of the document must build from the same object, and
+		// they did not hand over the same one. The `.md` address finds the term
+		// with get_terms(); the page address passes the queried object, read with
+		// get_term(). Plugins rewrite what get_terms() returns, and only that:
+		// WooCommerce replaces `count` with the number of products the catalog
+		// shows (`wc_change_term_counts()`, `includes/wc-term-functions.php:592-634`
+		// in 11.1.2), so a product category said `count: 9` at one address and
+		// `count: 0` at the other. Read again here, the same way for both, which is
+		// also the way the list of child terms below reads theirs.
+		$listed = get_terms(
+			array(
+				'taxonomy'   => $term->taxonomy,
+				'include'    => array( (int) $term->term_id ),
+				'hide_empty' => false,
+			)
+		);
+		// Only the same term read again: get_terms() is filterable, and if what
+		// comes back is another term, or none, the one handed over stays.
+		$listed = ( is_wp_error( $listed ) || empty( $listed ) ) ? null : reset( $listed );
+		if ( $listed instanceof WP_Term && (int) $listed->term_id === (int) $term->term_id ) {
+			$term = $listed;
+		}
+
 		$output  = self::build_term_frontmatter( $term );
 		$output .= '# ' . self::decode_entities( $term->name ) . "\n\n";
 
@@ -1796,7 +2140,7 @@ class VigIA_Markdown_Endpoints {
 	 * @return string
 	 */
 	private static function one_line( $string ) {
-		return trim( (string) preg_replace( '/\s+/', ' ', (string) $string ) );
+		return trim( self::keep_replace( '/\s+/', ' ', $string ) );
 	}
 
 	/**
@@ -1834,12 +2178,12 @@ class VigIA_Markdown_Endpoints {
 	 * @return string
 	 */
 	private static function plain_text( $html ) {
-		$text = (string) preg_replace( '#<(script|style)\b[^>]*>.*?</\1>#is', ' ', (string) $html );
+		$text = self::keep_replace( '#<(script|style)\b[^>]*>.*?</\1>#is', ' ', $html );
 
 		// Boundaries first, as newlines, so the loop below can tell the end of a
 		// block from a space inside a sentence.
-		$text = (string) preg_replace( '#<(?:br|hr)\b[^>]*>#i', "\n", $text );
-		$text = (string) preg_replace(
+		$text = self::keep_replace( '#<(?:br|hr)\b[^>]*>#i', "\n", $text );
+		$text = self::keep_replace(
 			'#</(?:p|div|section|article|aside|header|footer|main|nav|h[1-6]|li|ul|ol|dl|dt|dd|blockquote|pre|figure|figcaption|table|thead|tbody|tfoot|tr|td|th|address|form|fieldset|details|summary)\s*>#i',
 			"\n",
 			$text
@@ -1900,14 +2244,14 @@ class VigIA_Markdown_Endpoints {
 		}
 
 		// Closing tags: nobody writes [/something] in prose.
-		$markdown = (string) preg_replace( '#\[/[a-z][a-z0-9_-]*\]#i', '', $markdown );
+		$markdown = self::keep_replace( '#\[/[a-z][a-z0-9_-]*\]#i', '', $markdown );
 
 		// Opening tags carrying attributes: [et_pb_section fb_built="1"].
-		$markdown = (string) preg_replace( '#\[[a-z][a-z0-9_-]*\s[^\]]*\](?!\()#i', '', $markdown );
+		$markdown = self::keep_replace( '#\[[a-z][a-z0-9_-]*\s[^\]]*\](?!\()#i', '', $markdown );
 
 		// Bare opening tags, only for names seen closing above.
 		foreach ( $paired as $name ) {
-			$markdown = (string) preg_replace( '#\[' . preg_quote( $name, '#' ) . '\](?!\()#i', '', $markdown );
+			$markdown = self::keep_replace( '#\[' . preg_quote( $name, '#' ) . '\](?!\()#i', '', $markdown );
 		}
 
 		return $markdown;
@@ -1973,15 +2317,40 @@ class VigIA_Markdown_Endpoints {
 
 		for ( $pass = 0; $pass < 10; $pass++ ) {
 			$before = $text;
-			$text   = (string) preg_replace( '#<!--.*?-->#s', '', $text );
-			$text   = (string) preg_replace( '#</?[a-z](?:[^<>"\']|"[^"]*"|\'[^\']*\')*>#i', '', $text );
+			$text   = preg_replace( '#<!--.*?-->#s', '', $text );
+			$text   = null === $text ? null : preg_replace( '#</?[a-z](?:[^<>"\']|"[^"]*"|\'[^\']*\')*>#i', '', $text );
+
+			// This is the one step that must not keep what it had when the engine
+			// gives up (see keep_replace()): what it had may carry a live tag. The
+			// plain strip loses the text after a lone `<`, which is the lesser harm.
+			if ( null === $text ) {
+				return self::strip_when_filter_fails( $before );
+			}
 
 			if ( $text === $before ) {
 				break;
 			}
 		}
 
-		return (string) preg_replace( '#<+(?=[a-z/!?])#i', '', $text );
+		$clean = preg_replace( '#<+(?=[a-z/!?])#i', '', $text );
+
+		return null === $clean ? self::strip_when_filter_fails( $text ) : $clean;
+	}
+
+	/**
+	 * What remove_tag_shapes() falls back to when its expression cannot run.
+	 *
+	 * The plain strip is the very thing that function avoids, because it drops
+	 * the text after a lone `<`. Here that loss is the lesser harm: the other
+	 * choice is to hand over text nobody filtered. Kept apart so that the only
+	 * call to it is this error path.
+	 *
+	 * @since 2.6.7
+	 * @param string $text Text the filter could not process.
+	 * @return string
+	 */
+	private static function strip_when_filter_fails( $text ) {
+		return wp_strip_all_tags( $text );
 	}
 
 	/**
@@ -2087,7 +2456,7 @@ class VigIA_Markdown_Endpoints {
 	 */
 	private static function extract_text_from_shortcodes( $content ) {
 		// Remove self-closing shortcodes, with or without the space: [gallery /].
-		$content = preg_replace( '#\[[a-z][a-z0-9_-]*[^\]]*/\]#is', '', $content );
+		$content = self::keep_replace( '#\[[a-z][a-z0-9_-]*[^\]]*/\]#is', '', $content );
 
 		// Everything else goes through the same conservative cleanup the Markdown
 		// pass uses. Deleting every [word] here would take bracketed prose with it,
@@ -2097,49 +2466,245 @@ class VigIA_Markdown_Endpoints {
 	}
 
 	/**
+	 * preg_replace() that keeps the subject when the engine gives up.
+	 *
+	 * A PCRE call that runs out of backtracking or of stack returns null, not the
+	 * subject, and every step of the converter used to assign its result straight
+	 * back: one failed step and the document went out as its frontmatter and an
+	 * empty body, stored for twelve hours. Measured: 1,500 KB inside a link, a
+	 * heading, a paragraph, a bold run, a code span or a table cell emptied it,
+	 * with the PCRE JIT and without it, and without the JIT an image address of
+	 * 1,000 KB did too. A step that fails now leaves the document as it was,
+	 * which loses that one conversion and not the text.
+	 *
+	 * @since 2.6.7
+	 * @param string $pattern     Pattern.
+	 * @param string $replacement Replacement.
+	 * @param mixed  $subject     Subject.
+	 * @return string
+	 */
+	private static function keep_replace( $pattern, $replacement, $subject ) {
+		$subject = (string) $subject;
+		$result  = preg_replace( $pattern, $replacement, $subject );
+
+		return null === $result ? $subject : $result;
+	}
+
+	/**
+	 * preg_replace_callback() on the same terms as keep_replace().
+	 *
+	 * @since 2.6.7
+	 * @param string   $pattern  Pattern.
+	 * @param callable $callback Callback.
+	 * @param mixed    $subject  Subject.
+	 * @return string
+	 */
+	private static function keep_replace_callback( $pattern, $callback, $subject ) {
+		$subject = (string) $subject;
+		$result  = preg_replace_callback( $pattern, $callback, $subject );
+
+		return null === $result ? $subject : $result;
+	}
+
+	/**
+	 * A code sample as a fenced block, with a fence longer than any run of
+	 * backticks the sample carries.
+	 *
+	 * @since 2.6.7
+	 * @param string $code     The sample, already decoded.
+	 * @param string $language Language for the info string, or ''.
+	 * @return string
+	 */
+	private static function fenced( $code, $language = '' ) {
+		$fence = '```';
+		if ( preg_match_all( '/`{3,}/', $code, $runs ) ) {
+			$fence = str_repeat( '`', max( array_map( 'strlen', $runs[0] ) ) + 1 );
+		}
+
+		return $fence . $language . "\n" . $code . "\n" . $fence;
+	}
+
+	/**
+	 * The text of a code sample as it sits between its <pre> tags: line breaks
+	 * written as <br> back to real ones, whatever markup a highlighter added
+	 * taken out, and the entities decoded.
+	 *
+	 * @since 2.6.7
+	 * @param string $inner Inner HTML of the <pre> or of its <code>.
+	 * @return string
+	 */
+	private static function code_text( $inner ) {
+		$inner = self::keep_replace( '#<br\b[^>]*>#i', "\n", $inner );
+
+		return trim( html_entity_decode( wp_strip_all_tags( $inner ), ENT_QUOTES, 'UTF-8' ), "\r\n" );
+	}
+
+	/**
 	 * Convert HTML to markdown
 	 *
 	 * @param string $html HTML content.
 	 * @return string Markdown content.
 	 */
 	private static function html_to_markdown( $html ) {
+		// A placeholder nobody can write in advance. See self::$marker.
+		$outer_marker = self::$marker;
+		self::$marker = 'VIGIAPLACEHOLDER' . self::marker_nonce() . 'X';
+
 		// Remove script and style tags.
-		$html = preg_replace( '/<script[^>]*>.*?<\/script>/is', '', $html );
-		$html = preg_replace( '/<style[^>]*>.*?<\/style>/is', '', $html );
+		$html = self::keep_replace( '/<script[^>]*>.*?<\/script>/is', '', $html );
+		$html = self::keep_replace( '/<style[^>]*>.*?<\/style>/is', '', $html );
 
 		// Remove empty page builder wrappers.
-		$html = preg_replace( '/<(div|section|article|aside|header|footer|nav|main)[^>]*>\s*<\/\1>/is', '', $html );
+		$html = self::keep_replace( '/<(div|section|article|aside|header|footer|nav|main)[^>]*>\s*<\/\1>/is', '', $html );
 
-		// Images (before links to avoid conflicts).
-		$html = preg_replace( '/<img[^>]*src=["\']([^"\']+)["\'][^>]*alt=["\']([^"\']*)["\'][^>]*\/?>/is', '![$2]($1)', $html );
-		$html = preg_replace( '/<img[^>]*alt=["\']([^"\']*)["\'][^>]*src=["\']([^"\']+)["\'][^>]*\/?>/is', '![$1]($2)', $html );
-		$html = preg_replace( '/<img[^>]*src=["\']([^"\']+)["\'][^>]*\/?>/is', '![]($1)', $html );
+		// The counter of Elementor is printed at the number it starts from and
+		// counts up to the one in `data-to-value` once it is on screen: «250+
+		// clients» came out as «0+». The number it ends at is the one to read.
+		$html = self::keep_replace( '#(<span\b[^>]*\belementor-counter-number\b[^>]*\bdata-to-value="([^"]*)"[^>]*>)[^<]*(</span>)#i', '$1$2$3', $html );
+
+		// Store for everything that has to reach the end untouched: the address
+		// of every link and image, the code blocks and spans, and the rendered
+		// lists. Each goes in as a placeholder and comes back verbatim after the
+		// last pass. A block is parked as `…END` and what stays inside a line as
+		// `…INL`, which is how the list walker tells a code block from a link.
+		$protected = array();
+		$park      = static function ( $block ) use ( &$protected ) {
+			$protected[] = $block;
+			return self::$marker . ( count( $protected ) - 1 ) . 'END';
+		};
+
+		// The address of a link or an image, parked (2.6.7). It used to sit in
+		// the text, and a Markdown reader takes what is between the parentheses
+		// of a link as it comes: a backtick in an `href` was never the start of a
+		// code span for it, a quote opened a title that ran on to the next line,
+		// and whatever span had been parked around that came back as text. Parked
+		// and with those characters encoded, the address ends where it was closed.
+		$address = static function ( $url ) use ( &$protected ) {
+			$protected[] = self::link_address( $url );
+			return self::$marker . ( count( $protected ) - 1 ) . 'INL';
+		};
+
+		// The address of an image is never a `data:` one (2.6.7). A picture pasted
+		// into the content travels inside its own `src`, and the document carried
+		// it: one of 200 KB put some 51,000 tokens of base64 into a file made to be
+		// read. And a lazy-loading plugin keeps the real address out of `src`, in
+		// `data-src`, `data-lazy-src` or `data-original`, with a placeholder in its
+		// place: a `data:` one, a blank image file or nothing. So when one of those
+		// three carries an address, that is the image, whatever `src` says; and an
+		// image whose only address is a `data:` one gives its place to its alt text.
+		// Every other image is left for the expressions below.
+		$html = self::keep_replace_callback(
+			'#<img\b[^>]*>#i',
+			static function ( $matches ) use ( $address ) {
+				$tag  = $matches[0];
+				$lazy = '';
+				if ( preg_match( '#(?<![\w-])data-(?:lazy-)?(?:src|original)=(?|"([^"]*)"|\'([^\']*)\')#i', $tag, $found ) ) {
+					$lazy = trim( $found[1] );
+					if ( 0 === stripos( $lazy, 'data:' ) ) {
+						$lazy = '';
+					}
+				}
+
+				$is_data = 1 === preg_match( '#(?<![\w-])src=(?:"\s*data:|\'\s*data:)#i', $tag );
+				if ( '' === $lazy && ! $is_data ) {
+					return $tag;
+				}
+
+				$alt = preg_match( '#(?<![\w-])alt=(?|"([^"]*)"|\'([^\']*)\')#i', $tag, $found ) ? $found[1] : '';
+
+				return '' !== $lazy ? '![' . $alt . '](' . $address( $lazy ) . ')' : $alt;
+			},
+			$html
+		);
+
+		// Images (before links to avoid conflicts). Both attribute orders and both
+		// quote styles, each value ending at its own quote: one character class per
+		// quote style, so an apostrophe inside a double-quoted alt no longer cuts it
+		// short (`It's here` came out as `It`). `src` and `alt` are the attributes of
+		// that name and not the tail of another: unanchored and matched greedily,
+		// the last `src=` of the tag won, and `<img src="real.jpg" data-src="data:x">`
+		// came out as `data:x`. Never a lookahead repeated for every character: that
+		// form runs out of stack on a long value, which the Visibility sibling
+		// measured on these same expressions.
+		$html = self::keep_replace_callback(
+			'#<img\b[^>]*?(?<![\w-])alt=(?|"([^"]*)"|\'([^\']*)\')[^>]*?(?<![\w-])src=(?|"([^"]*)"|\'([^\']*)\')[^>]*>#i',
+			static function ( $matches ) use ( $address ) {
+				return '![' . $matches[1] . '](' . $address( $matches[2] ) . ')';
+			},
+			$html
+		);
+		$html = self::keep_replace_callback(
+			'#<img\b[^>]*?(?<![\w-])src=(?|"([^"]*)"|\'([^\']*)\')[^>]*?(?<![\w-])alt=(?|"([^"]*)"|\'([^\']*)\')[^>]*>#i',
+			static function ( $matches ) use ( $address ) {
+				return '![' . $matches[2] . '](' . $address( $matches[1] ) . ')';
+			},
+			$html
+		);
+		$html = self::keep_replace_callback(
+			'#<img\b[^>]*?(?<![\w-])src=(?|"([^"]*)"|\'([^\']*)\')[^>]*>#i',
+			static function ( $matches ) use ( $address ) {
+				return '![](' . $address( $matches[1] ) . ')';
+			},
+			$html
+		);
 
 		// Links.
-		$html = preg_replace( '/<a[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)<\/a>/is', '[$2]($1)', $html );
+		$html = self::keep_replace_callback(
+			'/<a[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)<\/a>/is',
+			static function ( $matches ) use ( $address ) {
+				return '[' . self::one_block_line( $matches[2] ) . '](' . $address( $matches[1] ) . ')';
+			},
+			$html
+		);
 
 		// Code blocks (pre > code). Capture the attributes of both <pre> and
 		// <code> so a `language-xxx` class on either one is detected. The old
 		// single greedy `<code[^>]*` swallowed the class before the optional
 		// group could capture it, so fences always came out without a language.
-		$html = preg_replace_callback(
+		//
+		// A block is parked the moment it is built (2.6.7). Its content comes out
+		// decoded (a <pre><code> carries its HTML sample as entities), and it used
+		// to stay in the text for every pass below to read as markup: the strip
+		// further down took `<div class="card"><p>Hola</p></div>` for tags and left
+		// `Hola`, the heading and emphasis passes rewrote an `<h2>` or a `<strong>`
+		// being taught, and the list walker turned a sample `<ul>` into a list.
+		$html = self::keep_replace_callback(
 			'/<pre([^>]*)>\s*<code([^>]*)>(.*?)<\/code>\s*<\/pre>/is',
-			function ( $matches ) {
+			static function ( $matches ) use ( $park ) {
 				$lang = '';
 				if ( preg_match( '/language-([a-z0-9_+#-]+)/i', $matches[1] . ' ' . $matches[2], $lang_match ) ) {
 					$lang = strtolower( $lang_match[1] );
 				}
-				$code = html_entity_decode( wp_strip_all_tags( $matches[3] ), ENT_QUOTES, 'UTF-8' );
-				return "\n\n```" . $lang . "\n" . trim( $code ) . "\n```\n\n";
+				return "\n\n" . $park( self::fenced( self::code_text( $matches[3] ), $lang ) ) . "\n\n";
 			},
 			$html
 		);
 
-		// Inline code.
-		$html = preg_replace( '/<code[^>]*>(.*?)<\/code>/is', '`$1`', $html );
+		// A <pre> with no <code> inside is still preformatted text (the
+		// Preformatted and Verse blocks, code pasted into older content): fenced
+		// too, or the whitespace pass below flattens the layout that makes it
+		// readable.
+		$html = self::keep_replace_callback(
+			'/<pre[^>]*>(.*?)<\/pre>/is',
+			static function ( $matches ) use ( $park ) {
+				return "\n\n" . $park( self::fenced( self::code_text( $matches[1] ) ) ) . "\n\n";
+			},
+			$html
+		);
+
+		// Inline code, on one line: a code span reads a line ending as a space
+		// anyway, and only a span that sits on a single line is taken for code
+		// further down.
+		$html = self::keep_replace_callback(
+			'/<code[^>]*>(.*?)<\/code>/is',
+			static function ( $matches ) {
+				return '`' . self::keep_replace( '#(?:<br\b[^>]*>|\R)\s*#i', ' ', $matches[1] ) . '`';
+			},
+			$html
+		);
 
 		// Blockquotes.
-		$html = preg_replace_callback(
+		$html = self::keep_replace_callback(
 			'/<blockquote[^>]*>(.*?)<\/blockquote>/is',
 			function ( $matches ) {
 				$text  = wp_strip_all_tags( $matches[1] );
@@ -2155,16 +2720,22 @@ class VigIA_Markdown_Endpoints {
 			$html
 		);
 
-		// Headings.
-		$html = preg_replace( '/<h1[^>]*>(.*?)<\/h1>/is', "\n\n# $1\n\n", $html );
-		$html = preg_replace( '/<h2[^>]*>(.*?)<\/h2>/is', "\n\n## $1\n\n", $html );
-		$html = preg_replace( '/<h3[^>]*>(.*?)<\/h3>/is', "\n\n### $1\n\n", $html );
-		$html = preg_replace( '/<h4[^>]*>(.*?)<\/h4>/is', "\n\n#### $1\n\n", $html );
-		$html = preg_replace( '/<h5[^>]*>(.*?)<\/h5>/is', "\n\n##### $1\n\n", $html );
-		$html = preg_replace( '/<h6[^>]*>(.*?)<\/h6>/is', "\n\n###### $1\n\n", $html );
+		// Headings. On one line, which is all a Markdown heading is (2.6.7): a
+		// page builder writes the text inside nested elements, each on its line,
+		// and the `###` came out alone with its title as a paragraph under it. A
+		// heading with nothing to read is dropped.
+		$html = self::keep_replace_callback(
+			'/<h([1-6])\b[^>]*>(.*?)<\/h\1>/is',
+			static function ( $matches ) {
+				$text = self::one_block_line( $matches[2] );
+
+				return '' === trim( wp_strip_all_tags( $text ) ) ? '' : "\n\n" . str_repeat( '#', (int) $matches[1] ) . ' ' . $text . "\n\n";
+			},
+			$html
+		);
 
 		// Horizontal rules.
-		$html = preg_replace( '/<hr[^>]*\/?>/is', "\n\n---\n\n", $html );
+		$html = self::keep_replace( '/<hr[^>]*\/?>/is', "\n\n---\n\n", $html );
 
 		// Bold, italic, strikethrough. Done before lists so the list walker
 		// (which reads each <li> as text) sees the markers already in place;
@@ -2181,7 +2752,7 @@ class VigIA_Markdown_Endpoints {
 		// themes and page builders emit), and wrapping nothing in markers leaves a
 		// stray ** or * sitting mid-sentence.
 		$emphasis = static function ( $pattern, $marker, $subject ) {
-			return (string) preg_replace_callback(
+			return self::keep_replace_callback(
 				$pattern,
 				static function ( $matches ) use ( $marker ) {
 					return '' === trim( wp_strip_all_tags( $matches[2] ) ) ? '' : $marker . $matches[2] . $marker;
@@ -2198,45 +2769,46 @@ class VigIA_Markdown_Endpoints {
 		// so nesting, ordered/unordered markers and indentation survive; the old
 		// flat regexes dropped the first nested item's bullet and all indent.
 		// Each rendered block is parked as a placeholder to shield its per-line
-		// indentation from the whitespace pass further down. $protected is shared
-		// with the code-span protection step below.
-		$protected = array();
-		$html      = self::convert_lists_to_markdown( $html, $protected );
+		// indentation from the whitespace pass further down, in the same store as
+		// the code blocks above. A code block inside an item is by now its
+		// placeholder, and the walker sets it on a line of its own under the item.
+		$html = self::convert_lists_to_markdown( $html, $protected );
 
 		// Paragraphs and line breaks.
-		$html = preg_replace( '/<p[^>]*>(.*?)<\/p>/is', "$1\n\n", $html );
-		$html = preg_replace( '/<br[^>]*\/?>/is', "  \n", $html );
+		$html = self::keep_replace( '/<p[^>]*>(.*?)<\/p>/is', "$1\n\n", $html );
+		$html = self::keep_replace( '/<br[^>]*\/?>/is', "  \n", $html );
 
-		// Tables.
-		$html = preg_replace_callback(
+		// Tables. The store goes along because a cell is a single line: a code
+		// block inside one is turned into a code span there.
+		$html = self::keep_replace_callback(
 			'/<table[^>]*>(.*?)<\/table>/is',
-			array( __CLASS__, 'convert_table_to_markdown' ),
+			static function ( $matches ) use ( &$protected ) {
+				return self::convert_table_to_markdown( $matches, $protected );
+			},
 			$html
 		);
 
 		// Figure/figcaption.
-		$html = preg_replace( '/<\/?figure[^>]*>/is', "\n", $html );
-		$html = preg_replace( '/<figcaption[^>]*>(.*?)<\/figcaption>/is', "*$1*\n", $html );
+		$html = self::keep_replace( '/<\/?figure[^>]*>/is', "\n", $html );
+		$html = self::keep_replace( '/<figcaption[^>]*>(.*?)<\/figcaption>/is', "*$1*\n", $html );
 
 		// Strip remaining wrappers (keep content).
-		$html = preg_replace( '/<(div|section|article|aside|header|footer|nav|main|span)[^>]*>/is', '', $html );
-		$html = preg_replace( '/<\/(div|section|article|aside|header|footer|nav|main|span)>/is', '', $html );
+		$html = self::keep_replace( '/<(div|section|article|aside|header|footer|nav|main|span)[^>]*>/is', '', $html );
+		$html = self::keep_replace( '/<\/(div|section|article|aside|header|footer|nav|main|span)>/is', '', $html );
 
 		// Strip any remaining HTML tags.
 		$html = wp_strip_all_tags( $html );
 		$html = html_entity_decode( $html, ENT_QUOTES, 'UTF-8' );
 
-		// Protect already-generated code spans (fenced blocks and inline code)
-		// from the cleanup and whitespace passes below. Without this, bracketed
-		// text inside code (e.g. $arr[key]) is stripped as if it were a
-		// shortcode, and per-line trimming flattens code-block indentation.
-		// Reuses the same $protected store as the list blocks parked earlier.
-		$protect = function ( $matches ) use ( &$protected ) {
-			$protected[] = $matches[0];
-			return 'VIGIAPLACEHOLDER' . ( count( $protected ) - 1 ) . 'END';
-		};
-		$html = preg_replace_callback( '/```.*?```/s', $protect, $html );
-		$html = preg_replace_callback( '/`[^`\n]+`/', $protect, $html );
+		// Protect the code that is still text from the cleanup and whitespace
+		// passes below: a fence the author typed instead of using a <pre>, and the
+		// inline code spans, whose content was entity-encoded until the decode
+		// above. Without this, bracketed text inside code (e.g. $arr[key]) is
+		// stripped as if it were a shortcode. The blocks built from markup are in
+		// the store already. Only what a Markdown reader will take for code is set
+		// aside (2.6.7): see park_typed_code().
+		$spans = array();
+		$html  = self::park_typed_code( $html, $protected, $spans );
 
 		// The body kept whatever markup the entities carried: a stored
 		// `&lt;script&gt;` came out of the decode above as a real `<script>` in a
@@ -2244,7 +2816,7 @@ class VigIA_Markdown_Endpoints {
 		// only took an author to write it. Now it goes through the same tag-shape
 		// filter as the summaries.
 		//
-		// Deliberately AFTER the two $protect passes: inside a fenced block or an
+		// Deliberately AFTER the code is parked: inside a fenced block or an
 		// inline code span, `<div>` is the subject of the page, not markup, and
 		// CommonMark does not interpret HTML there. Those are placeholders by now
 		// and come back verbatim at the end. Decided 17 sep 2026.
@@ -2253,28 +2825,694 @@ class VigIA_Markdown_Endpoints {
 		// Clean up artifacts left by unregistered shortcodes.
 		$html = self::strip_shortcode_leftovers( $html );
 
+		// The filter once more (2.6.7): what the cleanup above takes out can be
+		// the only thing that kept a `<` and a tag name apart. An author who wrote
+		// `<[x y]img src=x onerror=alert(1)>` as text got the tag back, whole.
+		$html = self::remove_tag_shapes( $html );
+
 		// Clean up whitespace.
-		$html = preg_replace( '/\n{3,}/', "\n\n", $html );
-		$html = preg_replace( '/[ \t]+/', ' ', $html );
+		$html  = self::keep_replace( '/\n{3,}/', "\n\n", $html );
+		$html  = self::keep_replace( '/[ \t]+/', ' ', $html );
 		$lines = explode( "\n", $html );
 		$lines = array_map( 'trim', $lines );
 		$html  = implode( "\n", $lines );
-		$html  = preg_replace( '/\n{3,}/', "\n\n", $html );
+		$html  = self::keep_replace( '/\n{3,}/', "\n\n", $html );
 
-		// Restore the protected list blocks and code spans verbatim, now that the
+		// What is left of the text can no longer open or close code of its own
+		// (2.6.7): see settle_code_marks().
+		$html = self::settle_code_marks( $html, $protected, $spans );
+
+		// Restore the protected list blocks and code verbatim, now that the
 		// whitespace pass is done, so nested indentation and inner brackets stay.
-		if ( ! empty( $protected ) ) {
-			$html = preg_replace_callback(
-				'/VIGIAPLACEHOLDER(\d+)END/',
-				function ( $matches ) use ( $protected ) {
-					$index = (int) $matches[1];
-					return isset( $protected[ $index ] ) ? $protected[ $index ] : '';
+		// More than one pass, because a block can travel inside another: a code
+		// block inside a list item is parked first, and its placeholder is part of
+		// the list block parked after it. A placeholder alone on a line behind an
+		// indentation or a quote marker (that same code block, set under its item,
+		// or one inside a blockquote) passes that prefix on to every line of the
+		// block, which is what keeps it inside the item or the quote: restored as
+		// it stood, only its first line would carry it.
+		$restore = '/^((?:[ \t]*>[ \t]?)+|[ \t]+)' . self::$marker . '(\d+)(?:END|INL)$|' . self::$marker . '(\d+)(?:END|INL)/m';
+		for ( $pass = 0; $pass < 5 && false !== strpos( $html, self::$marker ); $pass++ ) {
+			$html = self::keep_replace_callback(
+				$restore,
+				static function ( $matches ) use ( $protected ) {
+					if ( isset( $matches[3] ) && '' !== $matches[3] ) {
+						$index = (int) $matches[3];
+						return isset( $protected[ $index ] ) ? $protected[ $index ] : '';
+					}
+
+					$index = (int) $matches[2];
+					if ( ! isset( $protected[ $index ] ) ) {
+						return '';
+					}
+
+					// An empty line keeps the quote marker and drops the spaces.
+					$prefixed = array();
+					foreach ( explode( "\n", $protected[ $index ] ) as $line ) {
+						$prefixed[] = '' === $line ? rtrim( $matches[1] ) : $matches[1] . $line;
+					}
+
+					return implode( "\n", $prefixed );
 				},
 				$html
 			);
 		}
 
+		self::$marker = $outer_marker;
+
 		return trim( $html );
+	}
+
+	/**
+	 * What sits inside a link or a heading, on a single line.
+	 *
+	 * Neither can hold a block: the text of a link ends at the first blank line
+	 * and a heading is one line. Page builders nest that text in elements of
+	 * their own, each on its line (the button of Elementor is an `<a>` around
+	 * two `<span>`), and the document carried the line breaks: `[`, a blank
+	 * line, the text, another blank line and `](address)`, which no Markdown
+	 * reader takes for a link. The tags that would start a block further down
+	 * the converter give way to a space, the wrappers go, and the whitespace is
+	 * collapsed. A code block inside is left as it is, its lines being what it
+	 * shows.
+	 *
+	 * @since 2.6.7
+	 * @param string $inner Inner HTML of the link or the heading.
+	 * @return string
+	 */
+	private static function one_block_line( $inner ) {
+		if ( false !== stripos( $inner, '<pre' ) || 1 === preg_match( '/' . self::$marker . '\d+END/', $inner ) ) {
+			return $inner;
+		}
+
+		$inner = self::keep_replace( '#</?(?:h[1-6]|p|div|section|article|aside|header|footer|figure|figcaption|ul|ol|li|dl|dt|dd|blockquote|table|thead|tbody|tfoot|tr|td|th|br|hr)\b[^>]*>#i', ' ', $inner );
+
+		// Every other tag but the ones turned into Markdown further down: left
+		// in, a wrapper keeps the space around it and the text comes out padded.
+		$inner = self::keep_replace( '#</?(?!(?:strong|b|em|i|del|s|strike|code)\b)[a-z][^>]*>#i', '', $inner );
+
+		return self::one_line( $inner );
+	}
+
+	/**
+	 * A value for the placeholders of one call that nobody can write in advance.
+	 *
+	 * @since 2.6.7
+	 * @return string Sixteen hexadecimal characters.
+	 */
+	private static function marker_nonce() {
+		try {
+			return bin2hex( random_bytes( 8 ) );
+		} catch ( \Exception $e ) {
+			return substr( md5( uniqid( (string) wp_rand(), true ) ), 0, 16 );
+		}
+	}
+
+	/**
+	 * Set aside the code an author typed as text, and only what is code.
+	 *
+	 * The content of a parked block comes back verbatim at the end, markup and
+	 * all, so parking is only safe for what a Markdown reader will then read as
+	 * code. The two expressions this replaces (2.6.7) parked more than that, and
+	 * what was left over came out as live markup. Measured, each from a body an
+	 * author can write without `unfiltered_html`:
+	 *
+	 * - two backticks, a tag written as text and one backtick: CommonMark closes
+	 *   a span only with as many backticks as opened it, so that is no span;
+	 * - a span left open on one line and closed on the next, with a second one
+	 *   after it: the reader pairs the first backtick with the second, and what
+	 *   was parked as the content of a span is the text between two of them;
+	 * - three backticks in the middle of a line, a tag in the next paragraph and
+	 *   three more in the one after: a fence only opens at the start of a line.
+	 *
+	 * A fence counts when it is one for CommonMark: alone on its line, with an
+	 * info string that is a plain word, closed by a line of its own, and behind
+	 * the same quote markers on every line when it sits in a blockquote. It is
+	 * parked with those lines whole, so it comes back as it was typed. A span
+	 * counts when it opens and closes on the same line with runs of the same
+	 * length, and on a table row when it stays inside one cell, because a table
+	 * is cut into cells before its code spans are read.
+	 *
+	 * @since 2.6.7
+	 * @param string $text  Text with the tags already stripped and the entities decoded.
+	 * @param array  $store The placeholder store, by reference.
+	 * @param array  $spans Indexes of the store that are code spans, by reference.
+	 * @return string
+	 */
+	private static function park_typed_code( $text, &$store, &$spans ) {
+		if ( false === strpos( $text, '`' ) ) {
+			return $text;
+		}
+
+		$lines   = explode( "\n", $text );
+		$count   = count( $lines );
+		$tabular = self::table_lines( $lines );
+		$out     = array();
+
+		for ( $number = 0; $number < $count; $number++ ) {
+			$line = $lines[ $number ];
+
+			if ( false === strpos( $line, '`' ) ) {
+				$out[] = $line;
+				continue;
+			}
+
+			$in_table = isset( $tabular[ $number ] );
+			$end      = ( $in_table && 2 === $tabular[ $number ] ) ? 0 : self::typed_fence_end( $lines, $number );
+
+			if ( $end > $number ) {
+				$block    = array_slice( $lines, $number, $end - $number + 1 );
+				$last     = count( $block ) - 1;
+				$block[0] = self::one_line( $block[0] );
+
+				$block[ $last ] = self::one_line( $block[ $last ] );
+
+				// Behind a blank line, so the line above cannot take the opening
+				// fence for its own (a link reference definition reads the next
+				// line as its destination).
+				$before = empty( $out ) ? '' : trim( ltrim( end( $out ), "> \t" ) );
+				if ( '' !== $before ) {
+					$out[] = rtrim( substr( $block[0], 0, strcspn( $block[0], '`' ) ) );
+				}
+
+				$store[] = implode( "\n", $block );
+				$out[]   = self::$marker . ( count( $store ) - 1 ) . 'END';
+				$number  = $end;
+				continue;
+			}
+
+			$out[] = self::park_spans( $line, $in_table, $store, $spans );
+		}
+
+		return implode( "\n", $out );
+	}
+
+	/**
+	 * Where the fence opened on a line ends, or 0 when that line opens none.
+	 *
+	 * @since 2.6.7
+	 * @param array $lines Lines of the text.
+	 * @param int   $start Index of the candidate opening line.
+	 * @return int Index of the closing line, or 0.
+	 */
+	private static function typed_fence_end( $lines, $start ) {
+		if ( ! preg_match( '/^((?:>[ \t]*)*)(`{3,})[ \t]*[a-z0-9_+#.-]*$/i', trim( $lines[ $start ] ), $open ) ) {
+			return 0;
+		}
+
+		$depth  = substr_count( $open[1], '>' );
+		$length = strlen( $open[2] );
+		$count  = count( $lines );
+
+		for ( $number = $start + 1; $number < $count; $number++ ) {
+			$line = trim( $lines[ $number ] );
+
+			// A block parked earlier brings its own fence, which would close
+			// this one and leave the rest of it outside.
+			if ( 1 === preg_match( '/' . self::$marker . '\d+END/', $line ) ) {
+				return 0;
+			}
+
+			if ( $depth > 0 ) {
+				if ( ! preg_match( '/^(?:>[ \t]?){' . $depth . '}(.*)$/', $line, $inner ) ) {
+					return 0;
+				}
+				$line = $inner[1];
+				if ( strspn( $line, ' ' ) > 3 ) {
+					continue;
+				}
+				$line = ltrim( $line, ' ' );
+			}
+
+			if ( strlen( $line ) >= $length && strlen( $line ) === strspn( $line, '`' ) ) {
+				return $number;
+			}
+		}
+
+		return 0;
+	}
+
+	/**
+	 * The lines that a Markdown reader may read as rows of a table.
+	 *
+	 * A delimiter row (`| --- | --- |`) makes a table of the line above it and
+	 * of every line under it up to the next blank one. Wider than any reader
+	 * draws it, on purpose: the only effect of a line being listed here is that
+	 * its code spans are looked for cell by cell.
+	 *
+	 * @since 2.6.7
+	 * @param array $lines Lines of the text.
+	 * @return array Line index => 1 for the row above a delimiter, 2 from the delimiter on.
+	 */
+	private static function table_lines( $lines ) {
+		$tabular = array();
+		$inside  = false;
+
+		foreach ( $lines as $number => $line ) {
+			$line = trim( ltrim( $line, "> \t" ) );
+
+			if ( '' === $line ) {
+				$inside = false;
+				continue;
+			}
+
+			if ( false !== strpos( $line, '-' ) && strlen( $line ) === strspn( $line, "|:- \t" ) ) {
+				$inside = true;
+				if ( $number > 0 && ! isset( $tabular[ $number - 1 ] ) ) {
+					$tabular[ $number - 1 ] = 1;
+				}
+			}
+
+			if ( $inside ) {
+				$tabular[ $number ] = 2;
+			}
+		}
+
+		return $tabular;
+	}
+
+	/**
+	 * A line cut where a table would cut it: at every pipe that an even number
+	 * of backslashes, none included, comes before.
+	 *
+	 * The readers disagree on a pipe behind two backslashes (cmark and micromark
+	 * cut there, markdown-it does not), so it counts as a cut.
+	 *
+	 * @since 2.6.7
+	 * @param string $line Line.
+	 * @return array The pieces, without the pipes they were cut at.
+	 */
+	private static function split_cells( $line ) {
+		$cells = array();
+		$from  = 0;
+		$at    = strpos( $line, '|' );
+
+		while ( false !== $at ) {
+			if ( 0 === self::backslashes_before( $line, $at ) % 2 ) {
+				$cells[] = substr( $line, $from, $at - $from );
+				$from    = $at + 1;
+			}
+			$at = strpos( $line, '|', $at + 1 );
+		}
+
+		$cells[] = substr( $line, $from );
+
+		return $cells;
+	}
+
+	/**
+	 * How many backslashes come right before a position.
+	 *
+	 * @since 2.6.7
+	 * @param string $text Text.
+	 * @param int    $at   Position.
+	 * @return int
+	 */
+	private static function backslashes_before( $text, $at ) {
+		$total = 0;
+		while ( $at - $total > 0 && '\\' === $text[ $at - $total - 1 ] ) {
+			++$total;
+		}
+
+		return $total;
+	}
+
+	/**
+	 * Every run of backticks of a text, as array( position, length ).
+	 *
+	 * @since 2.6.7
+	 * @param string $text Text.
+	 * @return array
+	 */
+	private static function backtick_runs( $text ) {
+		$runs   = array();
+		$length = strlen( $text );
+		$at     = strpos( $text, '`' );
+
+		while ( false !== $at ) {
+			$size   = strspn( $text, '`', $at );
+			$runs[] = array( $at, $size );
+			$at     = $at + $size < $length ? strpos( $text, '`', $at + $size ) : false;
+		}
+
+		return $runs;
+	}
+
+	/**
+	 * The code spans of one line, the way CommonMark pairs them.
+	 *
+	 * Left to right: a run of backticks opens a span that the next run of the
+	 * same length closes, and a run with no such partner on the line is text. A
+	 * backslash before the opening run takes its first backtick as an escaped
+	 * character; inside a span a backslash is only a backslash. A span holding
+	 * the placeholder of a code block is left alone: what comes back there
+	 * brings backticks of its own. The address of a link does not.
+	 *
+	 * @since 2.6.7
+	 * @param string $text One line, or one cell of a table row.
+	 * @return array Spans as array( start, end ), the end exclusive.
+	 */
+	private static function code_spans( $text ) {
+		$runs  = self::backtick_runs( $text );
+		$total = count( $runs );
+		$found = array();
+
+		for ( $open = 0; $open < $total; $open++ ) {
+			list( $start, $size ) = $runs[ $open ];
+
+			if ( 1 === self::backslashes_before( $text, $start ) % 2 ) {
+				++$start;
+				--$size;
+			}
+			if ( $size < 1 ) {
+				continue;
+			}
+
+			for ( $close = $open + 1; $close < $total; $close++ ) {
+				if ( $runs[ $close ][1] === $size ) {
+					break;
+				}
+			}
+			if ( $close >= $total ) {
+				continue;
+			}
+
+			$stop = $runs[ $close ][0] + $size;
+			if ( 1 === preg_match( '/' . self::$marker . '\d+END/', substr( $text, $start, $stop - $start ) ) ) {
+				continue;
+			}
+
+			$found[] = array( $start, $stop );
+			$open    = $close;
+		}
+
+		return $found;
+	}
+
+	/**
+	 * Park the code spans of a line.
+	 *
+	 * @since 2.6.7
+	 * @param string $line     Line.
+	 * @param bool   $in_table Whether the line may be a table row.
+	 * @param array  $store    The placeholder store, by reference.
+	 * @param array  $spans    Indexes of the store that are code spans, by reference.
+	 * @return string
+	 */
+	private static function park_spans( $line, $in_table, &$store, &$spans ) {
+		$cells = $in_table ? self::split_cells( $line ) : array( $line );
+
+		foreach ( $cells as $key => $cell ) {
+			$out  = '';
+			$from = 0;
+
+			foreach ( self::code_spans( $cell ) as $span ) {
+				$store[] = substr( $cell, $span[0], $span[1] - $span[0] );
+				$index   = count( $store ) - 1;
+				$out    .= substr( $cell, $from, $span[0] - $from ) . self::$marker . $index . 'INL';
+				$from    = $span[1];
+
+				$spans[ $index ] = true;
+			}
+
+			$cells[ $key ] = $out . substr( $cell, $from );
+		}
+
+		return implode( '|', $cells );
+	}
+
+	/**
+	 * Every backtick of a text made a literal one.
+	 *
+	 * With a backslash, which Markdown reads as the character itself and never
+	 * as the start of code. A run that already has an odd number of backslashes
+	 * before it has its first backtick escaped by the last of them.
+	 *
+	 * @since 2.6.7
+	 * @param string $text Text with no code in it.
+	 * @return string
+	 */
+	private static function escape_backticks( $text ) {
+		$out  = '';
+		$from = 0;
+
+		foreach ( self::backtick_runs( $text ) as $run ) {
+			list( $at, $size ) = $run;
+
+			$bare = self::backslashes_before( $text, $at ) % 2;
+			$out .= substr( $text, $from, $at - $from ) . str_repeat( '`', $bare ) . str_repeat( '\\`', $size - $bare );
+			$from = $at + $size;
+		}
+
+		return $out . substr( $text, $from );
+	}
+
+	/**
+	 * A line of text that cannot open a code block: its code spans stay, every
+	 * other backtick becomes a literal one, and a run of tildes at its start
+	 * (the other fence of CommonMark) gets a backslash.
+	 *
+	 * For the text of a list item, which is rendered and parked apart from the
+	 * body and never meets settle_code_marks().
+	 *
+	 * @since 2.6.7
+	 * @param string $text One line.
+	 * @return string
+	 */
+	private static function settle_line( $text ) {
+		if ( false !== strpos( $text, '`' ) ) {
+			$out  = '';
+			$from = 0;
+
+			foreach ( self::code_spans( $text ) as $span ) {
+				$out .= self::escape_backticks( substr( $text, $from, $span[0] - $from ) ) . substr( $text, $span[0], $span[1] - $span[0] );
+				$from = $span[1];
+			}
+
+			$text = $out . self::escape_backticks( substr( $text, $from ) );
+		}
+
+		return strspn( $text, '~' ) >= 3 ? '\\' . $text : $text;
+	}
+
+	/**
+	 * Leave the text unable to open or close code, once everything else is done.
+	 *
+	 * What a Markdown reader takes for code is decided by the text around it as
+	 * much as by the code itself, and every block that comes back verbatim
+	 * relies on that reading. So this runs last, on the text as it will stay,
+	 * and line by line:
+	 *
+	 * - a code span that a table would cut in two goes back to being text. It
+	 *   was parked on a line that was no table row yet: the cleanup of tags and
+	 *   shortcode leftovers can be what completes the delimiter row;
+	 * - every backtick still in the text is a stray one, the spans being
+	 *   placeholders by now, and becomes a literal backtick. Left as it was, it
+	 *   paired with the first backtick of the next span, or opened a fence that
+	 *   the fence of a real code block then closed;
+	 * - a placeholder is kept apart from the next one and from a backslash, two
+	 *   neighbours the cleanup can leave it with and that undo its backticks;
+	 * - a line starting with three tildes is a fence as well: `<del>~x</del>`
+	 *   came out as `~~~x~~`, and the code block under it as text.
+	 *
+	 * @since 2.6.7
+	 * @param string $text  Text, placeholders in place.
+	 * @param array  $store The placeholder store.
+	 * @param array  $spans Indexes of the store that are code spans.
+	 * @return string
+	 */
+	private static function settle_code_marks( $text, $store, $spans ) {
+		$marker  = self::$marker;
+		$token   = '/' . $marker . '(\d+)(?:END|INL)/';
+		$lines   = explode( "\n", $text );
+		$tabular = self::table_lines( $lines );
+
+		foreach ( $lines as $number => $line ) {
+			if ( '' === $line ) {
+				continue;
+			}
+
+			$holds = false !== strpos( $line, $marker );
+
+			if ( $holds && isset( $tabular[ $number ] ) ) {
+				$line = self::keep_replace_callback(
+					$token,
+					static function ( $matches ) use ( $store, $spans ) {
+						$index = (int) $matches[1];
+						if ( empty( $spans[ $index ] ) || ! isset( $store[ $index ] ) || count( self::split_cells( $store[ $index ] ) ) < 2 ) {
+							return $matches[0];
+						}
+
+						return self::remove_tag_shapes( $store[ $index ] );
+					},
+					$line
+				);
+			}
+
+			if ( false !== strpos( $line, '`' ) ) {
+				$line = self::escape_backticks( $line );
+			}
+
+			// Link syntax the author typed: `](`, `][` and `]:` open what a reader
+			// takes as it comes, backticks included. The links of the converter
+			// are told apart by the placeholder their address is.
+			if ( false !== strpos( $line, ']' ) ) {
+				$plain = preg_replace( '/\](?=[\[:]|\((?!' . $marker . '))/', ']\\\\', $line );
+				$line  = null === $plain ? str_replace( array( '](', '][', ']:' ), array( ']\\(', ']\\[', ']\\:' ), $line ) : $plain;
+			}
+
+			$quote = strspn( $line, "> \t" );
+			if ( strspn( $line, '~', $quote ) >= 3 ) {
+				$line = substr( $line, 0, $quote ) . '\\' . substr( $line, $quote );
+			}
+
+			if ( $holds && false !== strpos( $line, $marker ) ) {
+				$line = self::settle_placeholders( $line, $store );
+			}
+
+			$lines[ $number ] = $line;
+		}
+
+		return implode( "\n", $lines );
+	}
+
+	/**
+	 * Give every placeholder of a line the surroundings its content needs.
+	 *
+	 * The passes between parking and here take text out, across lines too, and
+	 * what they leave next to a placeholder is not what was there when it was
+	 * parked. A tag shape that started on one line and found its `>` in the
+	 * quote marker of the next one took the line break with it, and the code
+	 * block of that next line came back in the middle of a sentence.
+	 *
+	 * - A block (anything of more than one line) gets a line of its own again,
+	 *   behind the quote markers of the line it was found on.
+	 * - Code inside a line is kept apart from what would take its first
+	 *   backtick: another placeholder, a backslash, and a bare address
+	 *   (`https://…`, `www.…`), which GFM reads as a link up to the next space.
+	 *
+	 * @since 2.6.7
+	 * @param string $line  One line holding placeholders.
+	 * @param array  $store The placeholder store.
+	 * @return string One line, or several when a block was set apart.
+	 */
+	private static function settle_placeholders( $line, $store ) {
+		$marker = self::$marker;
+		$quote  = substr( $line, 0, strspn( $line, "> \t" ) );
+		$body   = substr( $line, strlen( $quote ) );
+		$pieces = preg_split( '/(' . $marker . '\d+(?:END|INL))/', $body, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY );
+
+		if ( ! is_array( $pieces ) ) {
+			return $line;
+		}
+
+		$out     = array();
+		$current = '';
+
+		foreach ( $pieces as $piece ) {
+			if ( 0 !== strpos( $piece, $marker ) ) {
+				$current .= $piece;
+				continue;
+			}
+
+			$index = (int) substr( $piece, strlen( $marker ) );
+			$value = isset( $store[ $index ] ) ? $store[ $index ] : '';
+
+			if ( false !== strpos( $value, "\n" ) ) {
+				if ( '' !== trim( $current ) ) {
+					$out[] = $quote . trim( $current );
+					$out[] = rtrim( $quote );
+				}
+				$out[]   = $quote . $piece;
+				$out[]   = rtrim( $quote );
+				$current = '';
+				continue;
+			}
+
+			if ( '' !== $value && '`' === $value[0] && '' !== $current ) {
+				// The word it would be glued to, with the addresses parked in it
+				// read back: a link whose text does not hold is plain text to a
+				// reader, and its address a bare one.
+				$word = substr( $current, (int) strrpos( ' ' . $current, ' ' ) );
+				$word = (string) preg_replace_callback(
+					'/' . $marker . '(\d+)INL/',
+					static function ( $matches ) use ( $store ) {
+						return isset( $store[ (int) $matches[1] ] ) ? $store[ (int) $matches[1] ] : '';
+					},
+					$word
+				);
+
+				if ( 1 === preg_match( '/' . $marker . '\d+(?:END|INL)$/', $current ) ) {
+					$current .= ' ';
+				} elseif ( 1 === self::backslashes_before( $current, strlen( $current ) ) % 2 ) {
+					$current .= '\\';
+				} elseif ( false !== stripos( $word, '://' ) || false !== stripos( $word, 'www.' ) ) {
+					$current .= ' ';
+				}
+			}
+
+			$current .= $piece;
+		}
+
+		if ( '' !== trim( $current ) || empty( $out ) ) {
+			$out[] = $quote . ( empty( $out ) ? $current : trim( $current ) );
+		} elseif ( rtrim( $quote ) === end( $out ) ) {
+			array_pop( $out );
+		}
+
+		return implode( "\n", $out );
+	}
+
+	/**
+	 * The address of a link or an image, fit to sit between its parentheses.
+	 *
+	 * Decoded once, and then every character that ends an address early or
+	 * lets it run on is percent-encoded: whitespace and control characters,
+	 * the backtick, the angle brackets, both quotes, the backslash, the
+	 * parentheses and the pipe.
+	 *
+	 * @since 2.6.7
+	 * @param string $url Address as the attribute carried it.
+	 * @return string
+	 */
+	private static function link_address( $url ) {
+		static $map = null;
+
+		if ( null === $map ) {
+			$map = array();
+			foreach ( array_merge( range( 0, 32 ), array( 127 ), array_map( 'ord', str_split( '`<>"\'\\()|' ) ) ) as $code ) {
+				$map[ chr( $code ) ] = sprintf( '%%%02X', $code );
+			}
+		}
+
+		return strtr( trim( html_entity_decode( (string) $url, ENT_QUOTES, 'UTF-8' ) ), $map );
+	}
+
+	/**
+	 * The pipes of a table cell, each behind an odd number of backslashes.
+	 *
+	 * A table is cut into cells at every pipe that is not escaped, code spans
+	 * included, and `\\|` is an escaped backslash followed by a pipe that cuts.
+	 * One backslash was added whatever came before, so a cell or a code sample
+	 * that already read `\|` was cut there, and what was left of the sample
+	 * landed in the next cell as text.
+	 *
+	 * @since 2.6.7
+	 * @param string $text Cell text.
+	 * @return string
+	 */
+	private static function escape_pipes( $text ) {
+		$out  = '';
+		$from = 0;
+		$at   = strpos( $text, '|' );
+
+		while ( false !== $at ) {
+			$out .= substr( $text, $from, $at - $from ) . ( self::backslashes_before( $text, $at ) % 2 ? '\\\\|' : '\\|' );
+			$from = $at + 1;
+			$at   = strpos( $text, '|', $from );
+		}
+
+		return $out . substr( $text, $from );
 	}
 
 	/**
@@ -2315,7 +3553,7 @@ class VigIA_Markdown_Endpoints {
 					return '';
 				}
 				$store[] = $markdown;
-				return "\n\nVIGIAPLACEHOLDER" . ( count( $store ) - 1 ) . "END\n\n";
+				return "\n\n" . self::$marker . ( count( $store ) - 1 ) . "END\n\n";
 			},
 			$html
 		);
@@ -2335,7 +3573,7 @@ class VigIA_Markdown_Endpoints {
 	private static function render_html_list( $list_html ) {
 		if ( ! class_exists( 'DOMDocument' ) ) {
 			// Minimal fallback when ext-dom is unavailable: flat bullets.
-			$flat = preg_replace( '/<li[^>]*>/i', "\n- ", $list_html );
+			$flat = self::keep_replace( '/<li[^>]*>/i', "\n- ", $list_html );
 			return trim( wp_strip_all_tags( $flat ) );
 		}
 
@@ -2395,13 +3633,43 @@ class VigIA_Markdown_Endpoints {
 				}
 			}
 
-			$own_text = trim( preg_replace( '/\s+/', ' ', $own_text ) );
+			// What is tag-shaped goes here, before the backticks are read (2.6.7):
+			// taken out afterwards, it left `` `<b>` `` as two backticks in a row,
+			// which open code instead of closing it.
+			$own_text = trim( self::remove_tag_shapes( self::keep_replace( '/\s+/', ' ', $own_text ) ) );
 			$marker   = $ordered ? ( $counter . '. ' ) : '- ';
-			$lines[]  = rtrim( $indent . $marker . $own_text );
 
 			// Align sublists with the start of this item's text so CommonMark
 			// keeps them nested (ordered markers need more than two spaces).
 			$child_indent = $indent . str_repeat( ' ', strlen( $marker ) );
+
+			// A code block inside the item is its placeholder by now (2.6.7), and
+			// it goes on a line of its own under the item, at the indentation of
+			// the item's text and between blank lines: where html_to_markdown()
+			// puts the block back with that same indentation on every line. Left in
+			// the middle of the sentence, the fence would open half-way through a
+			// line, which no Markdown reader takes for a code block.
+			//
+			// The text around it cannot open a fence of its own (2.6.7): an item
+			// that read ``` had the fence of the block under it for its closing
+			// one, and the sample came out as markup. See settle_line().
+			$pieces = preg_split( '/\s*(' . self::$marker . '\d+END)\s*/', $own_text, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY );
+			$pieces = is_array( $pieces ) ? $pieces : array( $own_text );
+			foreach ( $pieces as $key => $piece ) {
+				if ( 0 !== strpos( $piece, self::$marker ) ) {
+					$pieces[ $key ] = self::settle_line( $piece );
+				}
+			}
+			$first   = ( isset( $pieces[0] ) && 0 !== strpos( $pieces[0], self::$marker ) ) ? array_shift( $pieces ) : '';
+			$lines[] = rtrim( $indent . $marker . $first );
+
+			foreach ( $pieces as $piece ) {
+				$lines[] = '';
+				$lines[] = $child_indent . $piece;
+			}
+			if ( ! empty( $pieces ) ) {
+				$lines[] = '';
+			}
 			foreach ( $sublists as $sublist ) {
 				$rendered = self::render_list_node( $sublist, $child_indent );
 				if ( '' !== $rendered ) {
@@ -2418,10 +3686,15 @@ class VigIA_Markdown_Endpoints {
 	/**
 	 * Convert an HTML table to markdown table
 	 *
-	 * @param array $matches Regex matches.
+	 * @since 2.6.7 The `$store` parameter.
+	 *
+	 * @param array      $matches Regex matches.
+	 * @param array|null $store   The placeholder store of html_to_markdown(), by
+	 *                            reference, so a code block inside a cell can be
+	 *                            turned into a code span.
 	 * @return string
 	 */
-	private static function convert_table_to_markdown( $matches ) {
+	private static function convert_table_to_markdown( $matches, &$store = null ) {
 		$table_html = $matches[1];
 		$rows       = array();
 
@@ -2442,8 +3715,20 @@ class VigIA_Markdown_Endpoints {
 					$text = trim( wp_strip_all_tags( $cell ) );
 					// Escape pipes and flatten line breaks so a cell's content
 					// can't break out of its column in the markdown table.
-					$text    = str_replace( array( "\r\n", "\n", "\r", '|' ), array( ' ', ' ', ' ', '\\|' ), $text );
+					$text    = self::escape_pipes( str_replace( array( "\r\n", "\n", "\r" ), ' ', $text ) );
 					$cells[] = $text;
+
+					// A code block in the cell is a placeholder that would come back
+					// as a fence of several lines, and a row is one line: it is turned
+					// into a code span in the store, where the cell keeps pointing.
+					if ( is_array( $store ) && preg_match_all( '/' . self::$marker . '(\d+)END/', $text, $parked ) ) {
+						foreach ( $parked[1] as $index ) {
+							$index = (int) $index;
+							if ( isset( $store[ $index ] ) && 0 === strpos( $store[ $index ], '`' ) ) {
+								$store[ $index ] = self::fence_to_span( $store[ $index ] );
+							}
+						}
+					}
 				}
 			}
 
@@ -2459,6 +3744,39 @@ class VigIA_Markdown_Endpoints {
 		}
 
 		return empty( $rows ) ? '' : "\n\n" . implode( "\n", $rows ) . "\n\n";
+	}
+
+	/**
+	 * A fenced block as a code span on one line, for where a block cannot go
+	 * (a table cell).
+	 *
+	 * The fences and the language go, the lines are joined with spaces, and the
+	 * delimiter is longer than any run of backticks inside. A pipe is escaped: in
+	 * a table it splits the cell even inside a code span. See escape_pipes().
+	 *
+	 * @since 2.6.7
+	 * @param string $block Fenced block as fenced() builds it.
+	 * @return string
+	 */
+	private static function fence_to_span( $block ) {
+		$lines = explode( "\n", $block );
+		if ( count( $lines ) >= 2 ) {
+			array_shift( $lines );
+			array_pop( $lines );
+		}
+
+		$code = trim( self::keep_replace( '/\s+/', ' ', implode( ' ', $lines ) ) );
+		if ( '' === $code ) {
+			return '';
+		}
+
+		$delimiter = '`';
+		if ( preg_match_all( '/`+/', $code, $runs ) ) {
+			$delimiter = str_repeat( '`', max( array_map( 'strlen', $runs[0] ) ) + 1 );
+		}
+		$pad = ( '`' === $code[0] || '`' === substr( $code, -1 ) ) ? ' ' : '';
+
+		return $delimiter . $pad . self::escape_pipes( $code ) . $pad . $delimiter;
 	}
 
 	// =========================================================================
@@ -2481,8 +3799,32 @@ class VigIA_Markdown_Endpoints {
 	public static function add_link_header() {
 		$md_url = self::resolve_current_markdown_url();
 		if ( $md_url ) {
-			header( 'Link: <' . esc_url( $md_url ) . '>; rel="alternate"; type="text/markdown"', false );
+			header( 'Link: <' . self::header_url( $md_url ) . '>; rel="alternate"; type="text/markdown"', false );
 		}
+	}
+
+	/**
+	 * A URL as it goes into an HTTP header: ASCII only.
+	 *
+	 * A link under a base that is not ASCII carries it as raw UTF-8
+	 * (`/categoría/news.md`), and a header is not the place for that: a client
+	 * that reads headers as Latin-1 gets another address. Every byte outside
+	 * visible ASCII is percent-encoded, which is the same address. And
+	 * esc_url_raw(), not esc_url(): the latter is for HTML and writes `&` as
+	 * `&#038;`.
+	 *
+	 * @since 2.6.7
+	 * @param string $url URL.
+	 * @return string
+	 */
+	private static function header_url( $url ) {
+		return self::keep_replace_callback(
+			'/[^\x21-\x7E]/',
+			static function ( $matches ) {
+				return rawurlencode( $matches[0] );
+			},
+			esc_url_raw( (string) $url )
+		);
 	}
 
 	/**
@@ -2679,6 +4021,23 @@ class VigIA_Markdown_Endpoints {
 		}
 
 		return home_url( '/' . $path . '.md' );
+	}
+
+	/**
+	 * Answer a `.md` request that is not a read with a plain 405.
+	 *
+	 * A `.md` is a document to be read: GET and HEAD, as the `Allow` header says.
+	 *
+	 * @since 2.6.7
+	 */
+	private static function send_405() {
+		status_header( 405 );
+		header( 'Allow: GET, HEAD' );
+		nocache_headers();
+		header( 'Content-Type: text/plain; charset=utf-8' );
+		header( 'X-Content-Type-Options: nosniff' );
+		echo 'Method not allowed';
+		exit;
 	}
 
 	/**

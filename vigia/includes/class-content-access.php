@@ -147,6 +147,81 @@ class VigIA_Content_Access {
 	}
 
 	/**
+	 * Is this entry a page that shows whoever visits it their own session?
+	 *
+	 * The cart, the checkout and My Account of a store are not content. What they
+	 * show belongs to the visitor (their basket, their order, their details), and a
+	 * Markdown document is built once and kept for twelve hours for everybody, so
+	 * there is no document to make of them: the one built for the first visitor
+	 * would be handed to the next. WooCommerce treats them the same way itself: for
+	 * these three pages `WC_Cache_Helper::prevent_caching()`, on `wp_headers`,
+	 * defines `DONOTCACHEPAGE` and adds core's no-cache headers
+	 * (`includes/class-wc-cache-helper.php:30`, `:62-67`, `:75-82` and `:276` in
+	 * 11.1.2).
+	 *
+	 * They are recognised by the ID WooCommerce has assigned to each and also by
+	 * what the page carries: the shortcodes `woocommerce_cart`,
+	 * `woocommerce_checkout` and `woocommerce_my_account`, and the blocks
+	 * `woocommerce/cart`, `woocommerce/checkout` and `woocommerce/classic-shortcode`.
+	 * The ID alone is not enough. In a translated store the page of the other
+	 * language is not the one `wc_get_page_id()` returns, and a second checkout
+	 * page made with the shortcode is a checkout all the same.
+	 *
+	 * Only WooCommerce is known here. For any other store, membership or account
+	 * page, `vigia_content_is_public` is the filter that says no.
+	 *
+	 * Twin of `Native_AEO_Pack_Content_Access::is_visitor_page()` in the Visibility
+	 * sibling, where each of the three traps below was measured.
+	 *
+	 * @since 2.6.7
+	 *
+	 * @param WP_Post|int $the_post Post or post ID.
+	 * @return bool
+	 */
+	public static function is_visitor_page( $the_post ) {
+		if ( ! function_exists( 'wc_get_page_id' ) ) {
+			return false;
+		}
+
+		$the_post = get_post( $the_post );
+		if ( ! $the_post instanceof WP_Post ) {
+			return false;
+		}
+
+		// `wc_get_page_id()` gives -1 when no page is assigned: only a real ID counts.
+		foreach ( array( 'cart', 'checkout', 'myaccount' ) as $vigia_page ) {
+			$vigia_page_id = (int) wc_get_page_id( $vigia_page );
+			if ( $vigia_page_id > 0 && $vigia_page_id === (int) $the_post->ID ) {
+				return true;
+			}
+		}
+
+		// Not has_shortcode(): it also counts a shortcode written between double
+		// brackets, which is an example on show that WordPress prints and does not
+		// run (`do_shortcode_tag()`, `wp-includes/shortcodes.php:396` in 7.1.2). A
+		// tutorial about the cart is not a cart.
+		$vigia_shortcodes = array_filter( array( 'woocommerce_cart', 'woocommerce_checkout', 'woocommerce_my_account' ), 'shortcode_exists' );
+		if ( ! empty( $vigia_shortcodes )
+			&& false !== strpos( $the_post->post_content, '[' )
+			&& preg_match_all( '/' . get_shortcode_regex( $vigia_shortcodes ) . '/', $the_post->post_content, $vigia_found, PREG_SET_ORDER ) ) {
+			foreach ( $vigia_found as $vigia_match ) {
+				if ( '[' !== $vigia_match[1] || ']' !== $vigia_match[6] ) {
+					return true;
+				}
+			}
+		}
+
+		// Not has_block(): it looks for the delimiter written with a single space
+		// (`wp-includes/blocks.php:931` in 7.1.2), and the parser that renders the
+		// block takes any white space there.
+		if ( 1 === preg_match( '#<!--\s+wp:woocommerce/(?:cart|checkout|classic-shortcode)\s#', $the_post->post_content ) ) {
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
 	 * Is this post type withheld from the AI surfaces? See gated_types_map().
 	 *
 	 * Only while a known LMS or membership plugin is running: a site with a
@@ -311,10 +386,15 @@ class VigIA_Content_Access {
 	/**
 	 * Nesting depth of the anonymous context.
 	 *
-	 * Note there is deliberately no "may this be cached?" helper: every document
-	 * is built inside the anonymous context instead, so what comes out is the
-	 * same for every visitor and is always safe to cache or to write to disk.
-	 * One rule rather than two.
+	 * The anonymous context covers the user, not the session a cookie brings: it
+	 * takes the logged-in user away and leaves the cookies where they were, and a
+	 * block that paints from one of them (the basket and the notices a store ties
+	 * to its session cookie, the currency or the language another plugin
+	 * remembers) paints it all the same. So "is what comes out the same for every
+	 * visitor?" is not answered by this context alone, as this comment used to
+	 * claim. That second question is `is_shareable_request()`: a Markdown document
+	 * is built in the anonymous context always, and stored for everybody only when
+	 * the request carried no cookies and nobody was logged in.
 	 *
 	 * @var int
 	 */
@@ -371,6 +451,545 @@ class VigIA_Content_Access {
 			wp_set_current_user( self::$anonymous_restore_id );
 			self::$anonymous_restore_id = 0;
 		}
+	}
+
+	/**
+	 * Nesting depth of the neutral query context.
+	 *
+	 * @since 2.6.7
+	 *
+	 * @var int
+	 */
+	private static $neutral_depth = 0;
+
+	/**
+	 * What `begin_neutral_query()` set aside: the main query, its reference copy,
+	 * the global post, the address of the request and the `WP` object, in that
+	 * order. The address is null when it was left alone, and the object when
+	 * there was none.
+	 *
+	 * @since 2.6.7
+	 *
+	 * @var array<int,mixed>
+	 */
+	private static $neutral_restore = array();
+
+	/**
+	 * Build what follows outside the page the request is for.
+	 *
+	 * A Markdown document answers at two addresses, and both keep it in the same
+	 * transient, so the one asked first decided what the other served for the next
+	 * twelve hours. They did not build the same thing. Both run on
+	 * `template_redirect`, but with a different main query behind them: the page
+	 * asked with `Accept: text/markdown` is a page view, where `is_singular()` is
+	 * true, and the plugins that add their share buttons or a summary box to the
+	 * content of a page took the build for one and added them to the document. The
+	 * `.md` address is a rewrite rule whose two query variables `WP_Query` does not
+	 * know, so its main query is the blog index (`is_home()`, with the latest posts
+	 * in it: `wp-includes/class-wp-query.php:1051-1054` and, with a static front
+	 * page, `:1058-1077` in 7.1.2), and a query block set to inherit listed those
+	 * posts inside the document of a page. Measured on a test site: the same entry
+	 * came out at 2,406 bytes built at one address and 5,369 at the other, and 78 of
+	 * 131 documents differed.
+	 *
+	 * The document is the entry, not the page around it, so every one is built
+	 * with an empty main query and no global post. Both query globals are swapped,
+	 * the reference copy included. A shortcode that ends its own loop with
+	 * `wp_reset_query()` copies that one back (`wp-includes/query.php:114-117`),
+	 * and half-way through the content the page view would return.
+	 *
+	 * The address of the request goes the same way. Blocks build links to "this
+	 * page" with `add_query_arg()`, which reads it
+	 * (`wp-includes/functions.php:1147` and `:1153`): the add to cart link of a
+	 * product listing, the next page of a query. Left alone, the document asked at
+	 * `/my-courses.md` linked to `/my-courses.md?query-0-page=2` and the one asked
+	 * at `/my-courses/` to `/my-courses/?query-0-page=2`. While the document is
+	 * built the request is for the page it belongs to, whichever address was
+	 * asked. A missing key is left missing, though WordPress makes sure there is
+	 * one (`wp_fix_server_vars()`, `wp-includes/load.php:34`).
+	 *
+	 * The `WP` object goes too, but as a copy: the one the request has, with what
+	 * the request resolved taken off (`query_vars`, `query_string`, `request`,
+	 * `matched_rule`, `matched_query` and `did_permalink`, which `parse_request()`
+	 * and `build_query_string()` write, `wp-includes/class-wp.php:136` and `:609`).
+	 * A shortcode that decides with those painted a different thing at each
+	 * address: WooCommerce picks the section of My Account from `$wp->query_vars`.
+	 *
+	 * A new object will not do, because `init` has registered query variables in
+	 * the real one (`register_post_type()` adds its own,
+	 * `wp-includes/class-wp-post-type.php:715`). `url_to_postid()` drops the
+	 * variables it does not find there (`wp-includes/rewrite.php:639`), and core
+	 * calls it for every link it embeds (`wp-includes/embed.php:684`, reached
+	 * through `pre_oembed_result`, `wp-includes/default-filters.php:768`): inside a
+	 * new object the address of a product resolved to the static front page. That
+	 * was measured in the Visibility sibling, whose
+	 * `Native_AEO_Pack_Content_Access::begin_neutral_query()` this is the twin of.
+	 *
+	 * Always pair with `end_neutral_query()`; nesting is counted.
+	 *
+	 * @since 2.6.7
+	 *
+	 * @param mixed $address URL of the page the document belongs to. Anything that
+	 *                       is not a URL leaves the request address alone.
+	 */
+	public static function begin_neutral_query( $address = '' ) {
+		if ( 0 === self::$neutral_depth ) {
+			// A copy, so the address can go back exactly as it came. It is kept and
+			// put back, never used.
+			$server = $_SERVER;
+
+			self::$neutral_restore = array(
+				isset( $GLOBALS['wp_query'] ) ? $GLOBALS['wp_query'] : null,
+				isset( $GLOBALS['wp_the_query'] ) ? $GLOBALS['wp_the_query'] : null,
+				isset( $GLOBALS['post'] ) ? $GLOBALS['post'] : null,
+				null,
+				null,
+			);
+
+			$blank = new WP_Query();
+
+			$GLOBALS['wp_query']     = $blank; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restored in end_neutral_query(); a document is not built as the page view of the request.
+			$GLOBALS['wp_the_query'] = $blank; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restored in end_neutral_query(); wp_reset_query() copies this one back.
+			unset( $GLOBALS['post'] );
+
+			// Not a `new WP()`: see above. A copy keeps the query variables `init`
+			// registered and loses only what the request resolved, and what a shortcode
+			// writes into it does not reach the real one. With no `$wp` there is nothing
+			// to copy, and none is made.
+			if ( isset( $GLOBALS['wp'] ) && $GLOBALS['wp'] instanceof WP ) {
+				self::$neutral_restore[4] = $GLOBALS['wp'];
+
+				$unresolved = clone $GLOBALS['wp'];
+
+				// Unset before assigning. If another plugin holds a PHP reference to one
+				// of these properties of the real object, the clone shares that reference,
+				// and assigning to it would write into the real one too; once unset, the
+				// property of the clone is no longer bound to it. The class has no magic
+				// methods, so the assignment below simply sets it again.
+				unset( $unresolved->query_vars, $unresolved->query_string, $unresolved->request, $unresolved->matched_rule, $unresolved->matched_query, $unresolved->did_permalink );
+
+				$unresolved->query_vars    = array();
+				$unresolved->query_string  = '';
+				$unresolved->request       = '';
+				$unresolved->matched_rule  = '';
+				$unresolved->matched_query = '';
+				$unresolved->did_permalink = false;
+
+				$GLOBALS['wp'] = $unresolved; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restored in end_neutral_query(); the two addresses of a document resolve different things, so both build with a copy that has none of what the request resolved.
+			}
+
+			$request_uri = self::request_uri_of( $address );
+			if ( '' !== $request_uri && isset( $server['REQUEST_URI'] ) ) {
+				self::$neutral_restore[3] = $server['REQUEST_URI'];
+				// Slashed, as WordPress keeps every value of this array
+				// (`wp_magic_quotes()`, `wp-includes/load.php:1285`).
+				$_SERVER['REQUEST_URI'] = wp_slash( $request_uri );
+			}
+		}
+
+		++self::$neutral_depth;
+	}
+
+	/**
+	 * An address as a request for it would name it: its path and its query.
+	 *
+	 * @since 2.6.7
+	 *
+	 * @param mixed $address URL of a page: absolute, relative to the scheme
+	 *                       (`//example.com/cart/`) or to the root (`/cart/`).
+	 * @return string '' when it is not a URL.
+	 */
+	public static function request_uri_of( $address ) {
+		if ( ! is_string( $address ) ) {
+			return '';
+		}
+
+		// Cut by hand and not with wp_parse_url(): parse_url() turns some bytes of
+		// raw UTF-8 into underscores, and the address of a term under a non-ASCII
+		// base is exactly that (`/categoría/` came back as `/categor_a/`).
+		$request_uri = preg_replace( '~^(?:[a-z][a-z0-9+.\-]*:)?//[^/?#]+~i', '', $address, 1, $count );
+		if ( ! is_string( $request_uri ) ) {
+			return '';
+		}
+
+		// A plugin that makes the permalinks relative to the root hands out `/cart/`
+		// and not `https://example.com/cart/`: with no host to take off it is already
+		// a path and a query, and the rest goes the same way. Anything else with no
+		// host, `cart/` or a bare word, is not an address.
+		if ( 0 === $count && 0 !== strpos( $address, '/' ) ) {
+			return '';
+		}
+
+		// A request carries no fragment.
+		$request_uri = substr( $request_uri, 0, strcspn( $request_uri, '#' ) );
+
+		// One slash at the start, whatever came. `https://example.com` and
+		// `https://example.com?p=1` have no path. A site whose home address is stored
+		// with a slash at the end hands out `https://example.com//page/`, which is its
+		// own address and has to stay one (rejecting it left such a site with no
+		// Markdown on `Accept` at all). And a browser reads `//x` and `/\x` as another
+		// domain, so what goes into `REQUEST_URI` starts with neither.
+		$request_uri = '/' . ltrim( $request_uri, '/\\' );
+
+		// Nothing that comes from a permalink carries a control character. The
+		// callers hand over the address of the page itself, so this is a hardening.
+		if ( 1 === preg_match( '/[\x00-\x1F\x7F]/', $request_uri ) ) {
+			return '';
+		}
+
+		return $request_uri;
+	}
+
+	/**
+	 * Put back what `begin_neutral_query()` set aside.
+	 *
+	 * @since 2.6.7
+	 */
+	public static function end_neutral_query() {
+		if ( 0 === self::$neutral_depth ) {
+			return;
+		}
+
+		--self::$neutral_depth;
+
+		if ( 0 !== self::$neutral_depth ) {
+			return;
+		}
+
+		list( $query, $the_query, $the_post, $request_uri, $wp_object ) = self::$neutral_restore;
+		self::$neutral_restore                                          = array();
+
+		$GLOBALS['wp_query']     = $query; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restoring the main query set aside in begin_neutral_query().
+		$GLOBALS['wp_the_query'] = $the_query; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restoring the main query set aside in begin_neutral_query().
+
+		if ( null !== $wp_object ) {
+			$GLOBALS['wp'] = $wp_object; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restoring the WP object set aside in begin_neutral_query().
+		}
+
+		if ( null !== $request_uri ) {
+			$_SERVER['REQUEST_URI'] = $request_uri;
+		}
+
+		if ( $the_post instanceof WP_Post ) {
+			$GLOBALS['post'] = $the_post; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restoring the caller's context.
+			setup_postdata( $the_post );
+		} else {
+			unset( $GLOBALS['post'] );
+		}
+	}
+
+	/**
+	 * Is the request one that reads, a GET or a HEAD?
+	 *
+	 * A document is built for a read and for nothing else. What a page answers to a
+	 * submission (the form back with its errors, the thank you message, a notice
+	 * the plugin that processed it left behind) is the answer to that one person
+	 * and not the document, and it would be stored for everybody. A HEAD is the
+	 * GET without its body.
+	 *
+	 * A request with no method counts as a GET, which is what WP-CLI and a script
+	 * run from the command line have.
+	 *
+	 * @since 2.6.7
+	 *
+	 * @return bool
+	 */
+	public static function is_read_request() {
+		$method = isset( $_SERVER['REQUEST_METHOD'] ) ? strtoupper( sanitize_text_field( wp_unslash( $_SERVER['REQUEST_METHOD'] ) ) ) : 'GET';
+
+		return 'GET' === $method || 'HEAD' === $method;
+	}
+
+	/**
+	 * Is the request in course for this address, and for nothing else?
+	 *
+	 * The page of an entry answers at more addresses than its own, and every one
+	 * of them reaches `template_redirect` with the same queried object: the page
+	 * with a parameter that changes what it shows (`/my-courses/?query-0-page=2` is
+	 * the second page of a query block, and with the cache empty that one was built
+	 * and stored as the document of everybody, 2,079 bytes instead of the 3,090 of
+	 * the first), the second page of an archive, `/feed/`, `/embed/`, an endpoint of
+	 * My Account (`/my-account/orders/` is the page `/my-account/`). A parameter
+	 * that changes nothing, `?utm_source=` and the like, stays out as well, because
+	 * which ones matter is not something to guess. All of those get the web page,
+	 * which announces its `.md` in the `Link` header, so nothing is lost.
+	 *
+	 * `is_shareable_request()` leans on this. A parameter can bring a session with
+	 * no cookie at all (WooCommerce clones one from `?session=`, WooCommerce
+	 * Multilingual from `?xdomain_data=` or from a POST, which `is_read_request()`
+	 * turns away), so whoever lets a parameter through here lets the basket of a
+	 * visitor into the copy everybody is served.
+	 *
+	 * Compared by path and by query, each cut by hand at the first `?` and not with
+	 * `wp_parse_url()` (see `request_uri_of()`). The path is compared decoded and
+	 * without its outer slashes: WordPress answers `/cart` and `/cart/` alike, and a
+	 * browser writes the octets of `/categor%C3%ADa/` in upper case where a
+	 * permalink may carry them in lower. Case is kept otherwise, so `/Cart/` is
+	 * another request. The query is compared as the string it is: with pretty
+	 * permalinks the address has none and the request cannot bring any, and with
+	 * plain ones it is `p=12` and nothing else.
+	 *
+	 * @since 2.6.7
+	 *
+	 * @param mixed $address URL of the page the document belongs to. Anything that
+	 *                       is not a URL is no address, and nothing is a request
+	 *                       for it.
+	 * @return bool
+	 */
+	public static function is_request_for( $address ) {
+		$own = self::request_uri_of( $address );
+		if ( '' === $own ) {
+			return false;
+		}
+
+		// Read with esc_url_raw() and not with sanitize_text_field(), which drops
+		// every `%XX` octet (`wp-includes/formatting.php:5736`).
+		$asked = isset( $_SERVER['REQUEST_URI'] ) ? esc_url_raw( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '';
+		if ( '' === $asked ) {
+			return false;
+		}
+
+		$split = static function ( $uri ) {
+			// A request carries no fragment, and its query starts at the first `?`.
+			$uri = substr( $uri, 0, strcspn( $uri, '#' ) );
+			$cut = strcspn( $uri, '?' );
+
+			// The cast is for PHP 7, where substr() gives false past the end.
+			return array( trim( rawurldecode( substr( $uri, 0, $cut ) ), '/' ), (string) substr( $uri, $cut + 1 ) );
+		};
+
+		list( $own_path, $own_query )     = $split( $own );
+		list( $asked_path, $asked_query ) = $split( $asked );
+
+		return $own_path === $asked_path && $own_query === $asked_query;
+	}
+
+	/**
+	 * Is this a request whose document may be kept for everybody?
+	 *
+	 * Only when it carries no cookies at all and nobody is logged in. The anonymous
+	 * context takes the user away and leaves the cookies where they were, and what
+	 * a block paints from one of them belongs to the visitor: a store ties the
+	 * basket and its notices to a session cookie and other plugins keep the
+	 * currency or the language picked, so a mini-cart or a notices block set inside
+	 * the content of an entry painted them into the document, and the document is
+	 * stored for twelve hours and handed to everybody. Emptying the WooCommerce
+	 * session while the document is built is not safe either: anything that
+	 * recalculates the totals in between would save the empty basket into the
+	 * session of the visitor who asked. So the rule goes the other way round. A
+	 * request with cookies still gets its document, built for it alone and not
+	 * stored, and only one without them writes the copy everybody is served.
+	 *
+	 * The cookies are read from the `Cookie` header the request sent, not from
+	 * `$_COOKIE`: a plugin can write into that array on its own (WPML keeps the
+	 * current language there on every request, cookie or not), and then no request
+	 * would ever look free of them and the document would never be stored. Whoever
+	 * asks decides whether to send the header, and neither answer gets a visitor's
+	 * data into the copy: with it nothing is stored, and without it the only other
+	 * way a session arrives is the address, which never builds a document: see
+	 * `is_request_for()`.
+	 *
+	 * And nobody logged in, because a user can be identified with no cookie at all
+	 * (single sign-on by a server header), and a store then loads that customer's
+	 * saved basket all the same. The user asked about is the one behind the
+	 * request: inside the anonymous context, the one it set aside.
+	 *
+	 * What this does not cover is whatever changes with no cookie to give it away:
+	 * a price that follows the country read from the IP, content chosen by
+	 * `Accept-Language`. The copy is then the one the first request without cookies
+	 * built. A script or WP-CLI carries none and counts as shareable, unless it runs
+	 * as a user.
+	 *
+	 * @since 2.6.7
+	 *
+	 * @return bool
+	 */
+	public static function is_shareable_request() {
+		if ( isset( $_SERVER['HTTP_COOKIE'] ) && '' !== $_SERVER['HTTP_COOKIE'] ) {
+			return false;
+		}
+
+		$user_id = self::$anonymous_depth > 0 ? self::$anonymous_restore_id : get_current_user_id();
+
+		return 0 === $user_id;
+	}
+
+	/**
+	 * Nesting depth of the session-free render.
+	 *
+	 * @since 2.6.7
+	 *
+	 * @var int
+	 */
+	private static $sessionless_depth = 0;
+
+	/**
+	 * Blocks that paint the session of whoever makes the request.
+	 *
+	 * The ones WooCommerce renders on the server from the basket or the notices
+	 * of the session (`WC()->cart` and `wc_print_notices()` in
+	 * `src/Blocks/BlockTypes/` of 11.1.2: `MiniCart.php`, its two inner blocks,
+	 * `ProductButton.php`, which writes how many of a product are in the basket
+	 * into its add to cart button, `StoreNotices.php` and `ClassicShortcode.php`),
+	 * plus the cart and the checkout themselves, for when they sit inside a
+	 * synced pattern that `is_visitor_page()` cannot see.
+	 *
+	 * @since 2.6.7
+	 *
+	 * @return array<int,string>
+	 */
+	public static function session_blocks() {
+		/**
+		 * Filters the blocks left out of whatever is built for everybody from a
+		 * request that carries a session (llms.txt and llms-full.txt, built from
+		 * wp-admin). Add the block of any other plugin that paints the basket, the
+		 * notices or the name of the visitor.
+		 *
+		 * @since 2.6.7
+		 *
+		 * @param array<int,string> $blocks Block names, with their namespace.
+		 */
+		return (array) apply_filters(
+			'vigia_session_blocks',
+			array(
+				'woocommerce/mini-cart',
+				'woocommerce/mini-cart-footer-block',
+				'woocommerce/mini-cart-title-items-counter-block',
+				'woocommerce/product-button',
+				'woocommerce/store-notices',
+				'woocommerce/classic-shortcode',
+				'woocommerce/cart',
+				'woocommerce/checkout',
+			)
+		);
+	}
+
+	/**
+	 * Shortcodes that paint the session of whoever makes the request.
+	 *
+	 * `shop_messages` prints the notices of the session, and `woocommerce_messages`
+	 * is its older name (`includes/class-wc-shortcodes.php:38` and `:50` in
+	 * WooCommerce 11.1.2). The other three are the cart, the checkout and My
+	 * Account, for when they sit inside a synced pattern.
+	 *
+	 * @since 2.6.7
+	 *
+	 * @return array<int,string>
+	 */
+	public static function session_shortcodes() {
+		/**
+		 * Filters the shortcodes left out of whatever is built for everybody from a
+		 * request that carries a session. See `vigia_session_blocks`.
+		 *
+		 * @since 2.6.7
+		 *
+		 * @param array<int,string> $shortcodes Shortcode tags.
+		 */
+		return (array) apply_filters(
+			'vigia_session_shortcodes',
+			array(
+				'woocommerce_cart',
+				'woocommerce_checkout',
+				'woocommerce_my_account',
+				'shop_messages',
+				'woocommerce_messages',
+			)
+		);
+	}
+
+	/**
+	 * Render what follows without the pieces that paint a session.
+	 *
+	 * llms.txt and llms-full.txt are one copy for everybody, written to disk, and
+	 * the rule that protects the Markdown documents cannot protect them:
+	 * `is_shareable_request()` asks for a request with no cookies, and these files
+	 * are built by whoever pressed the button in wp-admin, who always has them.
+	 * That request goes through admin-ajax, which WooCommerce counts as a
+	 * front-end one and loads the basket for (`includes/class-woocommerce.php:709`
+	 * and `:1008-1010` in 11.1.2), so a mini-cart block or a `[shop_messages]` set
+	 * inside the content of any entry painted the basket and the notices of that
+	 * administrator into the file. Measured: the notice of the session and the
+	 * number of items in the basket came out in llms-full.txt, and the notice in
+	 * the summary of the entry in llms.txt.
+	 *
+	 * Emptying the session is not safe (anything that recalculates the totals in
+	 * between would save the empty basket for the person who asked), so the pieces
+	 * are not rendered instead: the blocks through `pre_render_block`, which core
+	 * asks for top-level and inner blocks alike (`wp-includes/blocks.php:2436` and
+	 * `wp-includes/class-wp-block.php:605` in 7.1.2), and the shortcodes through
+	 * `pre_do_shortcode_tag` (`wp-includes/shortcodes.php:427`). That also reaches
+	 * what sits inside a synced pattern, which is rendered the same way.
+	 *
+	 * Only WooCommerce is known here; `vigia_session_blocks` and
+	 * `vigia_session_shortcodes` are there for anything else. What this cannot
+	 * cover is a piece nobody listed, or a price that follows the session.
+	 *
+	 * Always pair with `end_sessionless_render()`; nesting is counted.
+	 *
+	 * @since 2.6.7
+	 */
+	public static function begin_sessionless_render() {
+		if ( 0 === self::$sessionless_depth ) {
+			add_filter( 'pre_render_block', array( __CLASS__, 'skip_session_block' ), 10, 2 );
+			add_filter( 'pre_do_shortcode_tag', array( __CLASS__, 'skip_session_shortcode' ), 10, 2 );
+		}
+
+		++self::$sessionless_depth;
+	}
+
+	/**
+	 * Stop leaving out the pieces `begin_sessionless_render()` set aside.
+	 *
+	 * @since 2.6.7
+	 */
+	public static function end_sessionless_render() {
+		if ( 0 === self::$sessionless_depth ) {
+			return;
+		}
+
+		--self::$sessionless_depth;
+
+		if ( 0 === self::$sessionless_depth ) {
+			remove_filter( 'pre_render_block', array( __CLASS__, 'skip_session_block' ), 10 );
+			remove_filter( 'pre_do_shortcode_tag', array( __CLASS__, 'skip_session_shortcode' ), 10 );
+		}
+	}
+
+	/**
+	 * `pre_render_block` callback: render nothing for a block that paints a session.
+	 *
+	 * @since 2.6.7
+	 *
+	 * @param string|null $pre_render   What an earlier callback decided, null for none.
+	 * @param mixed       $parsed_block The block about to be rendered.
+	 * @return string|null
+	 */
+	public static function skip_session_block( $pre_render, $parsed_block ) {
+		if ( is_array( $parsed_block )
+			&& isset( $parsed_block['blockName'] )
+			&& in_array( $parsed_block['blockName'], self::session_blocks(), true ) ) {
+			return '';
+		}
+
+		return $pre_render;
+	}
+
+	/**
+	 * `pre_do_shortcode_tag` callback: render nothing for a shortcode that paints
+	 * a session.
+	 *
+	 * @since 2.6.7
+	 *
+	 * @param string|false $output What an earlier callback decided, false for none.
+	 * @param mixed        $tag    The shortcode tag about to run.
+	 * @return string|false
+	 */
+	public static function skip_session_shortcode( $output, $tag ) {
+		if ( is_string( $tag ) && in_array( $tag, self::session_shortcodes(), true ) ) {
+			return '';
+		}
+
+		return $output;
 	}
 
 	/**
