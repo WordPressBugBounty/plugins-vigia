@@ -4,7 +4,7 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 2.6.7
+Stable tag: 2.6.8
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -404,6 +404,12 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
+= 2.6.8 =
+Fixes wp-admin hanging after an update on sites with a lot of content: llms.txt and llms-full.txt are now rebuilt in the background, not inside the first page you open after updating. The scheduled rebuild also survives deactivating and activating the plugin.
+
+* Fix: After an update, the first page of wp-admin could hang and end in a 504 or a timeout error. That page rebuilt llms.txt and llms-full.txt before it loaded, which means rendering every entry they list, and the update was only marked as done once the rebuild had finished. On a site where that takes longer than the server gives a request it never finished, so every screen of wp-admin tried again and failed again until the plugin was deactivated. The update is now marked as done first, and the files are rebuilt by a scheduled task in the background. Where WP-Cron does not run, rebuild them from VigIA > Extras > LLMs.
+* Fix: Deactivating the plugin cleared the scheduled regeneration of llms.txt, and activating it again did not bring it back until the llms settings were saved. It is now restored when the plugin is activated and when it is updated.
+
 = 2.6.7 =
 Markdown for agents: a document is the same at both of its addresses, only a plain read of its own address builds it and only a request without cookies stores it. Text written to look like markup no longer gets through as markup, and code blocks keep their content.
 
@@ -490,8 +496,8 @@ For older changelog entries, please check the [changelog.txt](https://plugins.sv
 
 == Upgrade Notice ==
 
-= 2.6.7 =
-Markdown for agents: a document is the same at both of its addresses, only a plain read of its own address builds it and only a request without cookies stores it. Text written to look like markup no longer gets through as markup, and code blocks keep their content.
+= 2.6.8 =
+Fixes wp-admin hanging after an update on sites with a lot of content: llms.txt and llms-full.txt are now rebuilt in the background, not inside the first page you open after updating. The scheduled rebuild also survives deactivating and activating the plugin.
 
 == Support ==
 

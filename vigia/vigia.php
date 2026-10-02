@@ -3,7 +3,7 @@
  * Plugin Name: VigIA - AI Visibility, Analytics & Control
  * Plugin URI: https://servicios.ayudawp.com
  * Description: Monitor, control, and optimize how AI systems interact with your WordPress site. Track 60+ AI crawlers, manage access via robots.txt, and boost your AI visibility with llms.txt, JSON-LD, Markdown for Agents, and AI Visibility Score.
- * Version: 2.6.7
+ * Version: 2.6.8
  * Author: Fernando Tellado
  * Author URI: https://ayudawp.com
  * License: GPL v2 or later
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'VIGIA_VERSION', '2.6.7' );
+define( 'VIGIA_VERSION', '2.6.8' );
 define( 'VIGIA_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VIGIA_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'VIGIA_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -345,6 +345,9 @@ final class VigIA {
 
         // Schedule email alerts if enabled.
         VigIA_Email_Alerts::schedule_alerts();
+
+        // Bring back the scheduled rebuild of llms.txt that deactivate() cleared.
+        VigIA_LLMS_Generator::restore_schedule();
     }
 
     /**
@@ -445,8 +448,17 @@ final class VigIA {
      * scheduled run, which may be a month out or turned off entirely.
      *
      * Runs on `admin_init`, so the version only advances once someone with the
-     * capability to manage these files loads a page. A regeneration failure
-     * leaves the stored version alone and is retried on the next pageload.
+     * capability to manage these files loads a page.
+     *
+     * Nothing here may take long or be tried twice (2.6.8). From 2.4.4 to 2.6.7
+     * the rebuild ran right here and the version was stored after it, only when
+     * it had worked. Rebuilding renders every entry the files list, so the first
+     * page of wp-admin after an update waited for all of it (78 seconds on the
+     * test site, 95 entries, two of them built to be slow), and on a server that
+     * cuts a request before that the version was never stored: the dashboard,
+     * the plugins screen and every admin-ajax call tried again and were cut
+     * again, until the plugin was deactivated. So the version goes first, what
+     * follows is cheap, and the rebuild is left to cron.
      */
     public function maybe_upgrade_version() {
         $stored = get_option( 'vigia_version', '0.0.0' );
@@ -458,6 +470,9 @@ final class VigIA {
         if ( ! current_user_can( 'manage_options' ) ) {
             return;
         }
+
+        // First, so nothing below can make the next pageload come back here.
+        update_option( 'vigia_version', VIGIA_VERSION );
 
         // Repair a physical robots.txt whose markers another plugin glued to the
         // line above. It does not heal on its own: the glued marker used to be
@@ -473,22 +488,13 @@ final class VigIA {
         // nothing cached.
         VigIA_Markdown_Endpoints::flush_all();
 
-        // A file on disk is the signal: the llms generator has no on/off flag of
-        // its own, it either has written the files or it has not. Nothing to
-        // rebuild otherwise, and the generator declines the job anyway when
-        // llms.txt is ceded to Visibility.
-        if ( VigIA_LLMS_Generator::llms_exists() || VigIA_LLMS_Generator::llms_full_exists() ) {
-            $result = VigIA_LLMS_Generator::generate( VigIA_LLMS_Generator::get_settings() );
+        // The scheduled rebuild, for a site that lost it: deactivate() clears the
+        // event and, until 2.6.8, activating again did not bring it back. Before
+        // queue_rebuild(), which leaves an event of the same hook.
+        VigIA_LLMS_Generator::restore_schedule();
 
-            // Nothing to regenerate from, or the sibling owns the file now: both
-            // are settled states, not something a later pageload would fix.
-            if ( is_wp_error( $result )
-                && ! in_array( $result->get_error_code(), array( 'no_content', 'ceded_to_visibility' ), true ) ) {
-                return;
-            }
-        }
-
-        update_option( 'vigia_version', VIGIA_VERSION );
+        // The llms files are rebuilt by cron, in a request of its own.
+        VigIA_LLMS_Generator::queue_rebuild();
     }
 
     /**
