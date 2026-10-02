@@ -107,10 +107,12 @@ class VigIA_Robots_Manager {
         // and we are the ones serving it. Without that last test both siblings
         // wrote their own line and robots.txt carried the same URL twice, once
         // from each: the reference belongs to whoever serves llms.txt, the same
-        // rule the describedby relation follows.
+        // rule the describedby relation follows. serves_llms() answers both: the
+        // file is this site's own, at the root or in its uploads folder, and it
+        // is the one answering at its address.
         $has_llms_ref = ! empty( $llms_settings['robots_llms'] )
-            && file_exists( ABSPATH . 'llms.txt' )
-            && ( ! class_exists( 'VigIA_LLMS_Generator' ) || VigIA_LLMS_Generator::serves_llms() );
+            && class_exists( 'VigIA_LLMS_Generator' )
+            && VigIA_LLMS_Generator::serves_llms();
 
         if ( $has_llms_ref ) {
             $output .= "\n" . self::build_llms_section( $has_llms_ref, false );
@@ -925,9 +927,11 @@ class VigIA_Robots_Manager {
         // has glued to the previous line.
         $content = rtrim( self::remove_llms_section( self::repair_glued_markers( $content ) ) );
 
-        // Only add references if files actually exist.
-        $add_llms      = $add_llms && file_exists( ABSPATH . 'llms.txt' );
-        $add_llms_full = $add_llms_full && file_exists( ABSPATH . 'llms-full.txt' );
+        // Only add references if files actually exist, at the root or in this
+        // site's uploads folder, and answer at this site's address.
+        $has_generator = class_exists( 'VigIA_LLMS_Generator' );
+        $add_llms      = $add_llms && $has_generator && VigIA_LLMS_Generator::is_served( 'llms.txt' );
+        $add_llms_full = $add_llms_full && $has_generator && VigIA_LLMS_Generator::is_served( 'llms-full.txt' );
 
         // Build new section if needed.
         if ( $add_llms || $add_llms_full ) {

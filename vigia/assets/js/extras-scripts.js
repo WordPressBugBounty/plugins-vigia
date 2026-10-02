@@ -936,6 +936,13 @@
             robots_llms: $('#vigia-robots-llms').is(':checked') ? 'true' : 'false'
         };
 
+        // Delivery: only where the control exists (a subsite of a network has no
+        // choice, and the server keeps the stored value when the field is not sent).
+        var $delivery = $('input[name="vigia_delivery"]:checked');
+        if ($delivery.length) {
+            settings.delivery = $delivery.val();
+        }
+
         // Get selected post types
         $('input[name="vigia_post_types[]"]:checked').each(function() {
             settings.post_types.push($(this).val());

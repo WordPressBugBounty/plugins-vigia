@@ -726,6 +726,75 @@ class VigIA_Extras_Page {
     }
 
     /**
+     * Say how this site's llms files are delivered, and warn when a physical
+     * file at the root is answering where it should not.
+     *
+     * @since 2.7.0
+     *
+     * @param array|false $info File info of one of this site's files, as
+     *                          VigIA_LLMS_Generator::get_file_info() gives it.
+     */
+    private static function render_llms_delivery_status( $info ) {
+        // A subsite of a network, with the main site's physical file at the root
+        // every domain of the network shares. Nothing this site does changes it.
+        if ( VigIA_LLMS_Generator::is_shadowed( 'llms.txt' ) || VigIA_LLMS_Generator::is_shadowed( 'llms-full.txt' ) ) {
+            ?>
+            <div class="vigia-notice vigia-notice-warning">
+                <p>
+                    <span class="dashicons dashicons-warning"></span>
+                    <?php esc_html_e( 'The main site of this network has a physical llms file at the network root, and the web server answers with it on every domain, this one included. This site\'s own file takes over once the main site sets its Delivery to Served by WordPress and generates its files, or that file is deleted from the server.', 'vigia' ); ?>
+                </p>
+            </div>
+            <?php
+        }
+
+        if ( ! $info ) {
+            return;
+        }
+
+        $at_root = ( 'file' === $info['delivery'] );
+
+        // The file at the root is this site's and its delivery says WordPress.
+        // Generating removes it, unless WordPress cannot delete from that folder,
+        // which is the very reason this delivery is often chosen.
+        if ( $at_root && 'virtual' === VigIA_LLMS_Generator::delivery_mode() ) {
+            ?>
+            <div class="vigia-notice vigia-notice-warning">
+                <p>
+                    <span class="dashicons dashicons-warning"></span>
+                    <?php esc_html_e( 'A physical file at the site root is answering in place of the copy served by WordPress. Save and generate removes it. If it is still there afterwards, WordPress cannot delete it and it has to be removed from the server.', 'vigia' ); ?>
+                </p>
+            </div>
+            <?php
+            return;
+        }
+
+        // The main site of a network, with its files at the root all the sites
+        // share. It works, and it reaches every other domain.
+        if ( $at_root && is_multisite() ) {
+            ?>
+            <div class="vigia-notice vigia-notice-warning">
+                <p>
+                    <span class="dashicons dashicons-warning"></span>
+                    <?php esc_html_e( 'On a network the files at the site root are answered on every domain, not only on this site. Set Delivery to Served by WordPress and generate, and each site can have its own.', 'vigia' ); ?>
+                </p>
+            </div>
+            <?php
+        }
+        ?>
+        <p class="vigia-last-generated">
+            <?php
+            if ( $at_root ) {
+                esc_html_e( 'Physical files at the site root.', 'vigia' );
+            } else {
+                esc_html_e( 'Served by WordPress from this site\'s uploads folder.', 'vigia' );
+            }
+            ?>
+        </p>
+        <?php
+    }
+
+    /**
      * Render LLMs.txt tab (v1.2.0 - completely rewritten)
      */
     private static function render_llms_tab() {
@@ -754,7 +823,7 @@ class VigIA_Extras_Page {
             <?php
             self::render_visibility_signal_notice(
                 'llms',
-                __( 'Manage llms.txt and llms-full.txt from Visibility; VigIA has removed its own physical copies so they do not shadow it.', 'vigia' ),
+                __( 'Manage llms.txt and llms-full.txt from Visibility; VigIA has removed its own copies so they do not shadow it.', 'vigia' ),
                 __( 'llms.txt', 'vigia' )
             );
             ?>
@@ -788,6 +857,7 @@ class VigIA_Extras_Page {
                         <?php endif; ?>
                     </div>
                 </div>
+                <?php self::render_llms_delivery_status( $llms_info ? $llms_info : $llms_full_info ); ?>
                 <?php if ( $llms_exists || $llms_full_exists ) : ?>
                     <p class="vigia-last-generated">
                         <?php
@@ -983,6 +1053,35 @@ class VigIA_Extras_Page {
                             </label>
                         </p>
                     </div>
+                </div>
+
+                <!-- Delivery -->
+                <div class="vigia-llms-section">
+                    <h4><?php esc_html_e( 'Delivery', 'vigia' ); ?></h4>
+                    <?php if ( is_multisite() && ! is_main_site() ) : ?>
+                        <p class="description"><?php esc_html_e( 'In a multisite network each site has its own files, kept in its uploads folder and served by WordPress at that site\'s address.', 'vigia' ); ?></p>
+                    <?php else : ?>
+                        <?php $delivery = VigIA_LLMS_Generator::delivery_mode( $settings ); ?>
+                        <p class="description">
+                            <?php esc_html_e( 'Served by WordPress keeps the files in the uploads folder and answers at the same addresses. Use it when the site root is not writable, or to see in your stats which AI crawlers read these files.', 'vigia' ); ?>
+                            <?php if ( is_multisite() ) : ?>
+                                <?php esc_html_e( 'On a network it is also what lets every site have its own files: a physical file at the root is answered on every domain.', 'vigia' ); ?>
+                            <?php endif; ?>
+                            <?php if ( ! get_option( 'permalink_structure' ) ) : ?>
+                                <?php esc_html_e( 'It needs pretty permalinks: with plain permalinks the request never reaches WordPress.', 'vigia' ); ?>
+                            <?php endif; ?>
+                        </p>
+                        <div class="vigia-regen-options">
+                            <label>
+                                <input type="radio" name="vigia_delivery" value="file" <?php checked( $delivery, 'file' ); ?>>
+                                <?php esc_html_e( 'Physical file at the site root', 'vigia' ); ?>
+                            </label>
+                            <label>
+                                <input type="radio" name="vigia_delivery" value="virtual" <?php checked( $delivery, 'virtual' ); ?>>
+                                <?php esc_html_e( 'Served by WordPress', 'vigia' ); ?>
+                            </label>
+                        </div>
+                    <?php endif; ?>
                 </div>
 
                 <!-- Auto-regeneration -->

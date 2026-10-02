@@ -271,7 +271,7 @@ class VigIA_JsonLD_Generator {
 			$ai_actions = array();
 
 			// LLMs.txt pointer.
-			if ( $settings['ai_discovery_llms'] && file_exists( ABSPATH . 'llms.txt' ) ) {
+			if ( $settings['ai_discovery_llms'] && VigIA_LLMS_Generator::is_served( 'llms.txt' ) ) {
 				$ai_actions[] = array(
 					'@type'       => 'ReadAction',
 					'target'      => $site_url . '/llms.txt',
@@ -281,7 +281,7 @@ class VigIA_JsonLD_Generator {
 			}
 
 			// LLMs-full.txt pointer.
-			if ( $settings['ai_discovery_llms_full'] && file_exists( ABSPATH . 'llms-full.txt' ) ) {
+			if ( $settings['ai_discovery_llms_full'] && VigIA_LLMS_Generator::is_served( 'llms-full.txt' ) ) {
 				$ai_actions[] = array(
 					'@type'       => 'ReadAction',
 					'target'      => $site_url . '/llms-full.txt',
@@ -432,8 +432,8 @@ class VigIA_JsonLD_Generator {
 		$md_settings = get_option( 'vigia_markdown_settings', array() );
 
 		return array(
-			'llms_txt'      => file_exists( ABSPATH . 'llms.txt' ),
-			'llms_full_txt' => file_exists( ABSPATH . 'llms-full.txt' ),
+			'llms_txt'      => VigIA_LLMS_Generator::is_served( 'llms.txt' ),
+			'llms_full_txt' => VigIA_LLMS_Generator::is_served( 'llms-full.txt' ),
 			'markdown'      => ! empty( $md_settings['enabled'] ),
 		);
 	}

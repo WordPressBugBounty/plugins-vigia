@@ -64,4 +64,26 @@ if ( ! empty( $vigia_settings['delete_on_uninstall'] ) ) {
         // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink
         unlink( $vigia_llms_full_file );
     }
+
+    // And the copies WordPress serves, kept in this site's uploads folder since
+    // 2.7.0 (VigIA_LLMS_Generator::stored_path()). The plugin's classes are not
+    // loaded here, so the path is put together again.
+    $vigia_uploads = wp_upload_dir( null, false );
+
+    if ( empty( $vigia_uploads['error'] ) && ! empty( $vigia_uploads['basedir'] ) ) {
+        $vigia_storage = trailingslashit( $vigia_uploads['basedir'] ) . 'vigia/';
+
+        foreach ( array( 'llms.txt', 'llms-full.txt' ) as $vigia_stored_name ) {
+            if ( file_exists( $vigia_storage . $vigia_stored_name ) ) {
+                // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- One of two literal names inside this plugin's own folder in uploads.
+                unlink( $vigia_storage . $vigia_stored_name );
+            }
+        }
+
+        // The folder itself, once nothing is left in it.
+        if ( is_dir( $vigia_storage ) && 2 === count( (array) scandir( $vigia_storage ) ) ) {
+            // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- Empty folder this plugin created in uploads; WP_Filesystem is not loaded during uninstall.
+            rmdir( $vigia_storage );
+        }
+    }
 }

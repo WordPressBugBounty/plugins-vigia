@@ -548,14 +548,20 @@ class VigIA_Visibility_Analyzer {
 		$visibility_llms      = class_exists( 'VigIA_Sibling_Visibility' ) && VigIA_Sibling_Visibility::emits_llms();
 		$visibility_llms_full = class_exists( 'VigIA_Sibling_Visibility' ) && VigIA_Sibling_Visibility::emits_llms_full();
 
-		$data['llms_txt_exists']      = file_exists( ABSPATH . 'llms.txt' ) || $visibility_llms;
-		$data['llms_full_txt_exists'] = file_exists( ABSPATH . 'llms-full.txt' ) || $visibility_llms_full;
+		// A file of this site's own, at the root or in its uploads folder, that is
+		// the one answering at its address. Not any file at ABSPATH: in a network
+		// the one there is the main site's, and a subsite was getting the points
+		// for a document that describes another site.
+		$llms_path = VigIA_LLMS_Generator::is_served( 'llms.txt' ) ? VigIA_LLMS_Generator::own_path( 'llms.txt' ) : '';
 
-		// Check llms.txt format. A physical file is sniffed for Markdown; a
+		$data['llms_txt_exists']      = '' !== $llms_path || $visibility_llms;
+		$data['llms_full_txt_exists'] = VigIA_LLMS_Generator::is_served( 'llms-full.txt' ) || $visibility_llms_full;
+
+		// Check llms.txt format. A file of ours is sniffed for Markdown; a
 		// Visibility-served llms.txt is Markdown by construction.
 		$data['llms_txt_is_markdown'] = false;
-		if ( file_exists( ABSPATH . 'llms.txt' ) ) {
-			$content = file_get_contents( ABSPATH . 'llms.txt' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		if ( '' !== $llms_path ) {
+			$content = file_get_contents( $llms_path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
 
 			// Drop a UTF-8 BOM before sniffing. The spec allows one as the very
 			// first thing in the file and we write one ourselves, but it sits

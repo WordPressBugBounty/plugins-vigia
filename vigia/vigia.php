@@ -3,7 +3,7 @@
  * Plugin Name: VigIA - AI Visibility, Analytics & Control
  * Plugin URI: https://servicios.ayudawp.com
  * Description: Monitor, control, and optimize how AI systems interact with your WordPress site. Track 60+ AI crawlers, manage access via robots.txt, and boost your AI visibility with llms.txt, JSON-LD, Markdown for Agents, and AI Visibility Score.
- * Version: 2.6.8
+ * Version: 2.7.0
  * Author: Fernando Tellado
  * Author URI: https://ayudawp.com
  * License: GPL v2 or later
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'VIGIA_VERSION', '2.6.8' );
+define( 'VIGIA_VERSION', '2.7.0' );
 define( 'VIGIA_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VIGIA_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'VIGIA_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -1391,6 +1391,8 @@ final class VigIA {
             'generate_full'    => isset( $_POST['generate_full'] ) && 'true' === $_POST['generate_full'],
             'full_mode'        => isset( $_POST['full_mode'] ) ? sanitize_key( wp_unslash( $_POST['full_mode'] ) ) : 'full',
             'auto_regenerate'  => isset( $_POST['auto_regenerate'] ) ? sanitize_key( wp_unslash( $_POST['auto_regenerate'] ) ) : 'manual',
+            // Kept as it is when the form does not send it (a subsite of a network has no such control).
+            'delivery'         => isset( $_POST['delivery'] ) ? sanitize_key( wp_unslash( $_POST['delivery'] ) ) : VigIA_LLMS_Generator::delivery_mode(),
             'robots_llms'      => isset( $_POST['robots_llms'] ) && 'true' === $_POST['robots_llms'],
             'robots_llms_full' => isset( $_POST['robots_llms_full'] ) && 'true' === $_POST['robots_llms_full'],
         );
@@ -1436,6 +1438,8 @@ final class VigIA {
             'generate_full'    => isset( $_POST['generate_full'] ) && 'true' === $_POST['generate_full'],
             'full_mode'        => isset( $_POST['full_mode'] ) ? sanitize_key( wp_unslash( $_POST['full_mode'] ) ) : 'full',
             'auto_regenerate'  => isset( $_POST['auto_regenerate'] ) ? sanitize_key( wp_unslash( $_POST['auto_regenerate'] ) ) : 'manual',
+            // Kept as it is when the form does not send it (a subsite of a network has no such control).
+            'delivery'         => isset( $_POST['delivery'] ) ? sanitize_key( wp_unslash( $_POST['delivery'] ) ) : VigIA_LLMS_Generator::delivery_mode(),
             'robots_llms'      => isset( $_POST['robots_llms'] ) && 'true' === $_POST['robots_llms'],
             'robots_llms_full' => isset( $_POST['robots_llms_full'] ) && 'true' === $_POST['robots_llms_full'],
         );

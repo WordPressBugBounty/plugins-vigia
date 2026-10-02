@@ -29,6 +29,22 @@ class VigIA_LLMS_Generator {
     const CRON_HOOK = 'vigia_llms_regenerate';
 
     /**
+     * The two files this class builds, and the only names it ever reads,
+     * writes, deletes or serves.
+     *
+     * @since 2.7.0
+     */
+    const FILES = array( 'llms.txt', 'llms-full.txt' );
+
+    /**
+     * Folder inside a site's uploads directory that holds its copies when
+     * WordPress is the one serving them. See stored_path().
+     *
+     * @since 2.7.0
+     */
+    const STORAGE_DIR = 'vigia';
+
+    /**
      * Default settings structure
      *
      * @var array
@@ -45,6 +61,7 @@ class VigIA_LLMS_Generator {
         'generate_full'       => false,
         'full_mode'           => 'full',
         'auto_regenerate'     => 'manual',
+        'delivery'            => '',
         'robots_llms'         => false,
         'robots_llms_full'    => false,
         'last_generated'      => 0,
@@ -110,15 +127,20 @@ class VigIA_LLMS_Generator {
         if ( ! is_admin() ) {
             add_action( 'wp_head', array( __CLASS__, 'link_tag' ), 5 );
             add_action( 'template_redirect', array( __CLASS__, 'link_header' ), 1 );
+
+            // Answer /llms.txt and /llms-full.txt for a site whose copies live in
+            // its uploads folder. Before WordPress parses the request, which would
+            // otherwise run the main query only to find nothing there.
+            add_filter( 'do_parse_request', array( __CLASS__, 'maybe_serve' ), 1 );
         }
     }
 
     /**
-     * Is VigIA the one serving an llms.txt at the site root?
+     * Is VigIA the one serving an llms.txt at this site's address?
      *
      * Deliberately cheap: this runs on every front-end request, and get_settings()
-     * is an uncached direct query. A stat on a path we already know is all it
-     * takes, and it is only reached when we are not ceding.
+     * is an uncached direct query. A stat or two on paths we already know is all
+     * it takes, and it is only reached when we are not ceding.
      *
      * @return bool
      */
@@ -127,7 +149,414 @@ class VigIA_LLMS_Generator {
             return false;
         }
 
-        return file_exists( ABSPATH . 'llms.txt' );
+        return self::is_served( 'llms.txt' );
+    }
+
+    /**
+     * Where this site's files are written: 'file' for a physical file at the
+     * site root, answered by the web server, or 'virtual' for a copy kept in the
+     * site's uploads folder and answered by WordPress.
+     *
+     * A subsite of a network has no choice. The sites of a network share one
+     * root, so a file written there is answered at every domain of the network:
+     * the main site's llms.txt was being served, with its name and its links, on
+     * each subdomain and on each mapped domain, and no other site could have its
+     * own. Served by WordPress, each site answers at its own address with its
+     * own copy, because core has already resolved the site from the domain by
+     * the time a plugin runs (`ms_load_current_site_and_network()`,
+     * `wp-includes/ms-load.php:297-322` in 7.1.2).
+     *
+     * Whoever owns the root chooses: a single site, and the main site of a
+     * network. Until they do, nothing changes for them. A single site keeps its
+     * physical file. So does a main site that already has one: taking it out of
+     * the root is what frees the other domains, but it only works where the
+     * server hands a request for a `.txt` it does not find to WordPress, and a
+     * server that answers those itself would leave that site with a 404 and no
+     * way back. So that move is theirs to make, and to undo. A main site with
+     * nothing at the root starts out served by WordPress, the delivery that does
+     * not reach the other domains. Either way the answer is stored the first
+     * time the files are built (see pin_delivery()), so it stops depending on
+     * what is at the root.
+     *
+     * @since 2.7.0
+     *
+     * @param array|null $settings Settings to read the choice from. Read from the
+     *                             database when omitted.
+     * @return string 'file' or 'virtual'.
+     */
+    public static function delivery_mode( $settings = null ) {
+        if ( ! self::owns_root() ) {
+            return 'virtual';
+        }
+
+        if ( null === $settings ) {
+            $settings = self::get_settings();
+        }
+
+        $choice = isset( $settings['delivery'] ) ? $settings['delivery'] : '';
+        if ( 'file' === $choice || 'virtual' === $choice ) {
+            return $choice;
+        }
+
+        // Not chosen yet.
+        if ( is_multisite() ) {
+            return ( file_exists( ABSPATH . 'llms.txt' ) || file_exists( ABSPATH . 'llms-full.txt' ) ) ? 'file' : 'virtual';
+        }
+
+        return 'file';
+    }
+
+    /**
+     * Write down the delivery a site starts out with, the first time its files
+     * are built.
+     *
+     * Until its owner chooses, the main site of a network takes its delivery
+     * from what is at the root (see delivery_mode()). Left at that, it would go
+     * on following the disk: a file somebody else dropped at the root would turn
+     * a site served by WordPress into a physical one at its next rebuild, in
+     * front of every other site of the network, and emptying the root would
+     * turn it back. So the answer is stored once, and from then on only the
+     * owner changes it.
+     *
+     * @since 2.7.0
+     *
+     * @param array  $settings Normalized settings the files are being built with.
+     * @param string $mode     What delivery_mode() resolved for them.
+     */
+    private static function pin_delivery( $settings, $mode ) {
+        if ( ! self::owns_root() || ! empty( $settings['delivery'] ) ) {
+            return;
+        }
+
+        $stored = get_option( self::OPTION_NAME, array() );
+        if ( ! is_array( $stored ) || ! empty( $stored['delivery'] ) ) {
+            return;
+        }
+
+        $stored['delivery'] = ( 'virtual' === $mode ) ? 'virtual' : 'file';
+        update_option( self::OPTION_NAME, $stored, false );
+    }
+
+    /**
+     * Path of this site's copy of a file when WordPress serves it.
+     *
+     * In the uploads folder, which is the one place a plugin can count on being
+     * writable and which is already per site in a network
+     * (`uploads/sites/<id>/`, `wp-includes/functions.php:2504-2518` in 7.1.2).
+     * Not in the database: llms-full.txt carries the text of every entry and runs
+     * to tens of megabytes on a large site.
+     *
+     * @since 2.7.0
+     *
+     * @param string $filename One of FILES.
+     * @return string Absolute path, or '' when there is no uploads folder to use.
+     */
+    private static function stored_path( $filename ) {
+        if ( ! in_array( $filename, self::FILES, true ) ) {
+            return '';
+        }
+
+        $uploads = wp_upload_dir( null, false );
+        if ( ! empty( $uploads['error'] ) || empty( $uploads['basedir'] ) ) {
+            return '';
+        }
+
+        return trailingslashit( $uploads['basedir'] ) . self::STORAGE_DIR . '/' . $filename;
+    }
+
+    /**
+     * Is the root of the install this site's alone to write and to delete?
+     *
+     * Same rule as VigIA_Robots_Manager::owns_root_files(): in a network the root
+     * is shared and only the main site speaks for it.
+     *
+     * @since 2.7.0
+     *
+     * @return bool
+     */
+    private static function owns_root() {
+        return ! is_multisite() || is_main_site();
+    }
+
+    /**
+     * This site's own copy of a file, wherever it lives.
+     *
+     * The one at the root comes first when both are there: the web server
+     * answers a physical file before WordPress is even loaded, so that is the
+     * copy being served. A root file that is not this site's (a subsite looking
+     * at the network root) is never its own copy.
+     *
+     * @since 2.7.0
+     *
+     * @param string $filename One of FILES.
+     * @return string Absolute path, or '' when this site has none.
+     */
+    public static function own_path( $filename ) {
+        if ( ! in_array( $filename, self::FILES, true ) ) {
+            return '';
+        }
+
+        if ( self::owns_root() && file_exists( ABSPATH . $filename ) ) {
+            return ABSPATH . $filename;
+        }
+
+        $stored = self::stored_path( $filename );
+
+        return ( '' !== $stored && file_exists( $stored ) ) ? $stored : '';
+    }
+
+    /**
+     * Is a physical file that belongs to another site answering at this site's
+     * address?
+     *
+     * Only in a network, and only for a site that sits at the root path of the
+     * network (a subdomain or a mapped domain): `/site/llms.txt` on a network by
+     * subdirectories is not the file at the root. Nothing this site does changes
+     * it, since the file is not its own to remove.
+     *
+     * @since 2.7.0
+     *
+     * @param string $filename One of FILES.
+     * @return bool
+     */
+    public static function is_shadowed( $filename ) {
+        if ( self::owns_root() || ! in_array( $filename, self::FILES, true ) ) {
+            return false;
+        }
+
+        if ( ! file_exists( ABSPATH . $filename ) ) {
+            return false;
+        }
+
+        $site    = get_site();
+        $network = get_network();
+
+        return $site && $network && $site->path === $network->path;
+    }
+
+    /**
+     * Does this site have a file of its own that is the one answering at its
+     * address? Says nothing about the Visibility sibling: see serves_llms().
+     *
+     * @since 2.7.0
+     *
+     * @param string $filename One of FILES.
+     * @return bool
+     */
+    public static function is_served( $filename ) {
+        return '' !== self::own_path( $filename ) && ! self::is_shadowed( $filename );
+    }
+
+    /**
+     * Which of the two files the request in course asks for, if any.
+     *
+     * Compared with the address the file has on this site, home path included,
+     * so a site in a subdirectory answers at `/site/llms.txt` and nowhere else.
+     * The query string is left out of the comparison, as a web server does for a
+     * physical file.
+     *
+     * The address is validated against the shape it must have, not cleaned and
+     * then compared. A sanitizer takes characters out before anybody looks:
+     * what is left of `/llms%0a.txt` after esc_url_raw(), or of `/llms.txt<`
+     * after wp_strip_all_tags(), is `/llms.txt`, and the file would answer at
+     * addresses that are not its own.
+     *
+     * @since 2.7.0
+     *
+     * @return string One of FILES, or '' when the request is for something else.
+     */
+    private static function requested_file() {
+        if ( ! isset( $_SERVER['REQUEST_URI'] ) || ! is_string( $_SERVER['REQUEST_URI'] ) ) {
+            return '';
+        }
+
+        $uri = filter_var(
+            wp_unslash( $_SERVER['REQUEST_URI'] ),
+            FILTER_VALIDATE_REGEXP,
+            array( 'options' => array( 'regexp' => '#/llms(?:-full)?\.txt(?:\?.*)?$#D' ) )
+        );
+        if ( ! is_string( $uri ) ) {
+            return '';
+        }
+
+        $path = (string) substr( $uri, 0, strcspn( $uri, '?' ) );
+        $home = untrailingslashit( (string) wp_parse_url( home_url(), PHP_URL_PATH ) );
+
+        foreach ( self::FILES as $filename ) {
+            if ( $home . '/' . $filename === $path ) {
+                return $filename;
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Serve this site's llms.txt or llms-full.txt from its uploads folder.
+     *
+     * Hooked on `do_parse_request`. A physical file at the same address never
+     * gets here: the web server answers it first. So what reaches this point is
+     * a site with no such file, and the copy served is the one generate() left
+     * in its uploads folder, or nothing, and WordPress goes on to its 404.
+     *
+     * Nothing is built here. The document is the one the button or cron wrote,
+     * as with the physical file: a site with tens of thousands of entries cannot
+     * build it inside the request of whoever asks.
+     *
+     * A crawler blocked in VigIA does not get this far either: VigIA_Blocker
+     * turns it away on `plugins_loaded`. And the visit is recorded like any
+     * other, on `shutdown`, which a physical file never allowed: the web server
+     * answered and no PHP ran.
+     *
+     * @since 2.7.0
+     *
+     * @param bool $do_parse Whether WordPress should parse the request.
+     * @return bool The value received, untouched.
+     */
+    public static function maybe_serve( $do_parse ) {
+        $filename = self::requested_file();
+        if ( '' === $filename ) {
+            return $do_parse;
+        }
+
+        $path = self::stored_path( $filename );
+        if ( '' === $path || ! is_file( $path ) || ! is_readable( $path ) ) {
+            return $do_parse;
+        }
+
+        // The Visibility sibling serves these addresses itself when its own
+        // llms.txt is on, and a copy of ours left behind must not answer for it.
+        if ( self::is_ceded_to_visibility() ) {
+            return $do_parse;
+        }
+
+        self::send_file( $path );
+
+        return $do_parse;
+    }
+
+    /**
+     * Send one of the stored files as plain text and stop.
+     *
+     * @since 2.7.0
+     *
+     * @param string $path Absolute path of the stored copy.
+     */
+    private static function send_file( $path ) {
+        // A document to be read: GET and HEAD, as the `Allow` header says.
+        if ( ! VigIA_Content_Access::is_read_request() ) {
+            status_header( 405 );
+            header( 'Allow: GET, HEAD' );
+            nocache_headers();
+            header( 'Content-Type: text/plain; charset=utf-8' );
+            header( 'X-Content-Type-Options: nosniff' );
+            echo 'Method not allowed';
+            exit;
+        }
+
+        $modified = (int) filemtime( $path );
+
+        status_header( 200 );
+
+        // Plain text, never HTML. nosniff keeps a browser from second-guessing
+        // that and rendering the response as markup in the site's own origin.
+        // Both before the conditional answer below, not after it: PHP adds its
+        // default `Content-Type: text/html` to any response that declares none, a
+        // 304 included, and a cache that refreshes the copy it holds from that
+        // 304 may take the type along with it (RFC 9111, section 3.2).
+        header( 'Content-Type: text/plain; charset=utf-8' );
+        header( 'X-Content-Type-Options: nosniff' );
+
+        // The same document for whoever asks, so it may be reused. With blocks
+        // configured it is kept out of shared caches: a blocked crawler is turned
+        // away here, at the origin, and a cache in front of the site never asks.
+        // Same rule as the Markdown documents.
+        $blocks = class_exists( 'VigIA_Blocker' ) ? VigIA_Blocker::get_all_blocks() : array();
+        header( 'Cache-Control: ' . ( empty( $blocks ) ? '' : 'private, ' ) . 'max-age=' . HOUR_IN_SECONDS );
+        header_remove( 'Expires' );
+
+        if ( $modified > 0 ) {
+            header( 'Last-Modified: ' . gmdate( 'D, d M Y H:i:s', $modified ) . ' GMT' );
+
+            // Whoever already holds this copy gets a 304 with no body, which for
+            // llms-full.txt is most of the cost.
+            $since = isset( $_SERVER['HTTP_IF_MODIFIED_SINCE'] ) ? strtotime( sanitize_text_field( wp_unslash( $_SERVER['HTTP_IF_MODIFIED_SINCE'] ) ) ) : false;
+            if ( false !== $since && $since >= $modified ) {
+                status_header( 304 );
+                exit;
+            }
+        }
+
+        $method = isset( $_SERVER['REQUEST_METHOD'] ) ? strtoupper( sanitize_text_field( wp_unslash( $_SERVER['REQUEST_METHOD'] ) ) ) : 'GET';
+        if ( 'HEAD' !== $method ) {
+            self::stream_file( $path );
+        }
+
+        exit;
+    }
+
+    /**
+     * Write a stored file to the response a piece at a time.
+     *
+     * llms-full.txt carries the text of every entry and can be larger than the
+     * memory limit, so it must never be held whole. readfile() looks like it
+     * does that and does not: it hands the file to the output layer in a single
+     * write, and with any output buffer open (`output_buffering = 4096` in
+     * php.ini is enough, and it is the usual production value) PHP allocates
+     * room for all of it first. Measured on the multisite test site with a file
+     * of 300 MB and a limit of 256 MB: a fatal error and a 500. In pieces of one
+     * megabyte the same file goes out whole.
+     *
+     * WP_Filesystem is not an option here: it has no streaming read, and
+     * loading it on a front-end request probes the filesystem with a temporary
+     * file.
+     *
+     * @since 2.7.0
+     *
+     * @param string $path Absolute path of the stored copy.
+     */
+    private static function stream_file( $path ) {
+        // A buffer opened with no chunk size (ob_start() by another plugin, a
+        // page cache) keeps everything written to it until the request ends,
+        // piece by piece or not. Whatever they hold so far is not this document,
+        // so they are dropped. One that cannot be removed (zlib.output_compression)
+        // is left alone: it works in chunks and lets each piece through.
+        while ( ob_get_level() > 0 ) {
+            $buffer = ob_get_status();
+            if ( empty( $buffer['flags'] ) || ! ( $buffer['flags'] & PHP_OUTPUT_HANDLER_REMOVABLE ) ) {
+                break;
+            }
+            ob_end_clean();
+        }
+
+        // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- Reads a stored text file in pieces; see the note above on WP_Filesystem.
+        $in = fopen( $path, 'rb' );
+        // The response body, not a file on disk.
+        $out = fopen( 'php://output', 'wb' );
+
+        if ( $in && $out ) {
+            while ( ! feof( $in ) ) {
+                // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread -- One megabyte of the stored file at a time.
+                $piece = fread( $in, MB_IN_BYTES );
+                if ( false === $piece || '' === $piece ) {
+                    break;
+                }
+
+                // Written to php://output and not echoed: a plain text document
+                // with its own Content-Type and nosniff, never markup.
+                // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite -- The response body, not a file on disk.
+                fwrite( $out, $piece );
+            }
+        }
+
+        if ( $in ) {
+            // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- Handle opened above.
+            fclose( $in );
+        }
+        if ( $out ) {
+            // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- Handle opened above.
+            fclose( $out );
+        }
     }
 
     /**
@@ -211,7 +640,7 @@ class VigIA_LLMS_Generator {
         $normalized = self::$defaults;
 
         // Strings.
-        foreach ( array( 'site_name', 'site_description', 'exclude_patterns', 'full_mode', 'auto_regenerate' ) as $key ) {
+        foreach ( array( 'site_name', 'site_description', 'exclude_patterns', 'full_mode', 'auto_regenerate', 'delivery' ) as $key ) {
             if ( isset( $settings[ $key ] ) ) {
                 $normalized[ $key ] = (string) $settings[ $key ];
             }
@@ -242,6 +671,10 @@ class VigIA_LLMS_Generator {
         }
         if ( ! in_array( $normalized['auto_regenerate'], array( 'manual', 'daily', 'weekly', 'monthly' ), true ) ) {
             $normalized['auto_regenerate'] = 'manual';
+        }
+        // Empty means not chosen yet: see delivery_mode().
+        if ( ! in_array( $normalized['delivery'], array( 'file', 'virtual' ), true ) ) {
+            $normalized['delivery'] = '';
         }
 
         return $normalized;
@@ -366,9 +799,12 @@ class VigIA_LLMS_Generator {
             );
         }
 
+        $mode = self::delivery_mode( $settings );
+        self::pin_delivery( $settings, $mode );
+
         // Generate llms.txt.
         $llms_content = self::generate_llms_txt( $settings, $post_ids );
-        $llms_result  = self::write_file( 'llms.txt', $llms_content );
+        $llms_result  = self::write_file( 'llms.txt', $llms_content, $mode );
 
         if ( is_wp_error( $llms_result ) ) {
             return $llms_result;
@@ -386,7 +822,7 @@ class VigIA_LLMS_Generator {
         // Generate llms-full.txt if enabled.
         if ( $settings['generate_full'] ) {
             $full_content = self::generate_llms_full_txt( $settings, $post_ids );
-            $full_result  = self::write_file( 'llms-full.txt', $full_content );
+            $full_result  = self::write_file( 'llms-full.txt', $full_content, $mode );
 
             if ( is_wp_error( $full_result ) ) {
                 return $full_result;
@@ -460,6 +896,8 @@ class VigIA_LLMS_Generator {
             );
         }
 
+        $mode = self::delivery_mode( $settings );
+
         if ( 'full' === $which ) {
             if ( empty( $settings['generate_full'] ) ) {
                 return new WP_Error(
@@ -467,12 +905,14 @@ class VigIA_LLMS_Generator {
                     __( 'llms-full.txt is not enabled. Turn it on in VigIA > Extras > LLMs first.', 'vigia' )
                 );
             }
+            self::pin_delivery( $settings, $mode );
             $content = self::generate_llms_full_txt( $settings, $post_ids );
-            $result  = self::write_file( 'llms-full.txt', $content );
+            $result  = self::write_file( 'llms-full.txt', $content, $mode );
             $url     = home_url( '/llms-full.txt' );
         } else {
+            self::pin_delivery( $settings, $mode );
             $content = self::generate_llms_txt( $settings, $post_ids );
-            $result  = self::write_file( 'llms.txt', $content );
+            $result  = self::write_file( 'llms.txt', $content, $mode );
             $url     = home_url( '/llms.txt' );
         }
 
@@ -608,19 +1048,15 @@ class VigIA_LLMS_Generator {
      */
     public static function queue_rebuild() {
         // A file on disk is the signal: the generator has no on/off flag of its
-        // own, it either has written the files or it has not.
+        // own, it either has written the files or it has not. And a file of this
+        // site's own: llms_exists() does not count the one at the root of a
+        // network for anybody but the main site (see own_path()).
         if ( ! self::llms_exists() ) {
             return false;
         }
 
         // reconcile_visibility_cession() removes our files on this same hook.
         if ( self::is_ceded_to_visibility() ) {
-            return false;
-        }
-
-        // The files at ABSPATH belong to the main site of a network, and the one
-        // seen here is not this site's. See write_file().
-        if ( is_multisite() && ! is_main_site() ) {
             return false;
         }
 
@@ -2148,20 +2584,34 @@ class VigIA_LLMS_Generator {
     }
 
     /**
-     * Write one of the root files, as plain UTF-8 with no byte order mark.
+     * Write one of the two files, as plain UTF-8 with no byte order mark, where
+     * this site serves it from, and leave no second copy of it anywhere else.
      *
-     * @param string $filename Filename.
+     * @since 2.7.0 The `$mode` parameter. Before, always at the site root.
+     *
+     * @param string $filename Filename, one of FILES.
      * @param string $content  Content.
+     * @param string $mode     'file' for the site root, 'virtual' for this site's
+     *                         uploads folder. See delivery_mode().
      * @return bool|WP_Error
      */
-    private static function write_file( $filename, $content ) {
+    private static function write_file( $filename, $content, $mode = 'file' ) {
         global $wp_filesystem;
 
-        // llms.txt and llms-full.txt live at ABSPATH, one set of files for a whole
-        // network. Only the main site writes them, so a subsite never overwrites
-        // what every other site in the network serves. See
+        if ( ! in_array( $filename, self::FILES, true ) ) {
+            return new WP_Error( 'invalid_file', __( 'Invalid file', 'vigia' ) );
+        }
+
+        $at_root = ( 'virtual' !== $mode );
+
+        // A file at ABSPATH is one for a whole network: the web server answers it
+        // at every domain that shares the root. Only the main site writes there,
+        // so a subsite never overwrites what every other site in the network
+        // serves. delivery_mode() never asks for it from a subsite; this is the
+        // guard at the point of writing, which also covers cron and the update
+        // routine, where there is no user to check. See
         // VigIA_Robots_Manager::owns_root_files().
-        if ( is_multisite() && ! is_main_site() ) {
+        if ( $at_root && is_multisite() && ! is_main_site() ) {
             return new WP_Error(
                 'network_root_file',
                 __( 'Files at the site root belong to the network root and can only be managed from the main site.', 'vigia' )
@@ -2176,15 +2626,25 @@ class VigIA_LLMS_Generator {
             return new WP_Error( 'filesystem_error', __( 'Could not initialize WordPress filesystem.', 'vigia' ) );
         }
 
-        $path = ABSPATH . $filename;
+        if ( $at_root ) {
+            $path = ABSPATH . $filename;
+        } else {
+            $path = self::stored_path( $filename );
+
+            if ( '' === $path || ! wp_mkdir_p( dirname( $path ) ) ) {
+                return new WP_Error( 'dir_not_writable', __( 'Cannot write to the uploads folder.', 'vigia' ) );
+            }
+        }
 
         if ( $wp_filesystem->exists( $path ) && ! $wp_filesystem->is_writable( $path ) ) {
             /* translators: %s: filename (e.g., llms.txt or llms-full.txt) */
             return new WP_Error( 'file_not_writable', sprintf( __( 'Cannot write to %s.', 'vigia' ), $filename ) );
         }
 
-        if ( ! $wp_filesystem->exists( $path ) && ! $wp_filesystem->is_writable( ABSPATH ) ) {
-            return new WP_Error( 'dir_not_writable', __( 'Cannot write to site root.', 'vigia' ) );
+        if ( ! $wp_filesystem->exists( $path ) && ! $wp_filesystem->is_writable( dirname( $path ) ) ) {
+            return $at_root
+                ? new WP_Error( 'dir_not_writable', __( 'Cannot write to the site root. Choose "Served by WordPress" under Delivery to keep the files in the uploads folder instead.', 'vigia' ) )
+                : new WP_Error( 'dir_not_writable', __( 'Cannot write to the uploads folder.', 'vigia' ) );
         }
 
         // No byte order mark. These files are read by agents and parsers, not by
@@ -2200,6 +2660,13 @@ class VigIA_LLMS_Generator {
             return new WP_Error( 'write_failed', sprintf( __( 'Failed to write %s.', 'vigia' ), $filename ) );
         }
 
+        // One copy, where this site now serves it from. A physical file left at
+        // the root would go on answering in place of the copy just written to the
+        // uploads folder (and, in a network, at every other domain as well), and
+        // a copy left in the uploads folder would be a second, stale document at
+        // a public address. delete_file() keeps its own rule about the root.
+        self::delete_file( $filename, $at_root ? 'stored' : 'root' );
+
         return true;
     }
 
@@ -2213,29 +2680,54 @@ class VigIA_LLMS_Generator {
     }
 
     /**
-     * Delete single file
+     * Delete this site's copies of a file.
      *
-     * @param string $filename Filename.
-     * @return bool
+     * @since 2.7.0 The `$only` parameter, and the copy in the uploads folder.
+     *
+     * @param string $filename Filename, one of FILES.
+     * @param string $only     'root' or 'stored' to remove just that copy. Both by
+     *                         default.
+     * @return bool Whether none of the copies asked about is left.
      */
-    public static function delete_file( $filename ) {
-        if ( ! in_array( $filename, array( 'llms.txt', 'llms-full.txt' ), true ) ) {
+    public static function delete_file( $filename, $only = '' ) {
+        if ( ! in_array( $filename, self::FILES, true ) ) {
             return false;
         }
 
-        // Same ownership rule as write_file(): a subsite must not delete the
-        // network root's files.
-        if ( is_multisite() && ! is_main_site() ) {
-            return false;
+        $paths = array();
+
+        // The copy in this site's uploads folder is its own in any install.
+        $stored = self::stored_path( $filename );
+        if ( 'root' !== $only && '' !== $stored ) {
+            $paths[] = $stored;
         }
 
-        $path = ABSPATH . $filename;
-        if ( ! file_exists( $path ) ) {
-            return true;
+        // The one at ABSPATH is shared by a whole network. Only the main site
+        // removes it, so a subsite never deletes what is not its own.
+        if ( 'stored' !== $only && ( ! is_multisite() || is_main_site() ) ) {
+            $paths[] = ABSPATH . $filename;
         }
 
-        // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- wp_delete_file() returns void, and the caller needs to know whether the file is gone. Path is one of two literals from the allowlist above, always at ABSPATH.
-        return unlink( $path );
+        $gone = true;
+        foreach ( $paths as $path ) {
+            if ( ! file_exists( $path ) ) {
+                continue;
+            }
+
+            // Deleting takes permission over the folder, and the root of a site
+            // that asks to be served by WordPress is often the one without it.
+            if ( ! wp_is_writable( dirname( $path ) ) ) {
+                $gone = false;
+                continue;
+            }
+
+            // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- wp_delete_file() returns void, and the caller needs to know whether the file is gone. Path is one of two literals from the allowlist above, at ABSPATH or in this site's uploads folder.
+            if ( ! unlink( $path ) ) {
+                $gone = false;
+            }
+        }
+
+        return $gone;
     }
 
     /**
@@ -2271,6 +2763,12 @@ class VigIA_LLMS_Generator {
         if ( empty( $settings['last_generated'] ) ) {
             return; // We never generated; nothing of ours to remove.
         }
+
+        // The copies in this site's uploads folder are ours by construction, and
+        // maybe_serve() already stands down. Removed so they do not linger at a
+        // public address with a document nobody refreshes any more.
+        self::delete_file( 'llms.txt', 'stored' );
+        self::delete_file( 'llms-full.txt', 'stored' );
 
         if ( self::root_file_belongs_to_visibility() ) {
             return; // Visibility manages the physical file; never delete it.
@@ -2324,7 +2822,7 @@ class VigIA_LLMS_Generator {
      * @return bool
      */
     public static function llms_exists() {
-        return file_exists( ABSPATH . 'llms.txt' );
+        return '' !== self::own_path( 'llms.txt' );
     }
 
     /**
@@ -2333,18 +2831,21 @@ class VigIA_LLMS_Generator {
      * @return bool
      */
     public static function llms_full_exists() {
-        return file_exists( ABSPATH . 'llms-full.txt' );
+        return '' !== self::own_path( 'llms-full.txt' );
     }
 
     /**
      * Get file info
      *
+     * @since 2.7.0 The `delivery` key: 'file' for a physical file at the site
+     *              root, 'virtual' for the copy WordPress serves.
+     *
      * @param string $filename Filename.
      * @return array|false
      */
     public static function get_file_info( $filename ) {
-        $path = ABSPATH . $filename;
-        if ( ! file_exists( $path ) ) {
+        $path = self::own_path( $filename );
+        if ( '' === $path ) {
             return false;
         }
 
@@ -2353,6 +2854,7 @@ class VigIA_LLMS_Generator {
             'size'     => filesize( $path ),
             'modified' => filemtime( $path ),
             'url'      => home_url( '/' . $filename ),
+            'delivery' => ( ABSPATH . $filename === $path ) ? 'file' : 'virtual',
         );
     }
 
