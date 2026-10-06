@@ -446,16 +446,19 @@ class VigIA_Markdown_Endpoints {
 			// can compare it directly. sanitize_text_field() used to sit here and
 			// strip every %XX octet the same way as above, turning a non-Latin
 			// entry, page or term 404, and a non-Latin child page into its parent
-			// (whatever survived up to the first surviving slash). The one thing
-			// still needed is lowercasing: a browser or agent writes the percent
-			// encoding of what someone typed in uppercase hex, WordPress always
-			// stores the slug in lowercase, and get_terms()'s exact 'slug' match
-			// (unlike get_page_by_path()'s own decode/re-encode round trip) does
-			// not normalize case on its own.
+			// (whatever survived up to the first surviving slash).
+			//
+			// It is handed over as it was asked (2.7.0). It used to be lowered here,
+			// for the lookups by slug, and those still lower it themselves: see
+			// serve_markdown_by_path() and find_post_by_path(). But WordPress matches
+			// its rewrite rules with the case they were written in, so a permalink
+			// structure with a capital in it (`/Blog/%postname%.html`) could not be
+			// resolved through them from a path already lowered.
+			//
 			// Whatever the path is, a `.md` address is answered here: `/0.md` used to
 			// slip past a truthiness test and was handed on to WordPress, which
 			// answered it with a redirect instead of this endpoint's 404.
-			self::serve_markdown_by_path( strtolower( (string) get_query_var( 'vigia_markdown_path' ) ) );
+			self::serve_markdown_by_path( (string) get_query_var( 'vigia_markdown_path' ) );
 			return;
 		}
 
@@ -533,7 +536,12 @@ class VigIA_Markdown_Endpoints {
 	 * @param string $path URL path without .md extension.
 	 */
 	private static function serve_markdown_by_path( $path ) {
-		$path = trim( $path, '/' );
+		// With PATHINFO permalinks the match arrives with `index.php/` in front or
+		// without it, depending on the order of the rules: WordPress puts it there
+		// from the first rule that starts with it on, and keeps it for the ones that
+		// follow (`wp-includes/class-wp.php:220` and `:230-236` in 7.1.2). A custom
+		// type with an archive, registered before the `.md` rule, is enough.
+		$path = self::without_index_prefix( trim( $path, '/' ) );
 
 		if ( empty( $path ) ) {
 			self::send_404();
@@ -545,6 +553,12 @@ class VigIA_Markdown_Endpoints {
 				continue;
 			}
 
+			// The term lookups compare slugs, and want the path lowered: a browser or
+			// agent writes the percent encoding of what someone typed in uppercase
+			// hex, WordPress always stores the slug in lowercase, and get_terms()'s
+			// exact 'slug' match does not normalize case on its own.
+			$lowered = strtolower( $candidate );
+
 			$the_post = self::find_post_by_path( $candidate );
 
 			// find_post_by_path() falls back to the last segment of the path, so the
@@ -554,7 +568,7 @@ class VigIA_Markdown_Endpoints {
 			// A term whose address is exactly this path owns it, unless the entry
 			// found lives at this very path too.
 			if ( ! $the_post || ! self::is_own_path( $the_post, $candidate ) ) {
-				$term = self::find_term_by_path( $candidate, true );
+				$term = self::find_term_by_path( $lowered, true );
 
 				if ( $term && self::is_term_eligible( $term ) ) {
 					self::serve_markdown_response_for_term( $term );
@@ -568,7 +582,7 @@ class VigIA_Markdown_Endpoints {
 			}
 
 			// Fall back to taxonomy term lookup when no post matches the path.
-			$term = self::find_term_by_path( $candidate );
+			$term = self::find_term_by_path( $lowered );
 
 			if ( $term && self::is_term_eligible( $term ) ) {
 				self::serve_markdown_response_for_term( $term );
@@ -593,17 +607,20 @@ class VigIA_Markdown_Endpoints {
 	 * The literal path is always tried first, so a real entry whose own slug is
 	 * `index` still wins over the rewritten form.
 	 *
-	 * @param string $path Request path without the .md suffix.
+	 * The segment is recognized in any case, as it was while the path arrived
+	 * here already lowered (until 2.7.0).
+	 *
+	 * @param string $path Request path without the .md suffix, as it was asked.
 	 * @return array<int,string>
 	 */
 	private static function path_candidates( $path ) {
 		$candidates = array( $path );
 
 		foreach ( array( 'index.html', 'index' ) as $name ) {
-			if ( $path === $name ) {
+			if ( 0 === strcasecmp( $path, $name ) ) {
 				break;
 			}
-			if ( substr( $path, - ( strlen( $name ) + 1 ) ) === '/' . $name ) {
+			if ( 0 === strcasecmp( substr( $path, - ( strlen( $name ) + 1 ) ), '/' . $name ) ) {
 				$candidates[] = substr( $path, 0, - ( strlen( $name ) + 1 ) );
 				break;
 			}
@@ -615,12 +632,41 @@ class VigIA_Markdown_Endpoints {
 	/**
 	 * Find a post by its URL path
 	 *
-	 * Handles both simple slugs and nested paths (parent/child for pages).
+	 * WordPress is asked first whose address the path is (2.7.0), and only then
+	 * come the two lookups this method used to be: the path as that of a page, and
+	 * its last segment as a slug. Those two only find an entry whose permalink ends
+	 * in its slug, so the `.md` of every post answered 404 where it does not:
+	 * `/%postname%.html`, `/%postname%_%year%%monthnum%%day%.html`, and also
+	 * `/archives/%post_id%`, the "Numeric" structure WordPress itself offers. They
+	 * stay as they were, behind, for whatever address WordPress cannot resolve
+	 * from its rules.
 	 *
-	 * @param string $path URL path.
+	 * Both the request and linkable_url() come through here, with the path in the
+	 * same shape (see request_path_from_url()), so what one resolves the other does.
+	 *
+	 * @param string $path Request path without the .md suffix, as it was asked.
 	 * @return WP_Post|null
 	 */
 	private static function find_post_by_path( $path ) {
+		$path = trim( (string) $path, '/' );
+
+		// No path is nobody's address. With plain permalinks the link of an entry
+		// is `/?p=12`, what is left of it here is nothing, and the lookup by slug
+		// below, asked for no slug at all, answered with the latest post: llms.txt
+		// linked that one post as `/?p=12.md`, which is the web page.
+		if ( '' === $path ) {
+			return null;
+		}
+
+		$exact = self::find_post_by_address( $path );
+		if ( $exact ) {
+			return $exact;
+		}
+
+		// WordPress stores every slug in lower case, and a client may write the
+		// octets of one that is not ASCII in upper case.
+		$path = strtolower( $path );
+
 		// Try page path first (handles nested pages like parent/child).
 		$page = get_page_by_path( $path );
 		if ( $page && 'publish' === $page->post_status && '' === $page->post_password ) {
@@ -663,12 +709,112 @@ class VigIA_Markdown_Endpoints {
 	}
 
 	/**
+	 * Find the entry whose own address is this path, by asking WordPress.
+	 *
+	 * url_to_postid() runs the path through the rewrite rules of the site, which
+	 * is how WordPress itself would resolve the page, so it understands whatever
+	 * the permalink structure is made of: an extension, the date or the id next to
+	 * the slug, a category in front, the base of a custom type. It is what the
+	 * Visibility sibling does for the same address.
+	 *
+	 * Three things it does that this method makes up for:
+	 *
+	 *  - It answers with the entry an address *queries*, which is not always the
+	 *    entry the address *is*. `/entry/2` queries the second page of `entry`,
+	 *    and any address at all with `&p=12` in it is taken at its word, with no
+	 *    look at whether 12 exists (`wp-includes/rewrite.php:525-530` in 7.1.2).
+	 *    Only the entry whose own `.md` address is this very path is returned,
+	 *    compared as same_path() compares: decoded and without regard to case.
+	 *  - It gives the id of a draft or of a private entry to whoever may read it
+	 *    (`wp-includes/class-wp-query.php:3524-3560`, the status check of a single
+	 *    view). Those are passed over here, as the lookups of find_post_by_path() do.
+	 *  - It matches its rules against the path as given and nothing else, where a
+	 *    request is matched as it came and decoded as well
+	 *    (`wp-includes/class-wp.php:238-239` against `wp-includes/rewrite.php:609`).
+	 *    A structure with a letter that is not ASCII (`/artículos/%postname%.html`)
+	 *    holds it raw, and a request brings it percent-encoded, so both are tried.
+	 *
+	 * @since 2.7.0
+	 * @param string $path Request path without the .md suffix, slashes trimmed, as
+	 *                     it was asked.
+	 * @return WP_Post|null
+	 */
+	private static function find_post_by_address( $path ) {
+		$tries   = array( $path );
+		$decoded = rawurldecode( $path );
+		if ( $decoded !== $path ) {
+			$tries[] = $decoded;
+		}
+
+		foreach ( $tries as $try ) {
+			$post_id = (int) url_to_postid( home_url( '/' . self::index_prefix() . $try ) );
+			if ( $post_id <= 0 ) {
+				continue;
+			}
+
+			$the_post = get_post( $post_id );
+			if ( ! $the_post instanceof WP_Post || 'publish' !== $the_post->post_status || '' !== $the_post->post_password ) {
+				continue;
+			}
+
+			if ( self::is_own_path( $the_post, $path ) ) {
+				return $the_post;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * What PATHINFO permalinks put in front of every path: `index.php/`.
+	 *
+	 * WordPress falls back to them where the server cannot rewrite, and then every
+	 * link it builds is `/index.php/entry/`, while the path its rules hand over
+	 * for a request may start after it (see serve_markdown_by_path()). The two
+	 * shapes were compared as they came: the `.md` of a term archive answered
+	 * 404, or the document of an entry with the same slug, while its page
+	 * advertised it. Every path is compared without it, and it is put back to
+	 * ask WordPress.
+	 *
+	 * @since 2.7.0
+	 * @return string `index.php/`, or nothing with any other kind of permalink.
+	 */
+	private static function index_prefix() {
+		global $wp_rewrite;
+
+		if ( ! $wp_rewrite instanceof WP_Rewrite || ! $wp_rewrite->using_index_permalinks() ) {
+			return '';
+		}
+
+		return $wp_rewrite->index . '/';
+	}
+
+	/**
+	 * A path without the `index.php/` of PATHINFO permalinks, which is the shape
+	 * every resolver here works with.
+	 *
+	 * @since 2.7.0
+	 * @param string $path Path, slashes trimmed.
+	 * @return string
+	 */
+	private static function without_index_prefix( $path ) {
+		$prefix = self::index_prefix();
+
+		if ( '' !== $prefix && 0 === strpos( $path, $prefix ) ) {
+			return (string) substr( $path, strlen( $prefix ) );
+		}
+
+		return $path;
+	}
+
+	/**
 	 * Is this request path the one the entry's own .md address has?
 	 *
-	 * Only used to settle who answers a path that is also the exact address of a
-	 * term archive (see serve_markdown_by_path()), never to turn an entry away: a
-	 * permalink structure this comparison does not understand must keep working as
-	 * it did.
+	 * It settles who answers a path that is also the exact address of a term
+	 * archive (see serve_markdown_by_path()), and which of the entries
+	 * url_to_postid() gives back are taken (see find_post_by_address()). It never
+	 * turns away an entry found by its slug: a permalink this comparison does not
+	 * understand must keep working as it did.
 	 *
 	 * @since 2.6.7
 	 * @param WP_Post $the_post Entry found for the path.
@@ -763,10 +909,11 @@ class VigIA_Markdown_Endpoints {
 	 * it: the module switches, eligibility, and a round trip through the same
 	 * resolver that serves the request. Building the URL and resolving it are
 	 * different operations, so a URL that builds fine can still answer 404 (a
-	 * custom type whose permalink carries a prefix its resolver does not strip,
-	 * for instance). Publishing a link, in llms.txt or to the sibling plugin,
-	 * must go through here, never through get_markdown_url() alone. Returns ''
-	 * when the entry has no working .md.
+	 * permalink that a plugin builds outside the rewrite rules of the site, for
+	 * instance). Publishing a link, in llms.txt, to the sibling plugin or, since
+	 * 2.7.0, in the `<head>` and the Link header of the page itself, must go
+	 * through here, never through get_markdown_url() alone. Returns '' when the
+	 * entry has no working .md.
 	 *
 	 * @param int|WP_Post $the_post Post.
 	 * @return string
@@ -816,8 +963,9 @@ class VigIA_Markdown_Endpoints {
 
 	/**
 	 * Reduce a full .md URL to the request path the resolvers expect: the URL
-	 * path without the .md suffix, slashes trimmed, subdirectory prefix removed.
-	 * The rewrite rule hands serve_markdown_by_path() exactly this shape.
+	 * path without the .md suffix, slashes trimmed, subdirectory prefix removed,
+	 * and without the `index.php/` of PATHINFO permalinks (2.7.0).
+	 * serve_markdown_by_path() brings the path of a request to this same shape.
 	 *
 	 * @param string $url Absolute .md URL.
 	 * @return string
@@ -830,7 +978,7 @@ class VigIA_Markdown_Endpoints {
 			$clean = ltrim( substr( $clean, strlen( $home_path ) ), '/' );
 		}
 
-		return $clean;
+		return self::without_index_prefix( $clean );
 	}
 
 	/**
@@ -1075,7 +1223,7 @@ class VigIA_Markdown_Endpoints {
 					continue;
 				}
 
-				$link_path = trim( str_replace( $home_url, '', trailingslashit( $link ) ), '/' );
+				$link_path = self::without_index_prefix( trim( str_replace( $home_url, '', trailingslashit( $link ) ), '/' ) );
 
 				if ( self::same_path( $link_path, $path ) ) {
 					return $term;
@@ -3934,22 +4082,46 @@ class VigIA_Markdown_Endpoints {
 	 *
 	 * Handles both singular posts and taxonomy term archives.
 	 *
+	 * The address is only announced when it will be answered (2.7.0): it goes
+	 * through linkable_url(), as the links of llms.txt always have. It used to be
+	 * built and announced without asking, so a page told agents of an alternate
+	 * that answered 404 wherever the resolver could not find its way back, and
+	 * with plain permalinks of one, `/?p=12.md`, that is the web page again.
+	 *
+	 * The header and the tag both ask, for the same page, and the answer now
+	 * costs a lookup: it is kept for the request.
+	 *
 	 * @return string|false
 	 */
 	private static function resolve_current_markdown_url() {
+		static $resolved = array();
+
 		if ( is_singular() ) {
 			$the_post = get_queried_object();
-			if ( $the_post && self::is_post_eligible( $the_post ) ) {
-				return self::get_markdown_url( $the_post );
+			if ( ! $the_post instanceof WP_Post ) {
+				return false;
 			}
-			return false;
+
+			$key = get_current_blog_id() . ':p' . $the_post->ID;
+			if ( ! isset( $resolved[ $key ] ) ) {
+				$resolved[ $key ] = self::linkable_url( $the_post );
+			}
+
+			return '' !== $resolved[ $key ] ? $resolved[ $key ] : false;
 		}
 
 		if ( is_tax() || is_category() || is_tag() ) {
 			$term = get_queried_object();
-			if ( $term instanceof WP_Term && self::is_term_eligible( $term ) ) {
-				return self::get_markdown_url_for_term( $term );
+			if ( ! $term instanceof WP_Term ) {
+				return false;
 			}
+
+			$key = get_current_blog_id() . ':t' . $term->term_id;
+			if ( ! isset( $resolved[ $key ] ) ) {
+				$resolved[ $key ] = self::linkable_url_for_term( $term );
+			}
+
+			return '' !== $resolved[ $key ] ? $resolved[ $key ] : false;
 		}
 
 		return false;
