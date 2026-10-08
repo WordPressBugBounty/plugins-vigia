@@ -4,7 +4,7 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 2.7.0
+Stable tag: 2.8.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -180,15 +180,16 @@ The Abilities API ships with WordPress 6.9 and later. On older WordPress version
 
 == MCP Server (Model Context Protocol) ==
 
-VigIA exposes its 9 abilities as native MCP tools to any MCP-compatible client (Claude Code, Cursor, Claude Desktop, Codex CLI, Antigravity, Continue, Cline, Zed and similar) using the official [WordPress MCP Adapter](https://github.com/WordPress/mcp-adapter). The adapter ships bundled with the plugin, so the MCP endpoint is active right after installation — no Composer step or terminal access required.
+VigIA exposes its 9 abilities as native MCP tools to any MCP-compatible client (Claude Code, Cursor, Claude Desktop, Codex CLI, Antigravity, Continue, Cline, Zed and similar) through the official [MCP Adapter](https://wordpress.org/plugins/mcp-adapter/) plugin. The server is off by default: turn it on in **VigIA > Extras > MCP**, where VigIA also offers to install MCP Adapter if the site does not have it.
 
 = Requirements =
 
 * WordPress 6.9 or later (provides the Abilities API)
+* The free [MCP Adapter](https://wordpress.org/plugins/mcp-adapter/) plugin. A site where another plugin already runs the adapter works too, and the MCP tab says which copy is in use
 
 = Quick connect (recommended) =
 
-Open **VigIA > Extras > MCP** and click "Generate password and connection commands". The plugin creates a dedicated Application Password named `VigIA MCP` and renders ready-to-paste commands for Claude Code, Cursor, Claude Desktop and a generic block (URL + Authorization header) for any other MCP client.
+Open **VigIA > Extras > MCP**, enable the MCP server and click "Generate password and connection commands". The plugin creates a dedicated Application Password named `VigIA MCP` and renders ready-to-paste commands for Claude Code, Cursor, Claude Desktop and a generic block (URL + Authorization header) for any other MCP client.
 
 The plain password is shown only once. If you lose it, revoke the entry from the same panel and generate a new one.
 
@@ -202,7 +203,9 @@ The endpoint uses HTTP Basic auth with the WordPress Application Password. The u
 
 Quick Connect builds the full command for you. The shape is:
 
-`claude mcp add --transport http vigia https://your-site.example/wp-json/vigia/v1/mcp --header "Authorization: Basic BASE64_OF_USER_AND_APP_PASSWORD"`
+`claude mcp add --transport http vigia-your-site-example https://your-site.example/wp-json/vigia/v1/mcp --header "Authorization: Basic BASE64_OF_USER_AND_APP_PASSWORD"`
+
+Quick Connect names the server after the site (`vigia-your-site-example`), so the same client can hold several sites with VigIA.
 
 Claude Code merges the new entry into its config file automatically — no risk of breaking other servers.
 
@@ -302,6 +305,14 @@ VigIA supports automatic noindex detection from: Yoast SEO, Rank Math, All in On
 
 The Abilities API is a new feature in WordPress 6.9 that allows plugins to expose their functionality in a standardized way. This enables AI agents, automation tools, and external systems to discover and use plugin features programmatically. VigIA implements 9 abilities for analytics, blocking, and robots.txt management.
 
+= Do I need another plugin for the MCP server? =
+
+Yes: the free [MCP Adapter](https://wordpress.org/plugins/mcp-adapter/) plugin, the official bridge between WordPress and MCP clients.
+
+* The MCP server is off by default. Turn it on in **VigIA > Extras > MCP**.
+* The same tab offers to install MCP Adapter when it is missing.
+* The rest of VigIA works without it.
+
 = How do I connect Claude Desktop? =
 
 Save the JSON block from Quick Connect as `claude_desktop_config.json` in your **user** Library (this is not the system Library at the root of the disk):
@@ -347,7 +358,7 @@ Add `mcpServers` as a sibling property of `preferences`, separated by a comma. T
     "...": "..."
   },
   "mcpServers": {
-    "vigia": {
+    "vigia-your-site-example": {
       "command": "npx",
       "args": [
         "-y",
@@ -364,13 +375,13 @@ The order of `preferences` and `mcpServers` is not important, but the comma betw
 
 **Scenario 2 — the file already has mcpServers with other servers.**
 
-Add the `vigia` entry inside the existing `mcpServers` object, separated from other entries by a comma:
+Add the VigIA entry inside the existing `mcpServers` object, separated from other entries by a comma:
 
 `"mcpServers": {
   "other-server": {
     "...": "..."
   },
-  "vigia": {
+  "vigia-your-site-example": {
     "command": "npx",
     "args": [
       "-y",
@@ -412,21 +423,26 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
-= 2.7.0 =
-llms.txt and llms-full.txt can now be served by WordPress instead of being written to the site root. On a multisite network every site can have its own files, mapped domains included, and subsites no longer announce the main site file as theirs.
+= 2.8.0 =
+The MCP server is now off by default and runs on the free MCP Adapter plugin, which VigIA no longer bundles, so the package is half the size. Where an AI client was already connected it stays on, and VigIA tells you if MCP Adapter has to be installed.
 
-* New: llms.txt and llms-full.txt can be served by WordPress. The new Delivery setting in VigIA > Extras > LLMs keeps the physical files at the site root, as until now, or keeps them in the uploads folder and has WordPress answer at the same addresses. Use it when the site root is not writable. Served this way, the reads of AI crawlers show in your stats like any other visit, which a physical file never allowed because the web server answers it without WordPress. It needs pretty permalinks and a server that passes a request for a file it does not find on to WordPress, and the files are only answered while the plugin is active.
-* New: On a multisite network every site can have its own llms.txt and llms-full.txt, answered at its own address, whether that is a subdomain, a subdirectory or a mapped domain. Until now only the main site could generate them. Each site keeps its files in its own uploads folder, served by WordPress, and its administrator generates and schedules them from that site.
-* Improved: On a multisite network the physical llms.txt of the main site sits in the one root folder all the sites share, so the web server answers with it on every domain of the network, ahead of each site's own file. The main site can now be switched to Served by WordPress, which takes its files out of that folder, and a main site that generates them for the first time starts that way. A main site that already has physical files keeps them until it is switched: nothing moves on its own with the update, and the LLMs screen of every site says so while they are there.
-* Fix: A subsite of a network presented the llms.txt of the main site as its own. The head of its pages, the Link header and its robots.txt pointed to it, the AI Visibility Score counted it, and the LLMs screen listed it as generated. A site now announces only a file of its own.
-* Fix: The `.md` address of a post answered Not found wherever the permalink does not end in the slug, while the page kept announcing it: with an extension (`/%postname%.html`), with the date or the id next to the slug, with the Numeric structure of WordPress (`/archives/%post_id%`), or on a page that another plugin gives an extension. The address is now resolved through the rewrite rules of the site, the way WordPress resolves the page, and llms.txt links to it for those entries. A page announces its Markdown version only when that address will answer: with plain permalinks, or where the permalink carries a query parameter, there is no `.md` address and the page no longer announces one. Two more cases come right with it: when two entries of different types shared a slug, a post and an entry of a custom type for instance, the `.md` of one served the document of the other; and under PATHINFO permalinks (`/index.php/`) the `.md` of a term archive could answer Not found, or with the document of a post.
+* New: The MCP server has a switch, in VigIA > Extras > MCP, and it is off by default. Until now its endpoint was registered on every site running WordPress 6.9 or later, whether or not anybody had connected an AI client. Turn it on only if you use it.
+* New: The MCP tab says which MCP Adapter the server runs on, with its version, and offers to install or activate the MCP Adapter plugin when the site does not have it. Its status now reports whether the endpoint is really registered, not whether the adapter could be loaded.
+* Improved: VigIA no longer bundles the MCP Adapter. The server runs on the official MCP Adapter plugin, free on WordPress.org, which is how its authors now ask plugins to use it, or on the copy that another active plugin already runs. The package goes from 293 files to 35 and its zip from 747 KB to 389 KB.
+* Improved: On update, a site where an AI client had been connected (one with the `VigIA MCP` Application Password) keeps the server on. If no MCP Adapter is running there, a notice on the dashboard says so, and the server is back as soon as the MCP Adapter plugin is installed and active. On every other site the server is switched off.
+* Improved: VigIA no longer starts the adapter itself, so the adapter's own default server (`/wp-json/mcp/mcp-adapter-default-server`) is only there when the MCP Adapter plugin or another plugin starts it.
+* Improved: Quick Connect names the MCP server after the site (for example `vigia-example-com`) instead of a fixed `vigia`, so several sites with VigIA can be connected from the same client. Connections already set up keep working: the name only lives in the client.
+* Improved: The MCP tab points to the Authorization header test of Site Health for the client that answers 401.
+* Fix: The safe merger wrote every site as `vigia`, so merging a second site into a Cursor or Claude Desktop config replaced the first one. Each site now goes in under its own name, and an old `vigia` entry is only replaced when it points at this same site.
+* Fix: Saving the JSON-LD settings, or running the AI Visibility analysis, ended in a fatal error on PHP 8 when a URL field arrived as a list instead of a text. Only an administrator could cause it, on their own request.
+* Fix: Deleting the plugin with its data left the MCP read-only setting and the stored version number in the database.
 
 For older changelog entries, please check the [changelog.txt](https://plugins.svn.wordpress.org/vigia/trunk/changelog.txt) file
 
 == Upgrade Notice ==
 
-= 2.7.0 =
-llms.txt and llms-full.txt can now be served by WordPress instead of being written to the site root. On a multisite network every site can have its own files, mapped domains included, and subsites no longer announce the main site file as theirs.
+= 2.8.0 =
+The MCP server is now off by default and runs on the free MCP Adapter plugin, which VigIA no longer bundles, so the package is half the size. Where an AI client was already connected it stays on, and VigIA tells you if MCP Adapter has to be installed.
 
 == Support ==
 

@@ -3,6 +3,18 @@ VigIA — Full changelog
 For each release, see the entries below. The latest version is always at the top.
 The current release notes also live in readme.txt under "== Changelog ==".
 
+= 2.8.0 =
+* New: The MCP server has a switch, in VigIA > Extras > MCP, and it is off by default. Until now its endpoint was registered on every site running WordPress 6.9 or later, whether or not anybody had connected an AI client. Turn it on only if you use it.
+* New: The MCP tab says which MCP Adapter the server runs on, with its version, and offers to install or activate the MCP Adapter plugin when the site does not have it. Its status now reports whether the endpoint is really registered, not whether the adapter could be loaded.
+* Improved: VigIA no longer bundles the MCP Adapter. The server runs on the official MCP Adapter plugin, free on WordPress.org, which is how its authors now ask plugins to use it, or on the copy that another active plugin already runs. The package goes from 293 files to 35 and its zip from 747 KB to 389 KB.
+* Improved: On update, a site where an AI client had been connected (one with the `VigIA MCP` Application Password) keeps the server on. If no MCP Adapter is running there, a notice on the dashboard says so, and the server is back as soon as the MCP Adapter plugin is installed and active. On every other site the server is switched off.
+* Improved: VigIA no longer starts the adapter itself, so the adapter's own default server (`/wp-json/mcp/mcp-adapter-default-server`) is only there when the MCP Adapter plugin or another plugin starts it.
+* Improved: Quick Connect names the MCP server after the site (for example `vigia-example-com`) instead of a fixed `vigia`, so several sites with VigIA can be connected from the same client. Connections already set up keep working: the name only lives in the client.
+* Improved: The MCP tab points to the Authorization header test of Site Health for the client that answers 401.
+* Fix: The safe merger wrote every site as `vigia`, so merging a second site into a Cursor or Claude Desktop config replaced the first one. Each site now goes in under its own name, and an old `vigia` entry is only replaced when it points at this same site.
+* Fix: Saving the JSON-LD settings, or running the AI Visibility analysis, ended in a fatal error on PHP 8 when a URL field arrived as a list instead of a text. Only an administrator could cause it, on their own request.
+* Fix: Deleting the plugin with its data left the MCP read-only setting and the stored version number in the database.
+
 = 2.7.0 =
 * New: llms.txt and llms-full.txt can be served by WordPress. The new Delivery setting in VigIA > Extras > LLMs keeps the physical files at the site root, as until now, or keeps them in the uploads folder and has WordPress answer at the same addresses. Use it when the site root is not writable. Served this way, the reads of AI crawlers show in your stats like any other visit, which a physical file never allowed because the web server answers it without WordPress. It needs pretty permalinks and a server that passes a request for a file it does not find on to WordPress, and the files are only answered while the plugin is active.
 * New: On a multisite network every site can have its own llms.txt and llms-full.txt, answered at its own address, whether that is a subdomain, a subdirectory or a mapped domain. Until now only the main site could generate them. Each site keeps its files in its own uploads folder, served by WordPress, and its administrator generates and schedules them from that site.

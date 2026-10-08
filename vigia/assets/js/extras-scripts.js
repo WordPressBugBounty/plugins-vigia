@@ -1459,10 +1459,47 @@
      * copy-to-clipboard for the connection commands and read-only toggle.
      */
     function initMcpTab() {
-        if ($('.vigia-mcp-quick-connect, .vigia-mcp-readonly').length === 0) {
+        if ($('.vigia-mcp-enable, .vigia-mcp-quick-connect, .vigia-mcp-readonly').length === 0) {
             return;
         }
         var $panel = $('.vigia-mcp-quick-connect');
+
+        // Server on/off switch (auto-save on change)
+        $(document).on('change', '#vigia-mcp-enabled-checkbox', function() {
+            var $checkbox = $(this);
+            var $status = $('.vigia-mcp-enable-status');
+            var enabled = $checkbox.is(':checked');
+
+            $checkbox.prop('disabled', true);
+            $status.text(vigiaData.strings.saving || 'Saving...').css('color', '');
+
+            $.ajax({
+                url: vigiaData.ajaxUrl,
+                type: 'POST',
+                dataType: 'json',
+                data: {
+                    action: 'vigia_save_mcp_enabled',
+                    nonce: vigiaData.ajaxNonce,
+                    enabled: enabled ? 'true' : 'false'
+                }
+            }).done(function(response) {
+                if (response && response.success) {
+                    $status.text(vigiaData.strings.saved || 'Saved').css('color', '#1d6f42');
+                    // Reload so the status and the connection panels
+                    // mirror the new state.
+                    setTimeout(function() { window.location.reload(); }, 600);
+                } else {
+                    $checkbox.prop('checked', !enabled);
+                    var errMsg = response && response.data ? response.data : (vigiaData.strings.error || 'Error');
+                    $status.text(errMsg).css('color', '#b32d2e');
+                    $checkbox.prop('disabled', false);
+                }
+            }).fail(function() {
+                $checkbox.prop('checked', !enabled);
+                $status.text(vigiaData.strings.error || 'Error').css('color', '#b32d2e');
+                $checkbox.prop('disabled', false);
+            });
+        });
 
         // Read-only toggle (auto-save on change)
         $(document).on('change', '#vigia-mcp-readonly-checkbox', function() {
@@ -1690,20 +1727,52 @@
         } catch (e) {
             throw new Error('Internal error: cannot parse generated config. Reload the page.');
         }
-        var vigiaBlock = fullParsed && fullParsed.mcpServers && fullParsed.mcpServers.vigia;
-        if (!vigiaBlock) {
+        // The entry is named after the site (vigia-example-com) since 2.8.0,
+        // so it goes in under the name it comes with. Until then it was always
+        // written as `vigia`, and merging a second site replaced the first.
+        var generated = fullParsed && fullParsed.mcpServers;
+        var serverName = (generated && typeof generated === 'object') ? Object.keys(generated)[0] : '';
+        if (!serverName || !/^[a-z0-9-]+$/.test(serverName) || !generated[serverName]) {
             throw new Error('Internal error: vigia entry not found in generated config.');
         }
+        var vigiaBlock = generated[serverName];
 
         // 3. Splice it in, creating mcpServers if it's missing
         if (!current.mcpServers || typeof current.mcpServers !== 'object' || Array.isArray(current.mcpServers)) {
             current.mcpServers = {};
         }
-        current.mcpServers.vigia = vigiaBlock;
+
+        // An entry called `vigia`, left by an earlier version, is this same
+        // site under its old name when it points at this endpoint: the new one
+        // takes its place. One that points anywhere else is another site.
+        var endpoint = String($panel.data('endpoint') || '');
+        var legacy = current.mcpServers.vigia;
+        if (serverName !== 'vigia' && endpoint && legacy && typeof legacy === 'object' && mcpEntryPointsAt(legacy, endpoint)) {
+            delete current.mcpServers.vigia;
+        }
+
+        current.mcpServers[serverName] = vigiaBlock;
 
         // 4. Return pretty-printed with 2-space indentation (matches the
         // convention every MCP client's config file uses)
         return JSON.stringify(current, null, 2);
+    }
+
+    /**
+     * Whether a server entry of an MCP config file points at an endpoint.
+     *
+     * Cursor keeps the address in `url`; Claude Desktop passes it to the
+     * mcp-remote bridge among its `args`.
+     *
+     * @param {object} entry    Server entry.
+     * @param {string} endpoint Endpoint address.
+     * @return {boolean}
+     */
+    function mcpEntryPointsAt(entry, endpoint) {
+        if (entry.url === endpoint) {
+            return true;
+        }
+        return Array.isArray(entry.args) && entry.args.indexOf(endpoint) !== -1;
     }
 
     /**

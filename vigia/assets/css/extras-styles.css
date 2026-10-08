@@ -1390,6 +1390,7 @@
 }
 
 /* MCP tab */
+.vigia-mcp-enable,
 .vigia-mcp-status,
 .vigia-mcp-endpoint,
 .vigia-mcp-auth,
@@ -1475,7 +1476,8 @@
     line-height: 1.5;
 }
 
-/* Read-only toggle */
+/* Server switch and read-only toggle */
+.vigia-mcp-enable-toggle,
 .vigia-mcp-readonly-toggle {
     display: inline-flex;
     align-items: center;
@@ -1484,6 +1486,7 @@
     user-select: none;
 }
 
+.vigia-mcp-enable-toggle input[type="checkbox"],
 .vigia-mcp-readonly-toggle input[type="checkbox"] {
     margin: 0;
 }

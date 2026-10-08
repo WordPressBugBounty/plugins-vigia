@@ -38,6 +38,10 @@ if ( ! empty( $vigia_settings['delete_on_uninstall'] ) ) {
     delete_option( 'vigia_flush_rewrite' );
     delete_option( 'vigia_aiss_tip_dismissed' );
     delete_option( 'vigia_md_cache_salt' );
+    delete_option( 'vigia_version' );
+    delete_option( 'vigia_mcp_read_only' );
+    delete_option( 'vigia_mcp_enabled' );
+    delete_option( 'vigia_mcp_adapter_notice' );
 
     // Cached markdown documents. One transient per entry served, so there can be
     // plenty of them; they expire on their own, but an uninstall that was asked

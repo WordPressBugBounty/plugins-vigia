@@ -1405,8 +1405,8 @@ class VigIA_Database {
         // placeholder has its matching value pushed into $values). The
         // resulting concatenation is passed verbatim to wpdb::prepare(), which
         // fills every placeholder, so the final SQL is fully escaped. Static
-        // analysers cannot follow the runtime composition, hence the
-        // phpcs:disable block below.
+        // analysers cannot follow the runtime composition, hence the block
+        // of suppressions below.
         // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber, PluginCheck.Security.DirectDB.UnescapedDBParameter
         $total = (int) $wpdb->get_var(
             $wpdb->prepare(

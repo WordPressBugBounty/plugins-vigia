@@ -7,9 +7,11 @@
  * Code, Cursor, Claude Desktop) can discover and invoke them on the
  * site where VigIA is installed.
  *
- * Since 1.12.0 the adapter and its php-mcp-schema dependency ship
- * bundled inside the plugin under vendor/, so no Composer step is
- * required on the target site.
+ * The adapter is not part of this plugin (2.8.0). From 1.12.0 to 2.7.0 a
+ * copy shipped under vendor/ and VigIA booted it. Now the server is off
+ * until the site owner turns it on, and it registers only when something
+ * else boots the adapter: the MCP Adapter plugin, or another plugin that
+ * carries a copy of its own.
  *
  * @package VigIA
  * @since 1.11.0
@@ -56,6 +58,39 @@ class VigIA_MCP_Server {
 	const PERMISSION_CALLBACK_ARG = 12;
 
 	/**
+	 * Option behind the on/off switch. '1' or '0', autoloaded, and present on
+	 * every site that has been through VigIA::maybe_upgrade_version().
+	 *
+	 * @since 2.8.0
+	 */
+	const OPTION_ENABLED = 'vigia_mcp_enabled';
+
+	/**
+	 * Option behind the notice for a site that had the server in use and was
+	 * left without an adapter by the update. '1' or '0', lowered and never
+	 * deleted, so reading it costs no query.
+	 *
+	 * @since 2.8.0
+	 */
+	const OPTION_NOTICE = 'vigia_mcp_adapter_notice';
+
+	/**
+	 * Main file of the MCP Adapter plugin, relative to the plugins folder.
+	 *
+	 * @since 2.8.0
+	 */
+	const ADAPTER_PLUGIN = 'mcp-adapter/mcp-adapter.php';
+
+	/**
+	 * Whether register_server() got the server into the adapter on this request.
+	 *
+	 * @since 2.8.0
+	 *
+	 * @var bool
+	 */
+	private static $registered = false;
+
+	/**
 	 * Hook registration.
 	 */
 	public static function init() {
@@ -94,9 +129,8 @@ class VigIA_MCP_Server {
 	 * to reach the endpoint and enumerate the available tools.
 	 *
 	 * manage_options is a per-site capability, which is the right bar
-	 * here: the abilities that write the files shared by a whole network
-	 * carry their own network gate (see
-	 * VigIA_Robots_Manager::current_user_can_manage_root_files()).
+	 * here: the files shared by a whole network are only written from its
+	 * main site (see VigIA_Robots_Manager::owns_root_files()).
 	 *
 	 * @since 2.6.3
 	 *
@@ -125,6 +159,166 @@ class VigIA_MCP_Server {
 	}
 
 	/**
+	 * Name the MCP clients know this site's server by.
+	 *
+	 * It only lives in the client's own config (the `claude mcp add` command,
+	 * the key under `mcpServers`), so it has to tell one site from another
+	 * there: `vigia-example-com`, or `vigia-example-com-shop` for a site in a
+	 * subdirectory. Lowercase letters, digits and hyphens, which every client
+	 * takes and need no quoting on a command line.
+	 *
+	 * The address is cut by hand: parse_url() mangles raw UTF-8 on recent PHP.
+	 *
+	 * @since 2.8.0
+	 *
+	 * @return string
+	 */
+	public static function get_client_server_name() {
+		$address = (string) preg_replace( '~^[a-z][a-z0-9+.\-]*://~i', '', (string) home_url() );
+		$address = substr( $address, 0, strcspn( $address, '?#' ) );
+		$address = (string) preg_replace( '/^www\./', '', strtolower( $address ) );
+		$slug    = trim( (string) preg_replace( '/[^a-z0-9]+/', '-', $address ), '-' );
+		$slug    = rtrim( substr( $slug, 0, 50 ), '-' );
+
+		return '' === $slug ? 'vigia' : 'vigia-' . $slug;
+	}
+
+	/**
+	 * Whether the site owner has turned the MCP server on.
+	 *
+	 * Off unless the switch in VigIA > Extras > MCP says otherwise. A site
+	 * updated from a version that had no switch keeps the server on until
+	 * VigIA::maybe_upgrade_version() decides, on the first admin page load, so
+	 * an unattended update does not cut off a client that was connected.
+	 *
+	 * @since 2.8.0
+	 *
+	 * @return bool
+	 */
+	public static function is_enabled() {
+		$value = get_option( self::OPTION_ENABLED, null );
+
+		if ( null === $value ) {
+			$stored = get_option( 'vigia_version', '0.0.0' );
+
+			// A released version number and nothing else: version_compare()
+			// takes an empty string, or anything it cannot read, as lower.
+			return is_string( $stored )
+				&& 1 === preg_match( '/^\d+\.\d+\.\d+$/', $stored )
+				&& '0.0.0' !== $stored
+				&& version_compare( $stored, '2.8.0', '<' );
+		}
+
+		// Only the string the switch writes turns it on. is_scalar() first: an
+		// option somebody else left as an array would otherwise warn on a cast.
+		return is_scalar( $value ) && '1' === (string) $value;
+	}
+
+	/**
+	 * Whether VigIA's server made it into the adapter on this request.
+	 *
+	 * The adapter does its work on rest_api_init (on init under WP-CLI), and
+	 * whoever boots it may do so that late as well, so nothing short of
+	 * starting the REST server tells whether the endpoint exists. A loadable
+	 * adapter class does not: WooCommerce carries a copy that it only boots
+	 * behind a feature flag.
+	 *
+	 * Starts the REST server, so it is meant for the screens that report the
+	 * status, not for every request.
+	 *
+	 * @since 2.8.0
+	 *
+	 * @return bool
+	 */
+	public static function is_server_registered() {
+		if ( ! self::is_enabled() ) {
+			return false;
+		}
+
+		if ( ! self::$registered && ! did_action( 'rest_api_init' ) ) {
+			rest_get_server();
+		}
+
+		return self::$registered;
+	}
+
+	/**
+	 * Whether the MCP Adapter plugin itself is active on this site.
+	 *
+	 * @since 2.8.0
+	 *
+	 * @return bool
+	 */
+	public static function is_adapter_plugin_active() {
+		if ( ! function_exists( 'is_plugin_active' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+
+		return is_plugin_active( self::ADAPTER_PLUGIN );
+	}
+
+	/**
+	 * Which copy of the adapter would run, and where it comes from.
+	 *
+	 * Several plugins carry the adapter and the newest copy among them wins the
+	 * autoload, so the version in use is a fact about the site, not about any
+	 * one plugin. The MCP tab shows it.
+	 *
+	 * @since 2.8.0
+	 *
+	 * @return array{available:bool,version:string,folder:string,official:bool}
+	 */
+	public static function get_adapter_info() {
+		$info = array(
+			'available' => false,
+			'version'   => '',
+			'folder'    => '',
+			'official'  => false,
+		);
+
+		if ( ! class_exists( '\\WP\\MCP\\Core\\McpAdapter' ) ) {
+			return $info;
+		}
+
+		$info['available'] = true;
+
+		if ( defined( '\\WP\\MCP\\Core\\McpAdapter::VERSION' ) ) {
+			$version = constant( '\\WP\\MCP\\Core\\McpAdapter::VERSION' );
+
+			$info['version'] = is_scalar( $version ) ? (string) $version : '';
+		}
+
+		try {
+			$file = ( new \ReflectionClass( '\\WP\\MCP\\Core\\McpAdapter' ) )->getFileName();
+		} catch ( \ReflectionException $e ) {
+			$file = false;
+		}
+
+		if ( is_string( $file ) ) {
+			$file    = wp_normalize_path( $file );
+			$plugins = trailingslashit( wp_normalize_path( WP_PLUGIN_DIR ) );
+
+			if ( 0 === strpos( $file, $plugins ) ) {
+				$info['folder'] = (string) strtok( substr( $file, strlen( $plugins ) ), '/' );
+			}
+		}
+
+		$info['official'] = dirname( self::ADAPTER_PLUGIN ) === $info['folder'];
+
+		// Where the plugins folder is a symlink the real path of the class does
+		// not start with WP_PLUGIN_DIR. WP_MCP_DIR is set by the plugin itself,
+		// from its own real path.
+		if ( ! $info['official'] && is_string( $file ) && defined( 'WP_MCP_DIR' ) && is_string( WP_MCP_DIR )
+			&& 0 === strpos( $file, trailingslashit( wp_normalize_path( WP_MCP_DIR ) ) )
+			&& self::is_adapter_plugin_active() ) {
+			$info['official'] = true;
+			$info['folder']   = dirname( self::ADAPTER_PLUGIN );
+		}
+
+		return $info;
+	}
+
+	/**
 	 * Whether a usable WordPress MCP Adapter is loaded.
 	 *
 	 * Checks that the class is autoloaded AND that its create_server() still
@@ -145,16 +339,16 @@ class VigIA_MCP_Server {
 	 * Whether the loaded adapter still takes our permission callback.
 	 *
 	 * VigIA passes check_transport_permission() positionally, as the 13th
-	 * argument of create_server(). VigIA bundles its own copy of the adapter,
-	 * but WooCommerce, WP Rocket and Elementor bundle or consume it too, and
-	 * whichever autoloader is registered first wins, so the signature we call
-	 * is not necessarily the one we ship. If that slot ever stops being the
+	 * argument of create_server(). VigIA no longer ships the adapter (2.8.0):
+	 * the copy that runs is the MCP Adapter plugin's, or the one WooCommerce,
+	 * Elementor or Rank Math carry, whichever is newest, so the signature we
+	 * call is never one we chose. If that slot ever stops being the
 	 * permission callback, the argument is silently ignored, HttpTransport
 	 * falls back to its own default of current_user_can( 'read' ), and every
 	 * subscriber on the site reaches the MCP endpoint.
 	 *
-	 * Verified identical across adapter 0.3.0, 0.5.0, 0.6.1 and upstream trunk,
-	 * so this never fires today. It exists so a future signature change downs
+	 * Verified identical across adapter 0.3.0, 0.5.0, 0.6.1 and 0.7.0, so this
+	 * never fires today. It exists so a future signature change downs
 	 * the server instead of quietly opening it.
 	 *
 	 * @return bool
@@ -203,13 +397,15 @@ class VigIA_MCP_Server {
 	/**
 	 * Whether the MCP server is fully operational.
 	 *
-	 * True only when both the adapter and the Abilities API are loaded,
-	 * which is the actual condition for the REST routes to be registered.
+	 * True only when the switch is on, the Abilities API is loaded and the
+	 * server is in the adapter, which is the actual condition for the REST
+	 * routes to exist. Until 2.7.0 a loadable adapter was enough, because
+	 * VigIA booted it itself.
 	 *
 	 * @return bool
 	 */
 	public static function is_mcp_active() {
-		return self::is_adapter_available() && self::is_abilities_api_available();
+		return self::is_abilities_api_available() && self::is_server_registered();
 	}
 
 	/**
@@ -221,6 +417,12 @@ class VigIA_MCP_Server {
 	 * @param object $adapter Adapter instance provided by the action.
 	 */
 	public static function register_server( $adapter ) {
+		// Off until the site owner turns it on (2.8.0). Another plugin booting
+		// the adapter must not bring VigIA's endpoint up with it.
+		if ( ! self::is_enabled() ) {
+			return;
+		}
+
 		if ( ! self::is_adapter_available() ) {
 			return;
 		}
@@ -247,7 +449,7 @@ class VigIA_MCP_Server {
 			'vigia/remove-robots-rule',
 		);
 
-		$adapter->create_server(
+		$result = $adapter->create_server(
 			self::SERVER_ID,
 			self::ROUTE_NAMESPACE,
 			self::ROUTE,
@@ -264,5 +466,11 @@ class VigIA_MCP_Server {
 			array(),
 			array( __CLASS__, 'check_transport_permission' )
 		);
+
+		// create_server() answers with a WP_Error when it refuses the server.
+		// Asked back as well where the adapter allows it, so the status the MCP
+		// tab reports is the adapter's and not ours.
+		self::$registered = ! is_wp_error( $result )
+			&& ( ! method_exists( $adapter, 'get_server' ) || null !== $adapter->get_server( self::SERVER_ID ) );
 	}
 }

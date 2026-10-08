@@ -1644,10 +1644,26 @@ class VigIA_Extras_Page {
      * @since 1.11.0
      */
     private static function render_mcp_tab() {
-        $adapter_loaded  = class_exists( 'VigIA_MCP_Server' ) && VigIA_MCP_Server::is_adapter_available();
-        $abilities_ready = class_exists( 'VigIA_MCP_Server' ) && VigIA_MCP_Server::is_abilities_api_available();
-        $mcp_active      = $adapter_loaded && $abilities_ready;
+        // The switch (2.8.0) comes first: with it off nothing below is asked,
+        // and no adapter class is loaded to draw this screen.
+        $mcp_enabled     = VigIA_MCP_Server::is_enabled();
+        $abilities_ready = VigIA_MCP_Server::is_abilities_api_available();
+        $mcp_active      = $mcp_enabled && VigIA_MCP_Server::is_mcp_active();
+        $adapter         = $mcp_enabled ? VigIA_MCP_Server::get_adapter_info() : array(
+            'available' => false,
+            'version'   => '',
+            'folder'    => '',
+            'official'  => false,
+        );
+        $adapter_refused = $adapter['available'] && ! VigIA_MCP_Server::adapter_accepts_permission_callback();
+
+        // The notice left by the update tells what happened then. If the server
+        // runs now, on whichever copy of the adapter, it has nothing left to say.
+        if ( $mcp_active && '1' === (string) get_option( VigIA_MCP_Server::OPTION_NOTICE, '0' ) ) {
+            update_option( VigIA_MCP_Server::OPTION_NOTICE, '0', true );
+        }
         $endpoint_url    = home_url( '/wp-json/vigia/v1/mcp' );
+        $server_name     = VigIA_MCP_Server::get_client_server_name();
         $app_pass_url    = admin_url( 'profile.php#application-passwords-section' );
         $write_allowed   = (bool) apply_filters( 'vigia_can_write_via_abilities', true );
 
@@ -1688,6 +1704,23 @@ class VigIA_Extras_Page {
                 <?php esc_html_e( 'Expose VigIA abilities as MCP tools to any compatible client (Claude Code, Cursor, Claude Desktop, Codex CLI, Antigravity, Continue, etc.) over a single authenticated REST endpoint. Powered by the official WordPress MCP Adapter.', 'vigia' ); ?>
             </p>
 
+            <!-- On/off switch -->
+            <div class="vigia-mcp-enable">
+                <p>
+                    <label class="vigia-mcp-enable-toggle">
+                        <input type="checkbox"
+                               id="vigia-mcp-enabled-checkbox"
+                               <?php checked( $mcp_enabled ); ?> />
+                        <strong><?php esc_html_e( 'Enable the MCP server', 'vigia' ); ?></strong>
+                    </label>
+                    <span class="vigia-mcp-enable-status" style="margin-left:8px;"></span>
+                </p>
+                <p class="description">
+                    <?php esc_html_e( 'Off by default. Turn it on only if you want to connect an AI client to this site. It needs the free MCP Adapter plugin.', 'vigia' ); ?>
+                </p>
+            </div>
+
+            <?php if ( $mcp_enabled ) : ?>
             <!-- Server status -->
             <div class="vigia-mcp-status">
                 <h3><?php esc_html_e( 'Server status', 'vigia' ); ?></h3>
@@ -1697,29 +1730,62 @@ class VigIA_Extras_Page {
                         <strong><?php esc_html_e( 'MCP server active.', 'vigia' ); ?></strong>
                         <?php esc_html_e( 'The endpoint is registered and ready to receive authenticated requests.', 'vigia' ); ?>
                     </p>
-                <?php elseif ( ! $adapter_loaded ) : ?>
+                    <p class="description">
+                        <?php
+                        if ( $adapter['official'] ) {
+                            printf(
+                                /* translators: %s: version number of the MCP Adapter */
+                                esc_html__( 'Running on the MCP Adapter plugin, version %s.', 'vigia' ),
+                                esc_html( $adapter['version'] )
+                            );
+                        } else {
+                            printf(
+                                /* translators: 1: version number of the MCP Adapter, 2: folder name of the plugin that carries it */
+                                esc_html__( 'Running on the copy of the MCP Adapter (version %1$s) that %2$s carries. Use the MCP Adapter plugin so the server does not depend on another plugin.', 'vigia' ),
+                                esc_html( $adapter['version'] ),
+                                '<code>' . esc_html( '' !== $adapter['folder'] ? $adapter['folder'] : __( 'another plugin', 'vigia' ) ) . '</code>'
+                            );
+                            self::render_mcp_adapter_link();
+                        }
+                        ?>
+                    </p>
+                <?php elseif ( ! $abilities_ready ) : ?>
                     <p>
                         <span class="dashicons dashicons-warning" style="color:#dba617;"></span>
-                        <strong><?php esc_html_e( 'MCP server inactive: bundled adapter not found.', 'vigia' ); ?></strong>
-                        <?php esc_html_e( 'The WordPress MCP Adapter is shipped inside the plugin under vendor/ and should load automatically. If you see this message, the vendor directory is missing or unreadable.', 'vigia' ); ?>
+                        <strong><?php esc_html_e( 'MCP server inactive: Abilities API not available.', 'vigia' ); ?></strong>
+                        <?php esc_html_e( 'The Abilities API ships with WordPress 6.9 and later. Update WordPress to enable MCP.', 'vigia' ); ?>
                     </p>
+                <?php elseif ( $adapter_refused ) : ?>
                     <p>
+                        <span class="dashicons dashicons-warning" style="color:#dba617;"></span>
+                        <strong><?php esc_html_e( 'MCP server stopped for safety.', 'vigia' ); ?></strong>
                         <?php
                         printf(
-                            /* translators: %s: expected vendor path */
-                            esc_html__( 'Reinstall the plugin or restore the directory %s and reload this page.', 'vigia' ),
-                            '<code>' . esc_html( WP_PLUGIN_DIR . '/vigia/vendor/' ) . '</code>'
+                            /* translators: %s: version number of the MCP Adapter */
+                            esc_html__( 'The MCP Adapter loaded on this site (version %s) does not take the access check VigIA puts on its endpoint, so the server stays off. Install or update the MCP Adapter plugin.', 'vigia' ),
+                            esc_html( $adapter['version'] )
                         );
+                        self::render_mcp_adapter_link();
                         ?>
+                    </p>
+                <?php elseif ( VigIA_MCP_Server::is_adapter_plugin_active() ) : ?>
+                    <p>
+                        <span class="dashicons dashicons-warning" style="color:#dba617;"></span>
+                        <strong><?php esc_html_e( 'MCP server inactive: the MCP Adapter did not register it.', 'vigia' ); ?></strong>
+                        <?php esc_html_e( 'The MCP Adapter plugin is active, but the VigIA server is not in it. Update MCP Adapter to its latest version and reload this page.', 'vigia' ); ?>
                     </p>
                 <?php else : ?>
                     <p>
                         <span class="dashicons dashicons-warning" style="color:#dba617;"></span>
-                        <strong><?php esc_html_e( 'MCP server inactive: Abilities API not available.', 'vigia' ); ?></strong>
-                        <?php esc_html_e( 'The MCP Adapter is loaded but wp_register_ability() is not defined, so the adapter bails out silently and no routes are registered. The Abilities API ships with WordPress 6.9 and later. Update WordPress to enable MCP.', 'vigia' ); ?>
+                        <strong><?php esc_html_e( 'MCP server inactive: the MCP Adapter is not running.', 'vigia' ); ?></strong>
+                        <?php
+                        esc_html_e( 'VigIA no longer includes the adapter. Install and activate the MCP Adapter plugin, then reload this page.', 'vigia' );
+                        self::render_mcp_adapter_link();
+                        ?>
                     </p>
                 <?php endif; ?>
             </div>
+            <?php endif; ?>
 
             <?php if ( $mcp_active ) : ?>
                 <!-- Endpoint -->
@@ -1925,6 +1991,26 @@ class VigIA_Extras_Page {
                             <?php esc_html_e( 'AI Studio, ChatGPT web and other browser-only assistants without an MCP client cannot connect. They need a desktop / CLI client that speaks MCP over HTTP.', 'vigia' ); ?>
                         </p>
 
+                        <p class="description">
+                            <?php
+                            // The test is core's own (WP_Site_Health::get_test_authorization_header())
+                            // and catches the usual cause: a server that drops the header.
+                            if ( current_user_can( 'view_site_health_checks' ) ) {
+                                printf(
+                                    /* translators: %s: link to the Site Health screen */
+                                    esc_html__( 'Getting a 401 from your client? %s tells you if the server is dropping the Authorization header.', 'vigia' ),
+                                    '<a href="' . esc_url( admin_url( 'site-health.php' ) ) . '">' . esc_html__( 'Tools > Site Health', 'vigia' ) . '</a>'
+                                );
+                            } else {
+                                printf(
+                                    /* translators: %s: name of the Site Health screen */
+                                    esc_html__( 'Getting a 401 from your client? %s tells you if the server is dropping the Authorization header.', 'vigia' ),
+                                    esc_html__( 'Tools > Site Health', 'vigia' )
+                                );
+                            }
+                            ?>
+                        </p>
+
                         <p class="description vigia-mcp-help-link">
                             <?php
                             printf(
@@ -1986,13 +2072,13 @@ class VigIA_Extras_Page {
                         <pre><code>echo -n "username:xxxx xxxx xxxx xxxx xxxx xxxx" | base64</code></pre>
 
                         <h4><?php esc_html_e( 'Claude Code', 'vigia' ); ?></h4>
-                        <pre><code>claude mcp add --transport http vigia <?php echo esc_html( $endpoint_url ); ?> \
+                        <pre><code>claude mcp add --transport http <?php echo esc_html( $server_name ); ?> <?php echo esc_html( $endpoint_url ); ?> \
   --header "Authorization: Basic BASE64_OF_USER_AND_APP_PASSWORD"</code></pre>
 
                         <h4><?php esc_html_e( 'Cursor', 'vigia' ); ?></h4>
                         <pre><code>{
   "mcpServers": {
-    "vigia": {
+    "<?php echo esc_html( $server_name ); ?>": {
       "type": "http",
       "url": "<?php echo esc_html( $endpoint_url ); ?>",
       "headers": {
@@ -2014,7 +2100,7 @@ class VigIA_Extras_Page {
                         </p>
                         <pre><code>{
   "mcpServers": {
-    "vigia": {
+    "<?php echo esc_html( $server_name ); ?>": {
       "command": "npx",
       "args": [
         "-y",
@@ -2092,6 +2178,52 @@ class VigIA_Extras_Page {
             <?php endif; ?>
         </div>
         <?php
+    }
+
+    /**
+     * Link to get the MCP Adapter plugin running, for whoever may do it.
+     *
+     * Goes through the screens of WordPress itself: the plugin card when it is
+     * not installed, the plugins list when it only needs activating. Someone
+     * who can do neither (a site administrator on a network, or anybody where
+     * file changes are disabled) is told to ask.
+     *
+     * @since 2.8.0
+     */
+    private static function render_mcp_adapter_link() {
+        if ( VigIA_MCP_Server::is_adapter_plugin_active() ) {
+            return;
+        }
+
+        $installed = file_exists( WP_PLUGIN_DIR . '/' . VigIA_MCP_Server::ADAPTER_PLUGIN );
+
+        if ( $installed && current_user_can( 'activate_plugins' ) ) {
+            ?>
+            <a href="<?php echo esc_url( admin_url( 'plugins.php?s=mcp-adapter' ) ); ?>">&rarr; <?php esc_html_e( 'Activate MCP Adapter', 'vigia' ); ?></a>
+            <?php
+            return;
+        }
+
+        if ( ! $installed && current_user_can( 'install_plugins' ) ) {
+            // On a network plugins are installed from the network admin, and
+            // plugin-install.php of a site redirects there dropping its query
+            // string, so the modal would open on the wrong screen (and across
+            // domains on a subdomain network). A plain link to the search.
+            if ( is_multisite() ) {
+                ?>
+                <a href="<?php echo esc_url( network_admin_url( 'plugin-install.php?s=mcp-adapter&tab=search&type=term' ) ); ?>">&rarr; <?php esc_html_e( 'Install MCP Adapter', 'vigia' ); ?></a>
+                <?php
+                return;
+            }
+
+            $install_url = admin_url( 'plugin-install.php?tab=plugin-information&plugin=mcp-adapter&TB_iframe=true&width=772&height=618' );
+            ?>
+            <a href="<?php echo esc_url( $install_url ); ?>" class="thickbox">&rarr; <?php esc_html_e( 'Install MCP Adapter', 'vigia' ); ?></a>
+            <?php
+            return;
+        }
+
+        echo ' ' . esc_html__( 'Ask whoever manages the plugins of this site to do it.', 'vigia' );
     }
 
     /**

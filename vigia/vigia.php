@@ -3,7 +3,7 @@
  * Plugin Name: VigIA - AI Visibility, Analytics & Control
  * Plugin URI: https://servicios.ayudawp.com
  * Description: Monitor, control, and optimize how AI systems interact with your WordPress site. Track 60+ AI crawlers, manage access via robots.txt, and boost your AI visibility with llms.txt, JSON-LD, Markdown for Agents, and AI Visibility Score.
- * Version: 2.7.0
+ * Version: 2.8.0
  * Author: Fernando Tellado
  * Author URI: https://ayudawp.com
  * License: GPL v2 or later
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'VIGIA_VERSION', '2.7.0' );
+define( 'VIGIA_VERSION', '2.8.0' );
 define( 'VIGIA_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VIGIA_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'VIGIA_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -121,45 +121,9 @@ final class VigIA {
      * Load required files
      */
     private function load_dependencies() {
-        // Composer autoload for optional MCP server dependency. Loaded
-        // defensively so the plugin keeps working when the adapter is
-        // not installed via composer install.
-        if ( file_exists( VIGIA_PLUGIN_DIR . 'vendor/autoload.php' ) ) {
-            require_once VIGIA_PLUGIN_DIR . 'vendor/autoload.php';
-
-            // Boot the bundled adapter WITHOUT loading its mcp-adapter.php
-            // file. That file is the adapter's standalone-plugin wrapper: it
-            // declares the WP\MCP\Autoloader class and, in older releases,
-            // the WP\MCP\constants() function plus WP_MCP_DIR and
-            // WP_MCP_VERSION. Every one of those is a global name, so a second
-            // plugin shipping its own copy of the adapter turns them into
-            // "already defined" warnings and a fatal "Cannot redeclare class
-            // WP\MCP\Autoloader". WooCommerce, WP Rocket and Elementor all
-            // consume the adapter by calling McpAdapter::instance() on the
-            // autoloaded classes; this does the same.
-            //
-            // Guarding on function_exists( 'WP\MCP\constants' ) is NOT enough:
-            // upstream dropped that function, so recent copies pass the guard.
-            //
-            // WP_MCP_DIR is deliberately left undefined. Nothing in VigIA reads
-            // it, and pointing it at our directory would send another copy's
-            // Autoloader looking for its Composer autoloader inside our bundle.
-            if ( class_exists( '\\WP\\MCP\\Core\\McpAdapter' ) ) {
-                if ( ! defined( 'WP_MCP_VERSION' ) ) {
-                    // Declared before instantiating: without it the adapter
-                    // logs a deprecation notice on every request, its way of
-                    // telling library consumers to install the standalone
-                    // plugin. The name is fixed by upstream and cannot be
-                    // prefixed. Read from the class that actually loaded, so
-                    // the value stays true if another plugin's copy won the
-                    // autoload race.
-                    define( 'WP_MCP_VERSION', \WP\MCP\Core\McpAdapter::VERSION ); // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedConstantFound -- upstream contract.
-                }
-
-                \WP\MCP\Core\McpAdapter::instance();
-            }
-        }
-
+        // No MCP Adapter in here (2.8.0). From 1.12.0 to 2.7.0 a copy shipped
+        // under vendor/ and was booted at this point. VigIA_MCP_Server now waits
+        // for whoever boots the adapter on the site, and only with its switch on.
         require_once VIGIA_PLUGIN_DIR . 'includes/class-sibling-visibility.php';
         // Before the surfaces that consult it: Markdown for agents, llms.txt and
         // the admin screens all gate what they publish through this class.
@@ -214,7 +178,8 @@ final class VigIA {
             VigIA_Abilities::init();
         }
 
-        // MCP server (requires the WordPress MCP Adapter via Composer).
+        // MCP server. Off by default; needs the MCP Adapter plugin, or another
+        // plugin that boots a copy of the adapter.
         VigIA_MCP_Server::init();
 
         // Markdown endpoints for AI agents.
@@ -254,6 +219,7 @@ final class VigIA {
 
         // Activation notice.
         add_action( 'admin_notices', array( $this, 'activation_notice' ) );
+        add_action( 'admin_notices', array( $this, 'mcp_adapter_notice' ) );
         add_action( 'wp_ajax_vigia_dismiss_notice', array( $this, 'dismiss_notice' ) );
 
         // AJAX handlers.
@@ -312,6 +278,8 @@ final class VigIA {
         add_action( 'wp_ajax_vigia_create_mcp_app_password', array( $this, 'ajax_create_mcp_app_password' ) );
         add_action( 'wp_ajax_vigia_revoke_mcp_app_password', array( $this, 'ajax_revoke_mcp_app_password' ) );
         add_action( 'wp_ajax_vigia_save_mcp_readonly', array( $this, 'ajax_save_mcp_readonly' ) );
+        add_action( 'wp_ajax_vigia_save_mcp_enabled', array( $this, 'ajax_save_mcp_enabled' ) );
+        add_action( 'wp_ajax_vigia_dismiss_mcp_notice', array( $this, 'ajax_dismiss_mcp_notice' ) );
     }
 
     /**
@@ -495,6 +463,12 @@ final class VigIA {
 
         // The llms files are rebuilt by cron, in a request of its own.
         VigIA_LLMS_Generator::queue_rebuild();
+
+        // The MCP server has a switch since 2.8.0 and the adapter is no longer
+        // in the package. Last on purpose: on a site that had the server in use
+        // it starts the REST server once, which runs the rest_api_init of every
+        // other plugin, and nothing above may be lost to a failure in there.
+        $this->maybe_migrate_mcp_switch();
     }
 
     /**
@@ -1574,8 +1548,10 @@ final class VigIA {
             'entity_type'           => isset( $_POST['entity_type'] ) ? sanitize_key( wp_unslash( $_POST['entity_type'] ) ) : 'Organization',
             'entity_name'           => isset( $_POST['entity_name'] ) ? sanitize_text_field( wp_unslash( $_POST['entity_name'] ) ) : '',
             'entity_description'    => isset( $_POST['entity_description'] ) ? sanitize_textarea_field( wp_unslash( $_POST['entity_description'] ) ) : '',
-            'entity_logo'           => isset( $_POST['entity_logo'] ) ? esc_url_raw( wp_unslash( $_POST['entity_logo'] ) ) : '',
-            'entity_url'            => isset( $_POST['entity_url'] ) ? esc_url_raw( wp_unslash( $_POST['entity_url'] ) ) : '',
+            // is_string() first: esc_url_raw() throws a TypeError on PHP 8 when
+            // the field arrives as a list (entity_logo[]=x).
+            'entity_logo'           => ( isset( $_POST['entity_logo'] ) && is_string( $_POST['entity_logo'] ) ) ? esc_url_raw( wp_unslash( $_POST['entity_logo'] ) ) : '',
+            'entity_url'            => ( isset( $_POST['entity_url'] ) && is_string( $_POST['entity_url'] ) ) ? esc_url_raw( wp_unslash( $_POST['entity_url'] ) ) : '',
             'search_action'         => isset( $_POST['search_action'] ) && 'true' === $_POST['search_action'],
             'same_as'               => isset( $_POST['same_as'] ) ? sanitize_textarea_field( wp_unslash( $_POST['same_as'] ) ) : '',
             'ai_discovery_enabled'  => isset( $_POST['ai_discovery_enabled'] ) && 'true' === $_POST['ai_discovery_enabled'],
@@ -1607,7 +1583,7 @@ final class VigIA {
             wp_send_json_error( __( 'Unauthorized', 'vigia' ) );
         }
 
-        $url = isset( $_POST['url'] ) ? esc_url_raw( wp_unslash( $_POST['url'] ) ) : '';
+        $url = ( isset( $_POST['url'] ) && is_string( $_POST['url'] ) ) ? esc_url_raw( wp_unslash( $_POST['url'] ) ) : '';
         if ( empty( $url ) ) {
             $url = home_url( '/' );
         }
@@ -1721,8 +1697,14 @@ final class VigIA {
         $password_no_spaces = preg_replace( '/\s+/', '', $plain_password );
         $auth_basic         = base64_encode( $username . ':' . $password_no_spaces ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- HTTP Basic auth requires base64.
 
+        // Named after the site (2.8.0), so the same client can hold several
+        // sites with VigIA. Until now it was a fixed `vigia` and the second
+        // site collided with the first.
+        $server_name = VigIA_MCP_Server::get_client_server_name();
+
         $claudecode_cmd = sprintf(
-            'claude mcp add --transport http vigia %s --header "Authorization: Basic %s"',
+            'claude mcp add --transport http %s %s --header "Authorization: Basic %s"',
+            $server_name,
             $endpoint_url,
             $auth_basic
         );
@@ -1738,7 +1720,7 @@ final class VigIA {
                 'Authorization' => 'Basic ' . $auth_basic,
             ),
         );
-        $cursor_full_json = self::format_mcp_full_json( 'vigia', $cursor_server_block );
+        $cursor_full_json = self::format_mcp_full_json( $server_name, $cursor_server_block );
 
         // Claude Desktop — only supports stdio servers natively. To talk
         // to a remote HTTP MCP server we have to launch `mcp-remote` as a
@@ -1756,7 +1738,7 @@ final class VigIA {
                 'Authorization: Basic ' . $auth_basic,
             ),
         );
-        $claudedesktop_full_json = self::format_mcp_full_json( 'vigia', $claudedesktop_server_block );
+        $claudedesktop_full_json = self::format_mcp_full_json( $server_name, $claudedesktop_server_block );
 
         wp_send_json_success(
             array(
@@ -1900,6 +1882,176 @@ final class VigIA {
         update_option( 'vigia_mcp_read_only', $enabled );
 
         wp_send_json_success( array( 'enabled' => $enabled ) );
+    }
+
+    /**
+     * AJAX: Persist the MCP server switch.
+     *
+     * manage_options on the site is the bar, the same one the endpoint asks
+     * for (VigIA_MCP_Server::check_transport_permission()): the switch decides
+     * whether this site registers its own route, and the files a network
+     * shares are only written from its main site
+     * (VigIA_Robots_Manager::owns_root_files(), class-robots-manager.php).
+     *
+     * @since 2.8.0
+     */
+    public function ajax_save_mcp_enabled() {
+        check_ajax_referer( 'vigia_ajax_nonce', 'nonce' );
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( __( 'Unauthorized', 'vigia' ) );
+        }
+
+        $enabled = isset( $_POST['enabled'] ) && 'true' === $_POST['enabled'];
+
+        // Stored as '1' or '0' and never deleted: update_option() does not
+        // create an option whose first value is false, and a missing one costs
+        // a query on every request that asks for it.
+        update_option( VigIA_MCP_Server::OPTION_ENABLED, $enabled ? '1' : '0', true );
+
+        if ( ! $enabled ) {
+            update_option( VigIA_MCP_Server::OPTION_NOTICE, '0', true );
+        }
+
+        wp_send_json_success( array( 'enabled' => $enabled ) );
+    }
+
+    /**
+     * Give the MCP switch its first value, once per site.
+     *
+     * Until 2.7.0 the server was on for everyone and the adapter came inside
+     * the plugin. The switch starts off, except where somebody had connected a
+     * client: the Application Password that the MCP tab creates is the trace
+     * that leaves. Those sites keep the server on and, if nothing on the site
+     * boots an adapter any more, get a notice that says so.
+     *
+     * @since 2.8.0
+     */
+    private function maybe_migrate_mcp_switch() {
+        if ( null !== get_option( VigIA_MCP_Server::OPTION_ENABLED, null ) ) {
+            return;
+        }
+
+        $in_use = $this->has_mcp_app_password();
+
+        update_option( VigIA_MCP_Server::OPTION_ENABLED, $in_use ? '1' : '0', true );
+        update_option( VigIA_MCP_Server::OPTION_NOTICE, '0', true );
+
+        if ( $in_use && ! VigIA_MCP_Server::is_mcp_active() ) {
+            update_option( VigIA_MCP_Server::OPTION_NOTICE, '1', true );
+        }
+    }
+
+    /**
+     * Whether any user of this site holds the Application Password that the
+     * MCP tab creates.
+     *
+     * @since 2.8.0
+     *
+     * @return bool
+     */
+    private function has_mcp_app_password() {
+        if ( ! class_exists( '\\WP_Application_Passwords' ) ) {
+            return false;
+        }
+
+        $user_ids = get_users(
+            array(
+                // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Runs once per site, on the update to 2.8.0, and only users who hold an Application Password carry this key.
+                'meta_key'     => \WP_Application_Passwords::USERMETA_KEY_APPLICATION_PASSWORDS,
+                'meta_compare' => 'EXISTS',
+                'fields'       => 'ID',
+                'number'       => 200,
+            )
+        );
+
+        if ( empty( $user_ids ) ) {
+            return false;
+        }
+
+        // One query for the meta of all of them, instead of one per user.
+        update_meta_cache( 'user', array_map( 'intval', $user_ids ) );
+
+        foreach ( $user_ids as $user_id ) {
+            $passwords = \WP_Application_Passwords::get_user_application_passwords( (int) $user_id );
+
+            foreach ( $passwords as $password ) {
+                if ( isset( $password['name'] ) && VigIA_Extras_Page::MCP_APP_PASSWORD_NAME === $password['name'] ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Notice for a site whose MCP server was in use and has no adapter left.
+     *
+     * Only where maybe_migrate_mcp_switch() raised the flag, only for whoever
+     * can act on it, and only on the dashboard, the plugins screen and VigIA's
+     * own. It goes away for good when dismissed, when the server is switched
+     * off, when the MCP Adapter plugin is active or when the MCP tab finds the
+     * server running (VigIA_Extras_Page::render_mcp_tab()). The text tells what
+     * happened on the update, not the state now, which only the tab knows.
+     *
+     * @since 2.8.0
+     */
+    public function mcp_adapter_notice() {
+        if ( '1' !== (string) get_option( VigIA_MCP_Server::OPTION_NOTICE, '0' ) ) {
+            return;
+        }
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            return;
+        }
+
+        $screen = get_current_screen();
+        if ( ! $screen || ( ! in_array( $screen->id, array( 'dashboard', 'plugins' ), true ) && false === strpos( $screen->id, 'vigia' ) ) ) {
+            return;
+        }
+
+        if ( ! VigIA_MCP_Server::is_enabled() || VigIA_MCP_Server::is_adapter_plugin_active() ) {
+            update_option( VigIA_MCP_Server::OPTION_NOTICE, '0', true );
+            return;
+        }
+
+        $nonce = wp_create_nonce( 'vigia_dismiss_mcp_notice' );
+        ?>
+        <div class="notice notice-warning is-dismissible vigia-mcp-adapter-notice">
+            <p>
+                <strong><?php esc_html_e( 'The VigIA MCP server stopped with this update.', 'vigia' ); ?></strong>
+                <?php esc_html_e( 'VigIA no longer includes the MCP Adapter. Install the free MCP Adapter plugin to bring the server back.', 'vigia' ); ?>
+                <a href="<?php echo esc_url( admin_url( 'admin.php?page=vigia-extras&tab=mcp' ) ); ?>">&rarr; <?php esc_html_e( 'Open the MCP tab', 'vigia' ); ?></a>
+            </p>
+        </div>
+        <script>
+        jQuery(document).ready(function($) {
+            $('.vigia-mcp-adapter-notice').on('click', '.notice-dismiss', function() {
+                $.post(ajaxurl, {
+                    action: 'vigia_dismiss_mcp_notice',
+                    nonce: '<?php echo esc_js( $nonce ); ?>'
+                });
+            });
+        });
+        </script>
+        <?php
+    }
+
+    /**
+     * AJAX: Dismiss the MCP Adapter notice.
+     *
+     * @since 2.8.0
+     */
+    public function ajax_dismiss_mcp_notice() {
+        check_ajax_referer( 'vigia_dismiss_mcp_notice', 'nonce' );
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( '', '', array( 'response' => 403 ) );
+        }
+
+        update_option( VigIA_MCP_Server::OPTION_NOTICE, '0', true );
+        wp_die();
     }
 
     /**
