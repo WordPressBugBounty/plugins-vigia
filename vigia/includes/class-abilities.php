@@ -87,10 +87,71 @@ class VigIA_Abilities {
 	/**
 	 * Permission callback for read abilities.
 	 *
+	 * @since 2.8.1 Rejects every call while the MCP switch is off.
+	 *
 	 * @return bool
 	 */
 	public static function check_permission() {
-		return current_user_can( 'manage_options' );
+		// The capability first. Otherwise a visitor with no session learns from
+		// the answer whether this site has the MCP server on.
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return false;
+		}
+
+		return self::mcp_switch_allows();
+	}
+
+	/**
+	 * Whether the MCP switch added in 2.8.0 lets the abilities answer.
+	 *
+	 * Until 2.8.1 that switch closed VigIA's own server and nothing else. The
+	 * core route was not a way in: without the `public` meta flag
+	 * `show_in_rest` is false and the run controller answers 404
+	 * (wp-includes/rest-api/endpoints/class-wp-rest-abilities-v1-run-controller.php:145
+	 * in WP 7.1.4). The way in was the MCP Adapter's own default server.
+	 * Measured in Testing on 30 Oct 2026: with the switch at '0' and one box
+	 * ticked in the AI plugin's "MCP Access" experiment (1.5.0), both
+	 * mcp-adapter/get-ability-info and mcp-adapter/execute-ability answered for
+	 * abilities of this plugin. That experiment writes meta.mcp.public at
+	 * registration and its box wins over anything this plugin declares, so the
+	 * gate cannot live in the meta. It lives in the permission callbacks
+	 * because they are the one place every channel goes through.
+	 *
+	 * Returns a bool and not a WP_Error on purpose. `WP_Ability::execute()`
+	 * refuses to hand a permission error to the caller, replaces it with
+	 * `ability_invalid_permissions` and raises `_doing_it_wrong()` carrying its
+	 * message (class-wp-ability.php:824-841 in WP 7.1.4), so a WP_Error buys
+	 * the client nothing and fills the log of a site with WP_DEBUG on. What the
+	 * site owner has to read is on the MCP tab, which says what the switch
+	 * covers.
+	 *
+	 * @since 2.8.1
+	 *
+	 * @return bool Whether the abilities may answer at all.
+	 */
+	private static function mcp_switch_allows() {
+		/**
+		 * Filter to untie the abilities from the MCP switch.
+		 *
+		 * The switch governs every channel, so a site that reaches these
+		 * abilities through the core REST route and wants nothing to do with
+		 * MCP can return false here and keep them answering with the server
+		 * off. Only a literal false unties them. Capability checks are not
+		 * affected: manage_options still applies, and so does
+		 * vigia_can_write_via_abilities on the four write abilities.
+		 *
+		 * @since 2.8.1
+		 *
+		 * @param bool $required Whether the MCP switch governs the abilities. Default true.
+		 */
+		if ( false === apply_filters( 'vigia_abilities_require_mcp_switch', true ) ) {
+			return true;
+		}
+
+		// The switch cannot be off when the class that owns it did not load:
+		// that is a broken install, not a closed door. Both files are required
+		// unconditionally and consecutively in vigia.php.
+		return ! class_exists( 'VigIA_MCP_Server' ) || VigIA_MCP_Server::is_enabled();
 	}
 
 	/**
@@ -103,11 +164,16 @@ class VigIA_Abilities {
 	 * Passwords and the admin wants read-only access.
 	 *
 	 * @since 1.11.0
+	 * @since 2.8.1 Rejects every call while the MCP switch is off.
 	 *
 	 * @return bool
 	 */
 	public static function check_write_permission() {
 		if ( ! current_user_can( 'manage_options' ) ) {
+			return false;
+		}
+
+		if ( ! self::mcp_switch_allows() ) {
 			return false;
 		}
 
@@ -129,6 +195,25 @@ class VigIA_Abilities {
 	/**
 	 * Ability meta for the read-only abilities.
 	 *
+	 * `public` since 2.8.1 is what makes an ability discoverable, and the core
+	 * resolves `show_in_rest` from it (`show_in_rest ?? public ?? false`,
+	 * wp-includes/abilities-api/class-wp-ability.php:370 in WP 7.1.4), so these
+	 * also show up in the directory at /wp-abilities/v1/abilities that WP 7.1
+	 * turns into the canonical way to find an ability. That route asks only for
+	 * `current_user_can( 'read' )` (class-wp-rest-abilities-v1-list-controller.php:181),
+	 * so a subscriber can list them and read their schemas. Listing is not
+	 * calling: every one of them goes through check_permission() or
+	 * check_write_permission(), and since 2.8.1 through the MCP switch as well.
+	 *
+	 * It is also the adapter's fallback for MCP exposure when an ability says
+	 * nothing in `meta.mcp.public` (McpAbilityExposure::is_meta_public(),
+	 * mcp-adapter 0.7.1), so with the flag set the nine are served by the
+	 * adapter's own default server with no box ticked anywhere. Measured on
+	 * 30 Oct 2026: 9 of 9. That server does not apply
+	 * VigIA_MCP_Server::check_transport_permission(), so the
+	 * vigia_mcp_transport_capability filter does not reach it; the per-ability
+	 * callbacks do, which is why the switch lives in them.
+	 *
 	 * The MCP Adapter maps these to the tool annotations an MCP client reads to
 	 * decide how much ceremony a call deserves: without them every tool looks
 	 * alike, and asking for crawler statistics gets the same approval prompt as
@@ -148,6 +233,7 @@ class VigIA_Abilities {
 	 */
 	private static function read_annotations() {
 		return array(
+			'public'      => true,
 			'annotations' => array(
 				'readonly'      => true,
 				'destructive'   => false,
@@ -159,6 +245,11 @@ class VigIA_Abilities {
 
 	/**
 	 * Ability meta for the abilities that change something.
+	 *
+	 * `public` works the same as in read_annotations(), and the decision of
+	 * 27 Aug 2026 was to set it on all nine: hiding the write ones adds no
+	 * security, since the gate is the permission callback, and only makes them
+	 * impossible to find.
 	 *
 	 * Destructive is not the same as important. The specification defines it as
 	 * destructive versus additive, so blocking a crawler and adding a Disallow
@@ -174,6 +265,7 @@ class VigIA_Abilities {
 	 */
 	private static function write_annotations( $destructive ) {
 		return array(
+			'public'      => true,
 			'annotations' => array(
 				'readonly'      => false,
 				'destructive'   => (bool) $destructive,
@@ -550,7 +642,10 @@ class VigIA_Abilities {
 				'category'            => self::CATEGORY,
 				'permission_callback' => array( __CLASS__, 'check_permission' ),
 				'meta'                => self::read_annotations(),
-				'input_schema'        => array(),
+				'input_schema'        => array(
+					'type'       => 'object',
+					'properties' => array(),
+				),
 				'output_schema'       => array(
 					'type'       => 'object',
 					'properties' => array(
@@ -867,7 +962,10 @@ class VigIA_Abilities {
 				'category'            => self::CATEGORY,
 				'permission_callback' => array( __CLASS__, 'check_permission' ),
 				'meta'                => self::read_annotations(),
-				'input_schema'        => array(),
+				'input_schema'        => array(
+					'type'       => 'object',
+					'properties' => array(),
+				),
 				'output_schema'       => array(
 					'type'       => 'object',
 					'properties' => array(

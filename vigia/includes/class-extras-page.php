@@ -1711,12 +1711,12 @@ class VigIA_Extras_Page {
                         <input type="checkbox"
                                id="vigia-mcp-enabled-checkbox"
                                <?php checked( $mcp_enabled ); ?> />
-                        <strong><?php esc_html_e( 'Enable the MCP server', 'vigia' ); ?></strong>
+                        <strong><?php esc_html_e( 'Enable the MCP server and VigIA abilities', 'vigia' ); ?></strong>
                     </label>
                     <span class="vigia-mcp-enable-status" style="margin-left:8px;"></span>
                 </p>
                 <p class="description">
-                    <?php esc_html_e( 'Off by default. Turn it on only if you want to connect an AI client to this site. It needs the free MCP Adapter plugin.', 'vigia' ); ?>
+                    <?php esc_html_e( 'Off by default. Turn it on only if you want to connect an AI client to this site. While it is off, VigIA abilities reject every call: through this server, through an MCP server another plugin runs, and through the WordPress abilities REST route. The server itself needs the free MCP Adapter plugin.', 'vigia' ); ?>
                 </p>
             </div>
 

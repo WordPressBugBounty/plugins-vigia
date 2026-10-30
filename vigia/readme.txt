@@ -4,7 +4,7 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 2.8.0
+Stable tag: 2.8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -423,6 +423,14 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
+= 2.8.1 =
+The MCP switch now governs the VigIA abilities on every channel, not only the endpoint of this plugin, the nine abilities are now listed in the WordPress abilities directory, and two of them no longer fail when a client sends no parameters.
+
+* Improved: The MCP switch now governs the nine VigIA abilities on every channel. With the server off they reject every call, whichever way it arrives. Behaviour change: until now the switch closed only the endpoint of this plugin, and an ability stayed callable through an MCP server that another plugin runs.
+* Improved: New `vigia_abilities_require_mcp_switch` filter, to untie the abilities from the switch on a site that reaches them through the core REST route and wants nothing to do with MCP. Capability checks are not affected by it.
+* Improved: The nine abilities declare the `public` meta flag, so they show up in the WordPress abilities directory at `/wp-abilities/v1/abilities`, which WordPress 7.1 turns into the canonical way for an agent to find them. Listing is not calling: a call still needs `manage_options`, and the four write abilities still go through `vigia_can_write_via_abilities`. Note that the directory answers any logged-in user, so a subscriber can read the list and the input schemas. The flag is also what the MCP Adapter falls back on when an ability says nothing about MCP, so the nine are now served by the adapter's own default server with nothing to tick anywhere, and that server does not apply the `vigia_mcp_transport_capability` filter, which only covers the server VigIA registers itself.
+* Fix: Two abilities, `vigia/get-blocked-items` and `vigia/get-robots-rules`, refused a call that carried an empty object of arguments, which is what an MCP client sends for a tool that takes no parameters. They declared an empty input schema, and WordPress answers `ability_missing_input_schema` when the schema is empty and the input is not null (measured on WordPress 7.1.4). They now declare an object schema with no properties.
+
 = 2.8.0 =
 The MCP server is now off by default and runs on the free MCP Adapter plugin, which VigIA no longer bundles, so the package is half the size. Where an AI client was already connected it stays on, and VigIA tells you if MCP Adapter has to be installed.
 
@@ -441,8 +449,8 @@ For older changelog entries, please check the [changelog.txt](https://plugins.sv
 
 == Upgrade Notice ==
 
-= 2.8.0 =
-The MCP server is now off by default and runs on the free MCP Adapter plugin, which VigIA no longer bundles, so the package is half the size. Where an AI client was already connected it stays on, and VigIA tells you if MCP Adapter has to be installed.
+= 2.8.1 =
+The MCP switch now governs the VigIA abilities on every channel, not only the endpoint of this plugin, the nine abilities are now listed in the WordPress abilities directory, and two of them no longer fail when a client sends no parameters.
 
 == Support ==
 
