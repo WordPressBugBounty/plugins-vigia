@@ -3,6 +3,12 @@ VigIA — Full changelog
 For each release, see the entries below. The latest version is always at the top.
 The current release notes also live in readme.txt under "== Changelog ==".
 
+= 2.8.2 =
+* Improved: New `vigia_trusted_proxies` filter, to declare the addresses or ranges of a load balancer, or of a CDN other than Cloudflare, that sits in front of the site, so VigIA reads the visitor from its X-Forwarded-For header. Declaring a proxy stops VigIA from trusting the site's own network on its own, so list every proxy in front of PHP, a local one included. Add the filter from a plugin or a must-use plugin: the block list runs before the theme is loaded.
+* Fix: A visitor blocked by IP got the page back by sending an X-Forwarded-For, CF-Connecting-IP or X-Real-IP header with any other address, and any visitor could write the address they wanted into the visit log. VigIA now uses the address of the connection. It believes CF-Connecting-IP only from Cloudflare's published ranges, and X-Forwarded-For or X-Real-IP only from a proxy on the site's own network or a declared one, reading the visitor from the end of the header, which is the part that proxy writes. Reported by kta1kri.
+* Fix: Behaviour change that comes with the previous fix: behind a CDN other than Cloudflare, a load balancer with a public address, or a proxy with a public address between Cloudflare and the site, the visit log and the block list now see the address of that proxy until it is declared with the new filter. Visits already logged keep the address they were saved with.
+* Fix: A blocked IPv6 address written differently from the way the server reports it (upper case, leading zeros) never matched, and neither did an IPv4 address that reached the site written as IPv6.
+
 = 2.8.1 =
 * Improved: The MCP switch now governs the nine VigIA abilities on every channel. With the server off they reject every call, whichever way it arrives. Behaviour change: until now the switch closed only the endpoint of this plugin, and an ability stayed callable through an MCP server that another plugin runs.
 * Improved: New `vigia_abilities_require_mcp_switch` filter, to untie the abilities from the switch on a site that reaches them through the core REST route and wants nothing to do with MCP. Capability checks are not affected by it.

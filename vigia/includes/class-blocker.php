@@ -79,7 +79,7 @@ class VigIA_Blocker {
         }
 
         $user_agent = isset( $_SERVER['HTTP_USER_AGENT'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_USER_AGENT'] ) ) : '';
-        $client_ip  = self::get_client_ip();
+        $client_ip  = VigIA_Client_IP::get();
 
         foreach ( $blocks as $block ) {
             if ( 'useragent' === $block['type'] && ! empty( $user_agent ) ) {
@@ -87,40 +87,11 @@ class VigIA_Blocker {
                     self::block_request();
                 }
             } elseif ( 'ip' === $block['type'] ) {
-                if ( $client_ip === $block['pattern'] ) {
+                if ( VigIA_Client_IP::same_address( $client_ip, $block['pattern'] ) ) {
                     self::block_request();
                 }
             }
         }
-    }
-
-    /**
-     * Get client IP address
-     *
-     * @return string
-     */
-    private static function get_client_ip() {
-        $ip_keys = array(
-            'HTTP_CF_CONNECTING_IP',
-            'HTTP_X_FORWARDED_FOR',
-            'HTTP_X_REAL_IP',
-            'REMOTE_ADDR',
-        );
-
-        foreach ( $ip_keys as $key ) {
-            if ( ! empty( $_SERVER[ $key ] ) ) {
-                $ip = sanitize_text_field( wp_unslash( $_SERVER[ $key ] ) );
-                if ( strpos( $ip, ',' ) !== false ) {
-                    $ips = explode( ',', $ip );
-                    $ip  = trim( $ips[0] );
-                }
-                if ( filter_var( $ip, FILTER_VALIDATE_IP ) ) {
-                    return $ip;
-                }
-            }
-        }
-
-        return '0.0.0.0';
     }
 
     /**
@@ -263,7 +234,7 @@ class VigIA_Blocker {
         $blocks = self::get_blocked_by_type( 'ip' );
 
         foreach ( $blocks as $block ) {
-            if ( $block['pattern'] === $ip ) {
+            if ( VigIA_Client_IP::same_address( $block['pattern'], $ip ) ) {
                 return true;
             }
         }

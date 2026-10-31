@@ -491,7 +491,7 @@ class VigIA_Crawler_Detector {
         $request_url = home_url( $request_uri );
 
         // Get client IP
-        $ip_address = self::get_client_ip();
+        $ip_address = VigIA_Client_IP::get();
 
         // Prepare data
         $data = array(
@@ -520,36 +520,6 @@ class VigIA_Crawler_Detector {
      */
     public static function mark_logged() {
         self::$logged_this_request = true;
-    }
-
-    /**
-     * Get client IP address
-     *
-     * @return string IP address.
-     */
-    private static function get_client_ip() {
-        $ip_keys = array(
-            'HTTP_CF_CONNECTING_IP', // Cloudflare
-            'HTTP_X_FORWARDED_FOR',
-            'HTTP_X_REAL_IP',
-            'REMOTE_ADDR',
-        );
-
-        foreach ( $ip_keys as $key ) {
-            if ( ! empty( $_SERVER[ $key ] ) ) {
-                $ip = sanitize_text_field( wp_unslash( $_SERVER[ $key ] ) );
-                // Handle comma-separated IPs (X-Forwarded-For)
-                if ( strpos( $ip, ',' ) !== false ) {
-                    $ips = explode( ',', $ip );
-                    $ip  = trim( $ips[0] );
-                }
-                if ( filter_var( $ip, FILTER_VALIDATE_IP ) ) {
-                    return $ip;
-                }
-            }
-        }
-
-        return '0.0.0.0';
     }
 
     /**

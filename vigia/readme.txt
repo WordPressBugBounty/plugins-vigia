@@ -4,7 +4,7 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 2.8.1
+Stable tag: 2.8.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -269,6 +269,16 @@ No. VigIA adds minimal overhead by checking the User-Agent string on each reques
 
 Blocking AI training crawlers (like GPTBot or ClaudeBot) will not affect traditional search engine rankings. However, blocking AI search crawlers might affect how your content appears in AI-powered search results.
 
+= The log shows the address of my CDN or load balancer, not the visitor's =
+
+VigIA only believes proxy headers from a proxy it can trust: Cloudflare, or a proxy on your own network. Anybody can send those headers, so trusting them from anywhere would let a blocked visitor in.
+
+If a load balancer with a public address, or a CDN other than Cloudflare, sits in front of your site, declare it from a plugin or a must-use plugin:
+
+`add_filter( 'vigia_trusted_proxies', function () { return array( '203.0.113.10', '198.51.100.0/24' ); } );`
+
+List every proxy in front of PHP, including a local one.
+
 = What is Markdown for Agents? =
 
 Markdown for Agents is a standard for serving web content as clean markdown to AI agents. Instead of processing full HTML, agents receive lightweight markdown with structured metadata. VigIA supports both dedicated .md URLs and Accept: text/markdown content negotiation. Enable it in VigIA > Extras > Markdown for Agents.
@@ -423,6 +433,14 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
+= 2.8.2 =
+Blocking by IP can no longer be bypassed with a forged proxy header, and the visit log no longer takes the visitor address from headers that anybody can send.
+
+* Improved: New `vigia_trusted_proxies` filter, to declare the addresses or ranges of a load balancer, or of a CDN other than Cloudflare, that sits in front of the site, so VigIA reads the visitor from its X-Forwarded-For header. Declaring a proxy stops VigIA from trusting the site's own network on its own, so list every proxy in front of PHP, a local one included. Add the filter from a plugin or a must-use plugin: the block list runs before the theme is loaded.
+* Fix: A visitor blocked by IP got the page back by sending an X-Forwarded-For, CF-Connecting-IP or X-Real-IP header with any other address, and any visitor could write the address they wanted into the visit log. VigIA now uses the address of the connection. It believes CF-Connecting-IP only from Cloudflare's published ranges, and X-Forwarded-For or X-Real-IP only from a proxy on the site's own network or a declared one, reading the visitor from the end of the header, which is the part that proxy writes. Reported by kta1kri.
+* Fix: Behaviour change that comes with the previous fix: behind a CDN other than Cloudflare, a load balancer with a public address, or a proxy with a public address between Cloudflare and the site, the visit log and the block list now see the address of that proxy until it is declared with the new filter. Visits already logged keep the address they were saved with.
+* Fix: A blocked IPv6 address written differently from the way the server reports it (upper case, leading zeros) never matched, and neither did an IPv4 address that reached the site written as IPv6.
+
 = 2.8.1 =
 The MCP switch now governs the VigIA abilities on every channel, not only the endpoint of this plugin, the nine abilities are now listed in the WordPress abilities directory, and two of them no longer fail when a client sends no parameters.
 
@@ -449,8 +467,8 @@ For older changelog entries, please check the [changelog.txt](https://plugins.sv
 
 == Upgrade Notice ==
 
-= 2.8.1 =
-The MCP switch now governs the VigIA abilities on every channel, not only the endpoint of this plugin, the nine abilities are now listed in the WordPress abilities directory, and two of them no longer fail when a client sends no parameters.
+= 2.8.2 =
+Blocking by IP can no longer be bypassed with a forged proxy header, and the visit log no longer takes the visitor address from headers that anybody can send.
 
 == Support ==
 

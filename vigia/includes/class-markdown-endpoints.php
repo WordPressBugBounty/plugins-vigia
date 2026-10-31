@@ -1726,7 +1726,7 @@ class VigIA_Markdown_Endpoints {
 				'user_agent'       => $user_agent,
 				'request_url'      => home_url( $request_uri ),
 				'request_path'     => wp_parse_url( $request_uri, PHP_URL_PATH ),
-				'ip_address'       => self::get_client_ip(),
+				'ip_address'       => VigIA_Client_IP::get(),
 				'http_status'      => 200,
 				'visit_date'       => current_time( 'mysql' ),
 			)
@@ -1736,30 +1736,6 @@ class VigIA_Markdown_Endpoints {
 		// would still fire afterwards and log the same hit again. Mark it so
 		// that does not happen.
 		VigIA_Crawler_Detector::mark_logged();
-	}
-
-	/**
-	 * Get client IP address
-	 *
-	 * @return string
-	 */
-	private static function get_client_ip() {
-		$ip_keys = array( 'HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'REMOTE_ADDR' );
-
-		foreach ( $ip_keys as $key ) {
-			if ( ! empty( $_SERVER[ $key ] ) ) {
-				$ip = sanitize_text_field( wp_unslash( $_SERVER[ $key ] ) );
-				if ( strpos( $ip, ',' ) !== false ) {
-					$ips = explode( ',', $ip );
-					$ip  = trim( $ips[0] );
-				}
-				if ( filter_var( $ip, FILTER_VALIDATE_IP ) ) {
-					return $ip;
-				}
-			}
-		}
-
-		return '0.0.0.0';
 	}
 
 	/**
