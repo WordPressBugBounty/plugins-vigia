@@ -3,7 +3,7 @@
  * Plugin Name: VigIA - AI Visibility, Analytics & Control
  * Plugin URI: https://servicios.ayudawp.com
  * Description: Monitor, control, and optimize how AI systems interact with your WordPress site. Track 60+ AI crawlers, manage access via robots.txt, and boost your AI visibility with llms.txt, JSON-LD, Markdown for Agents, and AI Visibility Score.
- * Version: 2.8.2
+ * Version: 2.8.3
  * Author: Fernando Tellado
  * Author URI: https://ayudawp.com
  * License: GPL v2 or later
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants.
-define( 'VIGIA_VERSION', '2.8.2' );
+define( 'VIGIA_VERSION', '2.8.3' );
 define( 'VIGIA_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'VIGIA_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'VIGIA_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -443,6 +443,14 @@ final class VigIA {
         // First, so nothing below can make the next pageload come back here.
         update_option( 'vigia_version', VIGIA_VERSION );
 
+        // The MCP switch, if it has no value yet, is decided from the version the
+        // site comes from, which is no longer in the option: it is handed over.
+        // Right after the write, so no other read of the switch comes between.
+        // Cheap: one users query, once per site.
+        if ( null === get_option( VigIA_MCP_Server::OPTION_ENABLED, null ) ) {
+            VigIA_MCP_Server::decide_first_value( $stored );
+        }
+
         // Repair a physical robots.txt whose markers another plugin glued to the
         // line above. It does not heal on its own: the glued marker used to be
         // invisible to our cleanup, so the broken line stayed and every save
@@ -469,7 +477,7 @@ final class VigIA {
         // in the package. Last on purpose: on a site that had the server in use
         // it starts the REST server once, which runs the rest_api_init of every
         // other plugin, and nothing above may be lost to a failure in there.
-        $this->maybe_migrate_mcp_switch();
+        $this->maybe_migrate_mcp_switch( $stored );
     }
 
     /**
@@ -1089,6 +1097,9 @@ final class VigIA {
 
         // Handle robots.txt disallow (backwards compatible).
         if ( 'robots' === $method || 'disallow' === $block_type ) {
+            if ( VigIA_Robots_Manager::root_robots_locked() ) {
+                wp_send_json_error( VigIA_Robots_Manager::root_robots_locked_message() );
+            }
             $crawler_name = isset( $_POST['crawler_name'] ) ? sanitize_text_field( wp_unslash( $_POST['crawler_name'] ) ) : '';
             if ( empty( $crawler_name ) ) {
                 wp_send_json_error( __( 'Crawler name is required', 'vigia' ) );
@@ -1185,6 +1196,9 @@ final class VigIA {
         }
 
         if ( 'robots' === $method ) {
+            if ( VigIA_Robots_Manager::root_robots_locked() ) {
+                wp_send_json_error( VigIA_Robots_Manager::root_robots_locked_message() );
+            }
             VigIA_Robots_Manager::remove_disallow( $crawler_name );
         } else {
             VigIA_Blocker::remove_blocked_crawler( $crawler_name );
@@ -1224,6 +1238,10 @@ final class VigIA {
             wp_send_json_error( __( 'Unauthorized', 'vigia' ) );
         }
 
+        if ( VigIA_Robots_Manager::root_robots_locked() ) {
+            wp_send_json_error( VigIA_Robots_Manager::root_robots_locked_message() );
+        }
+
         $crawler_name = isset( $_POST['crawler_name'] ) ? sanitize_text_field( wp_unslash( $_POST['crawler_name'] ) ) : '';
         $action_type  = isset( $_POST['action_type'] ) ? sanitize_key( wp_unslash( $_POST['action_type'] ) ) : 'disallow';
 
@@ -1253,6 +1271,10 @@ final class VigIA {
 
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( __( 'Unauthorized', 'vigia' ) );
+        }
+
+        if ( VigIA_Robots_Manager::root_robots_locked() ) {
+            wp_send_json_error( VigIA_Robots_Manager::root_robots_locked_message() );
         }
 
         $crawler_name = isset( $_POST['crawler_name'] ) ? sanitize_text_field( wp_unslash( $_POST['crawler_name'] ) ) : '';
@@ -1387,6 +1409,10 @@ final class VigIA {
             wp_send_json_error( $result->get_error_message() );
         }
 
+        // Whether the web server says the physical file is UTF-8. The page
+        // reloads after this and the Delivery status shows the answer.
+        VigIA_LLMS_Generator::check_served_charset();
+
         wp_send_json_success( $result );
     }
 
@@ -1423,7 +1449,11 @@ final class VigIA {
             $settings['site_name'] = vigia_get_site_name();
         }
 
-        VigIA_LLMS_Generator::save_settings( $settings );
+        $saved = VigIA_LLMS_Generator::save_settings( $settings );
+
+        if ( is_wp_error( $saved ) ) {
+            wp_send_json_error( $saved->get_error_message() );
+        }
 
         wp_send_json_success();
     }
@@ -1436,6 +1466,11 @@ final class VigIA {
 
         if ( ! current_user_can( 'manage_options' ) ) {
             wp_send_json_error( __( 'Unauthorized', 'vigia' ) );
+        }
+
+        // A file at the network root is the network's (2.8.3).
+        if ( VigIA_LLMS_Generator::root_llms_locked() ) {
+            wp_send_json_error( VigIA_LLMS_Generator::root_llms_locked_message() );
         }
 
         $file = isset( $_POST['file'] ) ? sanitize_file_name( wp_unslash( $_POST['file'] ) ) : '';
@@ -1918,72 +1953,32 @@ final class VigIA {
     }
 
     /**
-     * Give the MCP switch its first value, once per site.
+     * Raise the notice for a site whose MCP server was in use, once per site.
      *
-     * Until 2.7.0 the server was on for everyone and the adapter came inside
-     * the plugin. The switch starts off, except where somebody had connected a
-     * client: the Application Password that the MCP tab creates is the trace
-     * that leaves. Those sites keep the server on and, if nothing on the site
-     * boots an adapter any more, get a notice that says so.
+     * Until 2.7.0 the adapter came inside the plugin. A site updated from one
+     * of those versions with a client connected keeps the server on
+     * (VigIA_MCP_Server::decide_first_value()) and, if nothing on the site
+     * boots an adapter any more, gets a notice that says so.
      *
      * @since 2.8.0
+     * @since 2.8.3 Only the notice: the switch is decided on its first read.
+     *
+     * @param string $stored Version the site comes from.
      */
-    private function maybe_migrate_mcp_switch() {
-        if ( null !== get_option( VigIA_MCP_Server::OPTION_ENABLED, null ) ) {
+    private function maybe_migrate_mcp_switch( $stored ) {
+        if ( null !== get_option( VigIA_MCP_Server::OPTION_NOTICE, null ) ) {
             return;
         }
 
-        $in_use = $this->has_mcp_app_password();
-
-        update_option( VigIA_MCP_Server::OPTION_ENABLED, $in_use ? '1' : '0', true );
         update_option( VigIA_MCP_Server::OPTION_NOTICE, '0', true );
 
-        if ( $in_use && ! VigIA_MCP_Server::is_mcp_active() ) {
+        if ( ! is_string( $stored ) || version_compare( $stored, '2.8.0', '>=' ) ) {
+            return;
+        }
+
+        if ( VigIA_MCP_Server::is_enabled() && ! VigIA_MCP_Server::is_mcp_active() ) {
             update_option( VigIA_MCP_Server::OPTION_NOTICE, '1', true );
         }
-    }
-
-    /**
-     * Whether any user of this site holds the Application Password that the
-     * MCP tab creates.
-     *
-     * @since 2.8.0
-     *
-     * @return bool
-     */
-    private function has_mcp_app_password() {
-        if ( ! class_exists( '\\WP_Application_Passwords' ) ) {
-            return false;
-        }
-
-        $user_ids = get_users(
-            array(
-                // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Runs once per site, on the update to 2.8.0, and only users who hold an Application Password carry this key.
-                'meta_key'     => \WP_Application_Passwords::USERMETA_KEY_APPLICATION_PASSWORDS,
-                'meta_compare' => 'EXISTS',
-                'fields'       => 'ID',
-                'number'       => 200,
-            )
-        );
-
-        if ( empty( $user_ids ) ) {
-            return false;
-        }
-
-        // One query for the meta of all of them, instead of one per user.
-        update_meta_cache( 'user', array_map( 'intval', $user_ids ) );
-
-        foreach ( $user_ids as $user_id ) {
-            $passwords = \WP_Application_Passwords::get_user_application_passwords( (int) $user_id );
-
-            foreach ( $passwords as $password ) {
-                if ( isset( $password['name'] ) && VigIA_Extras_Page::MCP_APP_PASSWORD_NAME === $password['name'] ) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
     }
 
     /**

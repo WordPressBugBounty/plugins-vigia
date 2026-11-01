@@ -202,7 +202,8 @@ class VigIA_Robots_Manager {
      */
     public static function add_disallow( $crawler_name ) {
         // Read-only while Visibility owns the rules: it is the source of truth.
-        if ( self::is_ceded_to_visibility() ) {
+        // And for whoever may not change the network's robots.txt (2.8.3).
+        if ( self::is_ceded_to_visibility() || self::root_robots_locked() ) {
             return false;
         }
         $rules    = self::get_ai_rules();
@@ -232,7 +233,8 @@ class VigIA_Robots_Manager {
      */
     public static function remove_disallow( $crawler_name ) {
         // Read-only while Visibility owns the rules: it is the source of truth.
-        if ( self::is_ceded_to_visibility() ) {
+        // And for whoever may not change the network's robots.txt (2.8.3).
+        if ( self::is_ceded_to_visibility() || self::root_robots_locked() ) {
             return false;
         }
         $rules   = self::get_ai_rules();
@@ -256,7 +258,8 @@ class VigIA_Robots_Manager {
      */
     public static function add_allow( $crawler_name ) {
         // Read-only while Visibility owns the rules: it is the source of truth.
-        if ( self::is_ceded_to_visibility() ) {
+        // And for whoever may not change the network's robots.txt (2.8.3).
+        if ( self::is_ceded_to_visibility() || self::root_robots_locked() ) {
             return false;
         }
         $rules   = self::get_ai_rules();
@@ -286,7 +289,8 @@ class VigIA_Robots_Manager {
      */
     public static function remove_allow( $crawler_name ) {
         // Read-only while Visibility owns the rules: it is the source of truth.
-        if ( self::is_ceded_to_visibility() ) {
+        // And for whoever may not change the network's robots.txt (2.8.3).
+        if ( self::is_ceded_to_visibility() || self::root_robots_locked() ) {
             return false;
         }
         $rules   = self::get_ai_rules();
@@ -847,6 +851,60 @@ class VigIA_Robots_Manager {
     }
 
     /**
+     * Whether the current user is kept from changing what the files at the
+     * network root say.
+     *
+     * owns_root_files() lets only the main site write those files, but on the
+     * main site any user with manage_options could change what goes into them,
+     * and manage_options is a per-site capability: an administrator of the main
+     * site who is not a network administrator rewrote the robots.txt and the
+     * llms.txt that every domain of the network serves (rule 3 of the plugin
+     * folder; this function had no caller until 2.8.3).
+     *
+     * Only when a user is signed in. Cron and WP-CLI without --user write what
+     * is already stored, which only somebody allowed could have chosen, so
+     * scheduled rebuilds keep working. Callers check it where a choice is made
+     * (AJAX handlers, abilities, the settings that feed the files) and not in
+     * the writers, which those background paths also go through.
+     *
+     * @since 2.8.3
+     *
+     * @return bool
+     */
+    public static function shared_root_locked() {
+        return is_multisite()
+            && is_main_site()
+            && 0 !== get_current_user_id()
+            && ! self::current_user_can_manage_root_files();
+    }
+
+    /**
+     * Whether the AI crawler rules are kept from the current user because they
+     * end up in a physical robots.txt at the network root.
+     *
+     * Without that file the rules only feed this site's virtual robots.txt,
+     * which is answered at this site's own address, so they stay editable.
+     *
+     * @since 2.8.3
+     *
+     * @return bool
+     */
+    public static function root_robots_locked() {
+        return self::shared_root_locked() && self::has_physical_robots();
+    }
+
+    /**
+     * What a user kept out by root_robots_locked() is told.
+     *
+     * @since 2.8.3
+     *
+     * @return string
+     */
+    public static function root_robots_locked_message() {
+        return __( 'This network has a physical robots.txt at its root, and every site of the network serves it. Only a network administrator can change the AI crawler rules written into it.', 'vigia' );
+    }
+
+    /**
      * Check if physical robots.txt file exists
      *
      * @return bool
@@ -1012,32 +1070,24 @@ class VigIA_Robots_Manager {
         // Check database for visits from disallowed crawlers.
         global $wpdb;
 
-        // Get visits in last 30 days from disallowed crawlers.
-        // Build the query safely - table name uses wpdb prefix directly.
-        $placeholders = implode( ',', array_fill( 0, count( $disallowed ), '%s' ) );
+        // Get visits in last 30 days from disallowed crawlers. One %s per name,
+        // written inline in the query so the placeholder count is the one the
+        // sniffs read (2.8.3: until then the list was built in a variable and
+        // three sniffs were switched off around it, without a word on why).
 
         // Cache key for this query.
         $cache_key = 'vigia_compliance_' . md5( implode( '_', $disallowed ) );
         $results   = wp_cache_get( $cache_key, 'vigia' );
 
         if ( false === $results ) {
-            // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery
-            // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-            // phpcs:disable WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Plugin table, no API for it; cached for an hour right below.
             $results = $wpdb->get_results(
                 $wpdb->prepare(
-                    "SELECT crawler_name, COUNT(*) as visit_count, MAX(visit_date) as last_visit 
-                    FROM {$wpdb->prefix}vigia_visits 
-                    WHERE crawler_name IN ({$placeholders}) 
-                    AND visit_date > DATE_SUB(NOW(), INTERVAL 30 DAY) 
-                    GROUP BY crawler_name",
-                    ...$disallowed
+                    "SELECT crawler_name, COUNT(*) as visit_count, MAX(visit_date) as last_visit FROM {$wpdb->prefix}vigia_visits WHERE crawler_name IN (" . implode( ',', array_fill( 0, count( $disallowed ), '%s' ) ) . ') AND visit_date > DATE_SUB(NOW(), INTERVAL 30 DAY) GROUP BY crawler_name',
+                    $disallowed
                 ),
                 ARRAY_A
             );
-            // phpcs:enable WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
-            // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-            // phpcs:enable WordPress.DB.DirectDatabaseQuery.DirectQuery
 
             wp_cache_set( $cache_key, $results, 'vigia', HOUR_IN_SECONDS );
         }

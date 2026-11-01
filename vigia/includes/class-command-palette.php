@@ -104,6 +104,13 @@ class VigIA_Command_Palette {
 			wp_send_json_error( __( 'The LLMs.txt generator is not available.', 'vigia' ) );
 		}
 
+		// A rebuild writes, or clears, the files at the network root when they
+		// are there: the same gate as the LLMs tab (2.8.3). Cron still rebuilds
+		// them, with no user.
+		if ( VigIA_LLMS_Generator::root_llms_locked() ) {
+			wp_send_json_error( VigIA_LLMS_Generator::root_llms_locked_message() );
+		}
+
 		$which  = ( isset( $_POST['which'] ) && 'full' === sanitize_key( wp_unslash( $_POST['which'] ) ) ) ? 'full' : 'llms';
 		$result = VigIA_LLMS_Generator::regenerate_file( $which );
 

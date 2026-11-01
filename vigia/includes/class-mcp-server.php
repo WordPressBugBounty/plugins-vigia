@@ -186,12 +186,12 @@ class VigIA_MCP_Server {
 	/**
 	 * Whether the site owner has turned the MCP server on.
 	 *
-	 * Off unless the switch in VigIA > Extras > MCP says otherwise. A site
-	 * updated from a version that had no switch keeps the server on until
-	 * VigIA::maybe_upgrade_version() decides, on the first admin page load, so
-	 * an unattended update does not cut off a client that was connected.
+	 * Off unless the switch in VigIA > Extras > MCP says otherwise. On a site
+	 * that has no value yet, the first read decides it and writes it: see
+	 * decide_first_value().
 	 *
 	 * @since 2.8.0
+	 * @since 2.8.3 A site without a value decides it on the first read.
 	 *
 	 * @return bool
 	 */
@@ -199,19 +199,107 @@ class VigIA_MCP_Server {
 		$value = get_option( self::OPTION_ENABLED, null );
 
 		if ( null === $value ) {
-			$stored = get_option( 'vigia_version', '0.0.0' );
-
-			// A released version number and nothing else: version_compare()
-			// takes an empty string, or anything it cannot read, as lower.
-			return is_string( $stored )
-				&& 1 === preg_match( '/^\d+\.\d+\.\d+$/', $stored )
-				&& '0.0.0' !== $stored
-				&& version_compare( $stored, '2.8.0', '<' );
+			$value = self::decide_first_value();
 		}
 
 		// Only the string the switch writes turns it on. is_scalar() first: an
 		// option somebody else left as an array would otherwise warn on a cast.
 		return is_scalar( $value ) && '1' === (string) $value;
+	}
+
+	/**
+	 * Give the switch its first value on this site, and store it.
+	 *
+	 * Until 2.7.0 the server was on for everyone. The switch starts off,
+	 * except on a site updated from one of those versions where somebody had
+	 * connected a client: the Application Password that the MCP tab creates is
+	 * the trace that leaves, and that site keeps the server on, so an
+	 * unattended update does not cut the client off.
+	 *
+	 * Until 2.8.2 the decision waited for the first admin page load, and in the
+	 * meantime every site updated from 2.7.x or earlier counted as on. Since
+	 * 2.8.1 the switch also governs the abilities on every channel, so for as
+	 * long as nobody opened wp-admin they answered on the core route
+	 * /wp-abilities/v1/ too, on sites that had never connected anything.
+	 * Deciding on the first read, wherever it happens, leaves no such window.
+	 *
+	 * Any stored version counts, not only those below 2.8.0. The update
+	 * routine stores the new version before it decides, so a request reading
+	 * the switch in between saw a current version, took the site for a new
+	 * one and switched off a connected client for good (the cross review of
+	 * 1 Nov 2026). Every site from 2.8.0 on already has a value and never
+	 * gets here, and a new install has no version until its first admin page
+	 * and no Application Password from the MCP tab, so the trace alone is
+	 * what tells them apart.
+	 *
+	 * @since 2.8.3
+	 *
+	 * @param string|null $stored Version the site comes from. Null reads it
+	 *                            from vigia_version.
+	 * @return string '1' or '0', as stored.
+	 */
+	public static function decide_first_value( $stored = null ) {
+		if ( null === $stored ) {
+			$stored = get_option( 'vigia_version', '0.0.0' );
+		}
+
+		// A released version number and nothing else. '0.0.0' is what a new
+		// install hands over on its first admin page.
+		$updated = is_string( $stored )
+			&& 1 === preg_match( '/^\d+\.\d+\.\d+$/', $stored )
+			&& '0.0.0' !== $stored;
+
+		$value = ( $updated && self::has_app_password_trace() ) ? '1' : '0';
+
+		update_option( self::OPTION_ENABLED, $value, true );
+
+		return $value;
+	}
+
+	/**
+	 * Whether any user of this site holds the Application Password that the
+	 * MCP tab creates.
+	 *
+	 * Runs once per site, when the switch gets its first value.
+	 *
+	 * @since 2.8.0 In the main plugin class.
+	 * @since 2.8.3 Here.
+	 *
+	 * @return bool
+	 */
+	public static function has_app_password_trace() {
+		if ( ! class_exists( '\\WP_Application_Passwords' ) ) {
+			return false;
+		}
+
+		$user_ids = get_users(
+			array(
+				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Runs once per site, when the MCP switch gets its first value, and only users who hold an Application Password carry this key.
+				'meta_key'     => \WP_Application_Passwords::USERMETA_KEY_APPLICATION_PASSWORDS,
+				'meta_compare' => 'EXISTS',
+				'fields'       => 'ID',
+				'number'       => 200,
+			)
+		);
+
+		if ( empty( $user_ids ) ) {
+			return false;
+		}
+
+		// One query for the meta of all of them, instead of one per user.
+		update_meta_cache( 'user', array_map( 'intval', $user_ids ) );
+
+		foreach ( $user_ids as $user_id ) {
+			$passwords = \WP_Application_Passwords::get_user_application_passwords( (int) $user_id );
+
+			foreach ( $passwords as $password ) {
+				if ( isset( $password['name'] ) && VigIA_Extras_Page::MCP_APP_PASSWORD_NAME === $password['name'] ) {
+					return true;
+				}
+			}
+		}
+
+		return false;
 	}
 
 	/**

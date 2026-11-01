@@ -68,6 +68,11 @@ class VigIA_Extras_Page {
         $vigia_ceded_tabs    = self::ceded_tabs();
         $vigia_current_ceded = isset( $vigia_ceded_tabs[ $current_tab ] );
 
+        // The llms tab is read-only, the same way, for a user who may not change
+        // files the whole network serves (2.8.3). Its notice says why.
+        $vigia_llms_locked    = ! isset( $vigia_ceded_tabs['llms'] ) && VigIA_LLMS_Generator::root_llms_locked();
+        $vigia_current_locked = ( 'llms' === $current_tab && $vigia_llms_locked );
+
         ?>
         <div class="wrap vigia-wrap vigia-extras-wrap">
             <h1>
@@ -89,21 +94,32 @@ class VigIA_Extras_Page {
                             if ( $current_tab === $tab_id ) {
                                 $vigia_tab_class .= ' nav-tab-active';
                             }
-                            if ( $vigia_is_ceded ) {
+                            // Dimmed the same way when only a network administrator
+                            // may change it (2.8.3), with a lock instead of the arrow.
+                            $vigia_is_locked = ( 'llms' === $tab_id && $vigia_llms_locked );
+                            if ( $vigia_is_ceded || $vigia_is_locked ) {
                                 $vigia_tab_class .= ' vigia-tab-ceded';
                             }
                             ?>
                             <a href="<?php echo esc_url( admin_url( 'admin.php?page=vigia-extras&tab=' . $tab_id ) ); ?>"
                                class="<?php echo esc_attr( $vigia_tab_class ); ?>"
-                               <?php if ( $vigia_is_ceded ) : ?>title="<?php echo esc_attr__( 'Managed by Visibility — configure it on the Visibility settings screen.', 'vigia' ); ?>"<?php endif; ?>>
+                               <?php if ( $vigia_is_ceded ) : ?>title="<?php echo esc_attr__( 'Managed by Visibility — configure it on the Visibility settings screen.', 'vigia' ); ?>"<?php elseif ( $vigia_is_locked ) : ?>title="<?php echo esc_attr__( 'Only a network administrator can change this on this network.', 'vigia' ); ?>"<?php endif; ?>>
                                 <?php echo esc_html( $tab_name ); ?>
-                                <?php if ( $vigia_is_ceded ) : ?><span class="vigia-tab-ceded-badge dashicons dashicons-external" aria-hidden="true"></span><?php endif; ?>
+                                <?php if ( $vigia_is_ceded ) : ?><span class="vigia-tab-ceded-badge dashicons dashicons-external" aria-hidden="true"></span><?php elseif ( $vigia_is_locked ) : ?><span class="vigia-tab-ceded-badge dashicons dashicons-lock" aria-hidden="true"></span><?php endif; ?>
                             </a>
                         <?php endforeach; ?>
                     </nav>
 
                     <div class="vigia-extras-content<?php echo $vigia_current_ceded ? ' vigia-extras-content--ceded' : ''; ?>">
-                        <?php if ( $vigia_current_ceded ) : ?>
+                        <?php if ( $vigia_current_locked ) : ?>
+                        <div class="vigia-notice vigia-notice-info">
+                            <p>
+                                <span class="dashicons dashicons-lock"></span>
+                                <?php echo esc_html( VigIA_LLMS_Generator::root_llms_locked_message() ); ?>
+                            </p>
+                        </div>
+                        <?php endif; ?>
+                        <?php if ( $vigia_current_ceded || $vigia_current_locked ) : ?>
                         <fieldset class="vigia-ceded-fieldset" disabled>
                         <?php endif; ?>
                         <?php
@@ -128,7 +144,7 @@ class VigIA_Extras_Page {
                                 break;
                         }
                         ?>
-                        <?php if ( $vigia_current_ceded ) : ?>
+                        <?php if ( $vigia_current_ceded || $vigia_current_locked ) : ?>
                         </fieldset>
                         <?php endif; ?>
                     </div>
@@ -360,6 +376,11 @@ class VigIA_Extras_Page {
         // blocking below stay fully functional.
         $rules_ceded = class_exists( 'VigIA_Sibling_Visibility' ) && VigIA_Sibling_Visibility::should_defer( 'robots' );
 
+        // Read-only the same way for a user who may not change the robots.txt
+        // that the whole network serves (2.8.3). Blocking by PHP stays.
+        $rules_locked = VigIA_Robots_Manager::root_robots_locked();
+        $rules_ceded  = $rules_ceded || $rules_locked;
+
         // Detect if physical robots.txt exists or use virtual.
         $physical_robots = ABSPATH . 'robots.txt';
         $robots_url      = file_exists( $physical_robots ) ? home_url( '/robots.txt' ) : home_url( '/?robots=1' );
@@ -377,6 +398,16 @@ class VigIA_Extras_Page {
                 __( 'Manage the robots.txt rules for AI crawlers from Visibility; VigIA still enforces hard blocks via PHP (HTTP 403).', 'vigia' )
             );
             ?>
+
+            <?php if ( $rules_locked ) : ?>
+                <div class="vigia-notice vigia-notice-info">
+                    <p>
+                        <span class="dashicons dashicons-lock"></span>
+                        <?php echo esc_html( VigIA_Robots_Manager::root_robots_locked_message() ); ?>
+                        <?php esc_html_e( 'Blocking crawlers with HTTP 403 on this site is unaffected.', 'vigia' ); ?>
+                    </p>
+                </div>
+            <?php endif; ?>
 
             <div class="vigia-robots-container">
                 <!-- Current robots.txt preview -->
@@ -792,6 +823,50 @@ class VigIA_Extras_Page {
             ?>
         </p>
         <?php
+        if ( $at_root ) {
+            self::render_llms_charset_notice();
+        }
+    }
+
+    /**
+     * Warn when the web server sends the physical files without saying they
+     * are UTF-8, or when VigIA could not ask it.
+     *
+     * @since 2.8.3
+     */
+    private static function render_llms_charset_notice() {
+        $check = VigIA_LLMS_Generator::get_charset_check();
+
+        if ( ! $check || 'ok' === $check['status'] ) {
+            return;
+        }
+
+        if ( 'missing' === $check['status'] ) {
+            $type = '' !== $check['content_type'] ? $check['content_type'] : __( 'none', 'vigia' );
+            ?>
+            <div class="vigia-notice vigia-notice-warning">
+                <p>
+                    <span class="dashicons dashicons-warning"></span>
+                    <?php
+                    printf(
+                        /* translators: %s: Content-Type header the web server sent for llms.txt, for example "text/plain". */
+                        esc_html__( 'Your web server sends llms.txt without saying it is UTF-8 (Content-Type: %s). Browsers and some AI tools then show accented letters as odd symbols, although the file itself is correct. Set Delivery to Served by WordPress and generate again: WordPress sends the files as UTF-8. Your host can also fix it by adding a UTF-8 charset to .txt files.', 'vigia' ),
+                        '<code>' . esc_html( $type ) . '</code>'
+                    );
+                    ?>
+                </p>
+            </div>
+            <?php
+            return;
+        }
+        ?>
+        <div class="vigia-notice vigia-notice-info">
+            <p>
+                <span class="dashicons dashicons-info"></span>
+                <?php esc_html_e( 'VigIA could not check how your web server sends llms.txt: its request to the file did not get an answer. If accented letters look wrong when you open llms.txt, set Delivery to Served by WordPress and generate again.', 'vigia' ); ?>
+            </p>
+        </div>
+        <?php
     }
 
     /**
@@ -1073,7 +1148,7 @@ class VigIA_Extras_Page {
                         </p>
                         <div class="vigia-regen-options">
                             <label>
-                                <input type="radio" name="vigia_delivery" value="file" <?php checked( $delivery, 'file' ); ?>>
+                                <input type="radio" name="vigia_delivery" value="file" <?php checked( $delivery, 'file' ); ?> <?php disabled( VigIA_Robots_Manager::shared_root_locked() ); ?>>
                                 <?php esc_html_e( 'Physical file at the site root', 'vigia' ); ?>
                             </label>
                             <label>
@@ -1122,7 +1197,7 @@ class VigIA_Extras_Page {
                 <div class="vigia-llms-section">
                     <h4><?php esc_html_e( 'Robots.txt integration', 'vigia' ); ?></h4>
                     <label class="vigia-checkbox-label">
-                        <input type="checkbox" id="vigia-robots-llms" <?php checked( $settings['robots_llms'] ); ?>>
+                        <input type="checkbox" id="vigia-robots-llms" <?php checked( $settings['robots_llms'] ); ?> <?php disabled( VigIA_Robots_Manager::shared_root_locked() && VigIA_Robots_Manager::has_physical_robots() ); ?>>
                         <?php esc_html_e( 'Add llms.txt reference to robots.txt', 'vigia' ); ?>
                     </label>
                     <p class="description">

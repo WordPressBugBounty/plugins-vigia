@@ -114,7 +114,7 @@ class VigIA_Client_IP {
         }
 
         if ( ! empty( $server['HTTP_X_REAL_IP'] ) ) {
-            $address = self::unmap_ipv4( trim( (string) $server['HTTP_X_REAL_IP'] ) );
+            $address = self::unmap_ipv4( self::strip_port( (string) $server['HTTP_X_REAL_IP'] ) );
             if ( filter_var( $address, FILTER_VALIDATE_IP ) ) {
                 return $address;
             }
@@ -135,7 +135,8 @@ class VigIA_Client_IP {
      * web server in front of PHP appends Cloudflare, so this also finds the
      * visitor behind Cloudflare plus a local proxy. An entry that is not an
      * address stops the reading: nothing to its left can be told apart from
-     * what the visitor wrote.
+     * what the visitor wrote. A port written by the proxy is dropped first
+     * (see strip_port()).
      *
      * @param string   $value           Header value.
      * @param string[] $trusted_proxies Declared proxy addresses or CIDR ranges.
@@ -146,7 +147,7 @@ class VigIA_Client_IP {
         $nearest = '';
 
         foreach ( $entries as $entry ) {
-            $address = self::unmap_ipv4( $entry );
+            $address = self::unmap_ipv4( self::strip_port( $entry ) );
 
             if ( ! filter_var( $address, FILTER_VALIDATE_IP ) ) {
                 break;
@@ -165,6 +166,62 @@ class VigIA_Client_IP {
         }
 
         return $nearest;
+    }
+
+    /**
+     * An address written by a proxy with its port, without the port.
+     *
+     * Some proxies append the port they were connected from (Azure App
+     * Service writes "203.0.113.7:51234" and "[2001:db8::1]:443"), and until
+     * 2.8.2 such an entry stopped the reading, so on those hosts the visitor
+     * was the proxy. Only two shapes are taken apart: an IPv4 address with a
+     * port, and an IPv6 address in brackets with or without one. A bare IPv6
+     * address also has colons, so anything that already is an address comes
+     * back as it was. Anything else comes back as it was too, and fails the
+     * address check of the caller.
+     *
+     * @since 2.8.3
+     * @param string $entry One address as written in a proxy header.
+     * @return string
+     */
+    public static function strip_port( $entry ) {
+        $entry = trim( (string) $entry );
+
+        if ( filter_var( $entry, FILTER_VALIDATE_IP ) ) {
+            return $entry;
+        }
+
+        if ( preg_match( '/^\[([0-9a-fA-F:.]+)\](?::(\d{1,5}))?$/', $entry, $m ) ) {
+            $address = $m[1];
+            $port    = isset( $m[2] ) ? $m[2] : '';
+            if ( filter_var( $address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 ) && self::is_port( $port, true ) ) {
+                return $address;
+            }
+            return $entry;
+        }
+
+        if ( preg_match( '/^(\d{1,3}(?:\.\d{1,3}){3}):(\d{1,5})$/', $entry, $m ) ) {
+            if ( filter_var( $m[1], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 ) && self::is_port( $m[2], false ) ) {
+                return $m[1];
+            }
+        }
+
+        return $entry;
+    }
+
+    /**
+     * Whether a written port is one, 1 to 65535.
+     *
+     * @param string $port       Digits after the colon.
+     * @param bool   $allow_none Whether no port at all is fine.
+     * @return bool
+     */
+    private static function is_port( $port, $allow_none ) {
+        if ( '' === $port ) {
+            return $allow_none;
+        }
+
+        return ( (int) $port >= 1 && (int) $port <= 65535 );
     }
 
     /**

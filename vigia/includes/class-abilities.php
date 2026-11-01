@@ -1066,6 +1066,14 @@ class VigIA_Abilities {
 			);
 		}
 
+		// The network's robots.txt is not this user's to change (2.8.3).
+		if ( VigIA_Robots_Manager::root_robots_locked() ) {
+			return array(
+				'success' => false,
+				'message' => VigIA_Robots_Manager::root_robots_locked_message(),
+			);
+		}
+
 		$crawler = sanitize_text_field( $input['crawler'] );
 
 		// Check if already disallowed.
@@ -1158,6 +1166,14 @@ class VigIA_Abilities {
 			return array(
 				'success' => false,
 				'message' => __( 'Crawler name is required.', 'vigia' ),
+			);
+		}
+
+		// The network's robots.txt is not this user's to change (2.8.3).
+		if ( VigIA_Robots_Manager::root_robots_locked() ) {
+			return array(
+				'success' => false,
+				'message' => VigIA_Robots_Manager::root_robots_locked_message(),
 			);
 		}
 

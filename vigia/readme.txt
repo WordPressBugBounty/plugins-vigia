@@ -4,7 +4,7 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 2.8.2
+Stable tag: 2.8.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -307,6 +307,15 @@ Yes. On a network each site keeps its llms.txt and llms-full.txt in its own uplo
 
 On a single site the files are physical files at the site root unless you choose Served by WordPress under Delivery, which is the option to pick when that folder is not writable.
 
+= Accented letters look wrong when I open llms.txt =
+
+The file is fine. Your web server sends it without saying it is UTF-8, so the browser guesses another encoding.
+
+* Set Delivery to Served by WordPress and generate again. WordPress sends the files as UTF-8.
+* Or ask your host to add a UTF-8 charset to .txt files.
+
+VigIA checks this each time you generate the files and warns you in the Delivery section.
+
 = Which SEO plugins are supported for noindex detection? =
 
 VigIA supports automatic noindex detection from: Yoast SEO, Rank Math, All in One SEO, SEOPress, The SEO Framework, and Native SEO NoIndexer.
@@ -433,6 +442,16 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
+= 2.8.3 =
+Fixes the visitor address behind proxies that add a port, keeps the network root files for network administrators, warns when the server sends llms.txt without UTF-8, closes an MCP window left by updates from 2.7, and fixes formatting in llms-full.txt.
+
+* Improved: The Delivery section of llms.txt warns when the web server sends the physical files without saying they are UTF-8. Browsers and some AI tools then show accented letters as odd symbols, although the file is correct. VigIA asks the server each time the files are generated from the admin, proposes Served by WordPress, which sends them as UTF-8, and says so when it could not ask.
+* Fix: On hosts whose proxy writes the port next to the visitor address in X-Forwarded-For or X-Real-IP (Azure App Service does, as 203.0.113.7:51234 or [2001:db8::1]:443), the block list and the visit log saw the address of the proxy, so a visitor blocked by IP was never matched there. VigIA now drops that port before reading the address. Reported by kta1kri.
+* Fix: A site updated from 2.7.x or earlier counted the MCP switch as on until somebody opened wp-admin, and since 2.8.1 that also let the abilities answer on the core REST route during that time. The switch is now decided on its first read, wherever it happens: on only where a client had been connected (the VigIA MCP application password), off everywhere else.
+* Fix: On a multisite network, an administrator of the main site who is not a network administrator could change the robots.txt, llms.txt and llms-full.txt at the network root, which every site of the network serves. Those changes now need a network administrator: the AI crawler rules when there is a physical robots.txt at the root, and the llms settings when the files are at the root or would be. Each site keeps its own rules and its own files served by WordPress, and blocking crawlers is unaffected.
+* Fix: In llms-full.txt, a line break no longer starts a bold run and an image no longer starts an italic one, a line break without a new line after it no longer glues two lines together, and a heading written right after other text now goes on a line of its own.
+* Fix: Code cleanup. The robots.txt compliance query is now prepared as a single statement, and the remaining database suppressions say why on their own line. What the query returns does not change.
+
 = 2.8.2 =
 Blocking by IP can no longer be bypassed with a forged proxy header, and the visit log no longer takes the visitor address from headers that anybody can send.
 
@@ -467,8 +486,8 @@ For older changelog entries, please check the [changelog.txt](https://plugins.sv
 
 == Upgrade Notice ==
 
-= 2.8.2 =
-Blocking by IP can no longer be bypassed with a forged proxy header, and the visit log no longer takes the visitor address from headers that anybody can send.
+= 2.8.3 =
+Fixes the visitor address behind proxies that add a port, keeps the network root files for network administrators, warns when the server sends llms.txt without UTF-8, closes an MCP window left by updates from 2.7, and fixes formatting in llms-full.txt.
 
 == Support ==
 

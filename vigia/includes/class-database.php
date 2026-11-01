@@ -1407,7 +1407,7 @@ class VigIA_Database {
         // fills every placeholder, so the final SQL is fully escaped. Static
         // analysers cannot follow the runtime composition, hence the block
         // of suppressions below.
-        // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber, PluginCheck.Security.DirectDB.UnescapedDBParameter
+        // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber, PluginCheck.Security.DirectDB.UnescapedDBParameter -- $where comes from build_visits_filter(): literal SQL and placeholders only, every value goes through prepare() (see the comment above).
         $total = (int) $wpdb->get_var(
             $wpdb->prepare(
                 'SELECT COUNT(*) FROM %i WHERE ' . $where,
@@ -1821,7 +1821,7 @@ class VigIA_Database {
         // $where is composed only of literal SQL plus %s placeholders that
         // wpdb::prepare() resolves with $values. Static analysers cannot
         // follow the runtime composition; the actual query is fully prepared.
-        // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber, PluginCheck.Security.DirectDB.UnescapedDBParameter
+        // phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber, PluginCheck.Security.DirectDB.UnescapedDBParameter -- $where is the three literal clauses built just above, with %s placeholders; every value goes through prepare().
         $rows = $wpdb->get_results(
             $wpdb->prepare(
                 'SELECT id, request_path, http_status FROM %i WHERE ' . $where . ' LIMIT %d',

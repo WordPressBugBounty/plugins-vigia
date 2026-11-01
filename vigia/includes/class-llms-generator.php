@@ -37,6 +37,14 @@ class VigIA_LLMS_Generator {
     const FILES = array( 'llms.txt', 'llms-full.txt' );
 
     /**
+     * What the web server said about the charset of the physical llms.txt,
+     * the last time the files were generated from the admin.
+     *
+     * @since 2.8.3
+     */
+    const OPTION_CHARSET = 'vigia_llms_charset_check';
+
+    /**
      * Folder inside a site's uploads directory that holds its copies when
      * WordPress is the one serving them. See stored_path().
      *
@@ -697,12 +705,76 @@ class VigIA_LLMS_Generator {
     }
 
     /**
-     * Save settings (complete replacement, no merging)
+     * Whether the current user is kept from changing these settings because
+     * they decide what a file at the network root says.
      *
-     * @param array $settings Complete settings.
+     * That is the case on the main site of a network, for a user who is not a
+     * network administrator, when the llms files are at the root or would be,
+     * or when the lines that point to them in a physical robots.txt at the root
+     * would change. Served by WordPress, the files are this site's alone and the
+     * settings stay editable. See VigIA_Robots_Manager::shared_root_locked().
+     *
+     * @since 2.8.3
+     *
+     * @param array|null $settings Settings about to be saved, or null to ask
+     *                             about the current ones only.
      * @return bool
      */
+    public static function root_llms_locked( $settings = null ) {
+        if ( ! VigIA_Robots_Manager::shared_root_locked() ) {
+            return false;
+        }
+
+        if ( 'file' === self::delivery_mode() || file_exists( ABSPATH . 'llms.txt' ) || file_exists( ABSPATH . 'llms-full.txt' ) ) {
+            return true;
+        }
+
+        if ( null === $settings ) {
+            return false;
+        }
+
+        $settings = self::normalize_settings( $settings );
+
+        if ( 'file' === self::delivery_mode( $settings ) ) {
+            return true;
+        }
+
+        if ( VigIA_Robots_Manager::has_physical_robots() ) {
+            $current = self::get_settings();
+            $now     = array( ! empty( $current['robots_llms'] ), ! empty( $current['robots_llms_full'] ) && ! empty( $current['generate_full'] ) );
+            $asked   = array( ! empty( $settings['robots_llms'] ), ! empty( $settings['robots_llms_full'] ) && ! empty( $settings['generate_full'] ) );
+            if ( $now !== $asked ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * What a user kept out by root_llms_locked() is told.
+     *
+     * @since 2.8.3
+     *
+     * @return string
+     */
+    public static function root_llms_locked_message() {
+        return __( 'On this network the llms files, or the robots.txt lines that point to them, are at the network root, and every site of the network serves them. Only a network administrator can change them. Served by WordPress, each site has its own files.', 'vigia' );
+    }
+
+    /**
+     * Save settings (complete replacement, no merging)
+     *
+     * @since 2.8.3 Returns a WP_Error for a user kept out by root_llms_locked().
+     *
+     * @param array $settings Complete settings.
+     * @return bool|WP_Error
+     */
     public static function save_settings( $settings ) {
+        if ( self::root_llms_locked( $settings ) ) {
+            return new WP_Error( 'network_root_locked', self::root_llms_locked_message() );
+        }
+
         $settings = self::normalize_settings( $settings );
 
         // Update cron.
@@ -934,6 +1006,11 @@ class VigIA_LLMS_Generator {
      * @return array|WP_Error
      */
     public static function save_and_generate( $settings ) {
+        // Before anything is saved or scheduled (2.8.3).
+        if ( self::root_llms_locked( $settings ) ) {
+            return new WP_Error( 'network_root_locked', self::root_llms_locked_message() );
+        }
+
         $settings['last_generated'] = time();
 
         // Normalize settings.
@@ -2520,6 +2597,13 @@ class VigIA_LLMS_Generator {
         $one_line = static function ( $text ) use ( $token ) {
             return false !== strpos( $text, $token ) ? $text : trim( self::keep_replace( '/\s+/', ' ', $text ) );
         };
+        // A line break is a line break (2.8.3). The tag was only taken out, so the
+        // break survived when the markup happened to carry a newline after it, as
+        // wpautop() writes it, and `Calle 1<br>28001 Madrid` came out as
+        // `Calle 128001 Madrid`. Before the two passes below, which put the text
+        // of an item or a heading back on one line.
+        $content = self::keep_replace( '#<br\b[^>]*>[ \t]*\n?#i', "\n", $content );
+
         // List items before headings: a heading inside an item (the title of a
         // product in a shop loop) is text of that item, not a heading of the page.
         // And with nothing between one item and the next: the line break a page
@@ -2537,15 +2621,21 @@ class VigIA_LLMS_Generator {
             static function ( $matches ) use ( $one_line ) {
                 $text = $one_line( $matches[2] );
 
-                return '' === trim( wp_strip_all_tags( $text ) ) ? '' : str_repeat( '#', min( 4, (int) $matches[1] ) ) . ' ' . $text . "\n\n";
+                // On a line of its own (2.8.3): markup written on one line, with
+                // no break between a label and the heading after it, gave
+                // `Label ### Heading`, which is not a heading for anyone.
+                return '' === trim( wp_strip_all_tags( $text ) ) ? '' : "\n\n" . str_repeat( '#', min( 4, (int) $matches[1] ) ) . ' ' . $text . "\n\n";
             },
             $content
         );
         $content  = self::keep_replace( '/<p[^>]*>(.*?)<\/p>/is', "$1\n\n", $content );
         $content  = self::keep_replace( '/<\/?[ou]l[^>]*>/is', "\n", $content );
         $content  = self::keep_replace( '/<a[^>]*>(.*?)<\/a>/is', '$1', $content );
-        $content  = self::keep_replace( '/<(strong|b)[^>]*>(.*?)<\/(strong|b)>/is', '**$2**', $content );
-        $content  = self::keep_replace( '/<(em|i)[^>]*>(.*?)<\/(em|i)>/is', '*$2*', $content );
+        // The tag name whole (2.8.3). `<b[^>]*>` also read `<br>` as the start of
+        // a bold run and `<i[^>]*>` read `<img>` as the start of an italic one, up
+        // to wherever the next one closed: `Line one**` and, two lines down, `bold**`.
+        $content  = self::keep_replace( '/<(strong|b)\b[^>]*>(.*?)<\/\1>/is', '**$2**', $content );
+        $content  = self::keep_replace( '/<(em|i)\b[^>]*>(.*?)<\/\1>/is', '*$2*', $content );
         $content  = wp_strip_all_tags( $content );
 
         // Spaces first, then the lines. The other way round (as it was until
@@ -2856,6 +2946,101 @@ class VigIA_LLMS_Generator {
             'url'      => home_url( '/' . $filename ),
             'delivery' => ( ABSPATH . $filename === $path ) ? 'file' : 'virtual',
         );
+    }
+
+    /**
+     * Ask the web server how it sends the physical llms.txt, and remember it.
+     *
+     * A physical file is answered by the web server, not by WordPress, and
+     * many servers send a .txt as `text/plain` with no charset. Browsers then
+     * read it as windows-1252, and so does any client that follows the header
+     * (Python's requests falls back to ISO-8859-1 for text/* without one), so
+     * every accented letter comes out as two wrong characters even though the
+     * file is valid UTF-8. Until 2.6.5 a byte order mark covered for it; 2.6.5
+     * removed the mark, rightly, because the first line must start with `# `,
+     * and nothing replaced it. Reported on a LiteSpeed host behind Cloudflare
+     * on 26 Oct 2026.
+     *
+     * Served by WordPress, the files go out with `charset=utf-8`, so that is
+     * what the Delivery section proposes when the answer comes without one.
+     * One HEAD request to the site's own address, with a query string so a
+     * cache in front answers from the origin; only after generating from the
+     * admin, never on a page view or from cron. When the request fails, that is
+     * stored too, so the screen says it could not check instead of saying
+     * nothing.
+     *
+     * @since 2.8.3
+     *
+     * @return string 'ok', 'missing' or 'unknown'. 'skipped' when the files are
+     *                not physical, in which case nothing is stored.
+     */
+    public static function check_served_charset() {
+        if ( 'file' !== self::delivery_mode() || ! file_exists( ABSPATH . 'llms.txt' ) ) {
+            delete_option( self::OPTION_CHARSET );
+            return 'skipped';
+        }
+
+        $url      = add_query_arg( 'vigia-charset', time(), home_url( '/llms.txt' ) );
+        $response = wp_safe_remote_head(
+            $url,
+            array(
+                'timeout'     => 5,
+                'redirection' => 3,
+            )
+        );
+
+        $status = 'unknown';
+        $type   = '';
+
+        if ( ! is_wp_error( $response ) && 200 === (int) wp_remote_retrieve_response_code( $response ) ) {
+            $type   = (string) wp_remote_retrieve_header( $response, 'content-type' );
+            $status = self::content_type_says_utf8( $type ) ? 'ok' : 'missing';
+        }
+
+        update_option(
+            self::OPTION_CHARSET,
+            array(
+                'status'       => $status,
+                'content_type' => substr( $type, 0, 100 ),
+                'checked'      => time(),
+            ),
+            false
+        );
+
+        return $status;
+    }
+
+    /**
+     * Whether a Content-Type header declares UTF-8.
+     *
+     * @since 2.8.3
+     *
+     * @param string $type Header value, as the server sent it.
+     * @return bool
+     */
+    public static function content_type_says_utf8( $type ) {
+        return 1 === preg_match( '/;\s*charset\s*=\s*"?utf-?8"?\s*(;|$)/i', (string) $type );
+    }
+
+    /**
+     * Last answer of check_served_charset(), while the files are physical.
+     *
+     * @since 2.8.3
+     *
+     * @return array|false Array with status, content_type and checked, or false.
+     */
+    public static function get_charset_check() {
+        if ( 'file' !== self::delivery_mode() ) {
+            return false;
+        }
+
+        $check = get_option( self::OPTION_CHARSET, false );
+
+        if ( ! is_array( $check ) || ! isset( $check['status'] ) || ! in_array( $check['status'], array( 'ok', 'missing', 'unknown' ), true ) ) {
+            return false;
+        }
+
+        return $check;
     }
 
     /**
