@@ -478,9 +478,12 @@ class VigIA_LLMS_Generator {
         // The same document for whoever asks, so it may be reused. With blocks
         // configured it is kept out of shared caches: a blocked crawler is turned
         // away here, at the origin, and a cache in front of the site never asks.
-        // Same rule as the Markdown documents.
-        $blocks = class_exists( 'VigIA_Blocker' ) ? VigIA_Blocker::get_all_blocks() : array();
-        header( 'Cache-Control: ' . ( empty( $blocks ) ? '' : 'private, ' ) . 'max-age=' . HOUR_IN_SECONDS );
+        // Same rule as the Markdown documents. And the same when something already
+        // gave this response a cookie (2.8.4), which a shared cache would keep and
+        // hand to the next visitor along with the file.
+        $blocks  = class_exists( 'VigIA_Blocker' ) ? VigIA_Blocker::get_all_blocks() : array();
+        $private = ! empty( $blocks ) || VigIA_Markdown_Endpoints::response_sets_cookie();
+        header( 'Cache-Control: ' . ( $private ? 'private, ' : '' ) . 'max-age=' . HOUR_IN_SECONDS );
         header_remove( 'Expires' );
 
         if ( $modified > 0 ) {

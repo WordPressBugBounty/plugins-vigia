@@ -476,14 +476,14 @@ class VigIA_Markdown_Endpoints {
 				if ( $the_post instanceof WP_Post
 					&& self::is_post_eligible( $the_post )
 					&& VigIA_Content_Access::is_request_for( get_permalink( $the_post ) ) ) {
-					self::serve_markdown_response( $the_post );
+					self::serve_markdown_response( $the_post, 'negotiated' );
 				}
 			} elseif ( is_tax() || is_category() || is_tag() ) {
 				$term = get_queried_object();
 				if ( $term instanceof WP_Term
 					&& self::is_term_eligible( $term )
 					&& VigIA_Content_Access::is_request_for( get_term_link( $term ) ) ) {
-					self::serve_markdown_response_for_term( $term );
+					self::serve_markdown_response_for_term( $term, 'negotiated' );
 				}
 			}
 		}
@@ -571,13 +571,13 @@ class VigIA_Markdown_Endpoints {
 				$term = self::find_term_by_path( $lowered, true );
 
 				if ( $term && self::is_term_eligible( $term ) ) {
-					self::serve_markdown_response_for_term( $term );
+					self::serve_markdown_response_for_term( $term, 'md' );
 					return;
 				}
 			}
 
 			if ( $the_post && self::is_post_eligible( $the_post ) ) {
-				self::serve_markdown_response( $the_post );
+				self::serve_markdown_response( $the_post, 'md' );
 				return;
 			}
 
@@ -585,7 +585,7 @@ class VigIA_Markdown_Endpoints {
 			$term = self::find_term_by_path( $lowered );
 
 			if ( $term && self::is_term_eligible( $term ) ) {
-				self::serve_markdown_response_for_term( $term );
+				self::serve_markdown_response_for_term( $term, 'md' );
 				return;
 			}
 		}
@@ -1333,9 +1333,12 @@ class VigIA_Markdown_Endpoints {
 	/**
 	 * Serve a markdown response for a post
 	 *
+	 * @since 2.8.4 The `$route` parameter.
+	 *
 	 * @param WP_Post $the_post Post object.
+	 * @param string  $route    Address answering, 'md' or 'negotiated': see send_markdown_response().
 	 */
-	private static function serve_markdown_response( $the_post ) {
+	private static function serve_markdown_response( $the_post, $route ) {
 		self::deny_blocked_crawler();
 
 		$document = self::cached_post_markdown( $the_post );
@@ -1343,16 +1346,20 @@ class VigIA_Markdown_Endpoints {
 		self::send_markdown_response(
 			$document['content'],
 			get_permalink( $the_post ),
-			$document['shared']
+			$document['shared'],
+			$route
 		);
 	}
 
 	/**
 	 * Serve a markdown response for a taxonomy term.
 	 *
-	 * @param WP_Term $term Term object.
+	 * @since 2.8.4 The `$route` parameter.
+	 *
+	 * @param WP_Term $term  Term object.
+	 * @param string  $route Address answering, 'md' or 'negotiated': see send_markdown_response().
 	 */
-	private static function serve_markdown_response_for_term( $term ) {
+	private static function serve_markdown_response_for_term( $term, $route ) {
 		$link = get_term_link( $term );
 		if ( is_wp_error( $link ) ) {
 			self::send_404();
@@ -1366,7 +1373,8 @@ class VigIA_Markdown_Endpoints {
 		self::send_markdown_response(
 			$document['content'],
 			$link,
-			$document['shared']
+			$document['shared'],
+			$route
 		);
 	}
 
@@ -1634,13 +1642,18 @@ class VigIA_Markdown_Endpoints {
 	 *
 	 * @since 2.6.7 The `$shared` parameter, required on purpose: a call that forgot
 	 *              it would otherwise let a document built for one visitor be reused.
+	 * @since 2.8.4 The `$route` parameter, required for the same reason.
 	 *
 	 * @param string $markdown      Markdown body to serve.
 	 * @param string $canonical_url Canonical URL for the Link header.
 	 * @param bool   $shared        Whether the document is the copy of everybody. One
 	 *                              built for a request with cookies is not (see store()).
+	 * @param string $route         Address answering: 'md' for the document's own `.md`
+	 *                              address, 'negotiated' for the address of the page asked
+	 *                              with `Accept: text/markdown`. Anything but 'md' is
+	 *                              kept out of shared caches.
 	 */
-	private static function send_markdown_response( $markdown, $canonical_url, $shared ) {
+	private static function send_markdown_response( $markdown, $canonical_url, $shared, $route ) {
 		// A blocked crawler was turned away before the document was built: see
 		// deny_blocked_crawler(). The list is read again only to decide how widely
 		// the response may be reused.
@@ -1658,7 +1671,18 @@ class VigIA_Markdown_Endpoints {
 			// at the origin, and a shared cache in front of the site never asks, so
 			// with blocks configured the response is kept out of those and only the
 			// client it was served to may reuse it.
-			$reuse = empty( $blocks ) ? '' : 'private, ';
+			//
+			// The same at the address of the page (2.8.4). It answers HTML or Markdown
+			// depending on Accept, and says so with `Vary: Accept`, but a shared cache
+			// that keys on the URL alone stores whichever came first and hands it to
+			// everybody: the first visit of an agent left people with the Markdown
+			// (SiteGround's dynamic cache, reported on 2 Nov 2026; Cloudflare does the
+			// same without a Cache Rule). The `.md` address only ever answers Markdown,
+			// so it stays public.
+			//
+			// And not when something already gave this response a cookie (2.8.4): see
+			// response_sets_cookie().
+			$reuse = ( empty( $blocks ) && 'md' === $route && ! self::response_sets_cookie() ) ? '' : 'private, ';
 			header( 'Cache-Control: ' . $reuse . 'max-age=' . (int) self::HTTP_MAX_AGE );
 			// WordPress sends the nocache set on requests from a logged-in user, and
 			// its Expires date is in the past. Cache-Control takes precedence over it,
@@ -1696,6 +1720,33 @@ class VigIA_Markdown_Endpoints {
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Plain-text Markdown response; see note above.
 		echo $markdown;
 		exit;
+	}
+
+	/**
+	 * Whether something already gave this response a cookie.
+	 *
+	 * A plugin that starts a session on `init` or `wp_loaded` (a store, a
+	 * membership, a consent banner) sets its cookie before these documents are
+	 * answered. A response a shared cache may keep would keep that cookie with it
+	 * and hand it to the next visitor, so with one of those the document goes out
+	 * private, still reusable by the client it was served to. The cookie is left
+	 * alone: it is not ours. Same rule as Visibility 3.2.1
+	 * (`Native_AEO_Pack_Text::shared_cache_control()`).
+	 *
+	 * Asked for the `.md` documents and for llms.txt served by WordPress
+	 * (VigIA_LLMS_Generator::send_file()).
+	 *
+	 * @since 2.8.4
+	 * @return bool
+	 */
+	public static function response_sets_cookie() {
+		foreach ( headers_list() as $header ) {
+			if ( 0 === stripos( $header, 'set-cookie:' ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**

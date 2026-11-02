@@ -4,7 +4,7 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 2.8.3
+Stable tag: 2.8.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -442,6 +442,12 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
+= 2.8.4 =
+Keeps caches in front of the site that follow Cache-Control from showing people the Markdown version of a page when an AI agent asked for it first, or from passing on cookies set by other plugins. Purge that cache after updating.
+
+* Fix: A page asked for with an Accept: text/markdown header, which is how some AI agents ask for the Markdown version, now gets that Markdown as private, so caches in front of the site that follow Cache-Control no longer store it. Some hosting caches keep one copy per address and ignore the Vary: Accept that VigIA sends, and when an agent was the first to visit a page they served the Markdown to people too. Copies they already stored stay until they expire, so purge that cache after updating. The agent may still reuse its copy for an hour. The .md addresses only ever answer Markdown and stay cacheable, and with crawler blocks configured both stay private, as before. Behaviour change: this Markdown is no longer served from a shared cache, so more of these requests reach the site. A cache that also ignores Cache-Control needs a rule of its own.
+* Fix: When another plugin had already given the response a cookie, as a store or a consent banner does when it opens its session, the .md addresses and the llms.txt and llms-full.txt files served by WordPress still went out as public for an hour, so a cache in front of the site could keep that cookie and hand it to the next visitor. In that case they now go out as private, still reusable by the browser for an hour, and the cookie is left as it was. On a site where a plugin sets a cookie on every visit, caches that follow Cache-Control no longer keep these files.
+
 = 2.8.3 =
 Fixes the visitor address behind proxies that add a port, keeps the network root files for network administrators, warns when the server sends llms.txt without UTF-8, closes an MCP window left by updates from 2.7, and fixes formatting in llms-full.txt.
 
@@ -486,8 +492,8 @@ For older changelog entries, please check the [changelog.txt](https://plugins.sv
 
 == Upgrade Notice ==
 
-= 2.8.3 =
-Fixes the visitor address behind proxies that add a port, keeps the network root files for network administrators, warns when the server sends llms.txt without UTF-8, closes an MCP window left by updates from 2.7, and fixes formatting in llms-full.txt.
+= 2.8.4 =
+Keeps caches in front of the site that follow Cache-Control from showing people the Markdown version of a page when an AI agent asked for it first, or from passing on cookies set by other plugins. Purge that cache after updating.
 
 == Support ==
 
