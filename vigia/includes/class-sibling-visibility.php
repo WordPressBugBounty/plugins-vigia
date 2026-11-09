@@ -25,6 +25,9 @@
  *                class is loaded (it loads before VigIA in alphabetical plugin
  *                order), with a raw-option fallback that mirrors its defaults.
  *   - Identity:  module `meta_tags` on AND meta_tags.schema_identity = true.
+ *   - WebSite:   from Visibility 3.2.4, module `meta_tags` on AND
+ *                meta_tags.schema_website (on by default: an absent key is on).
+ *                Before 3.2.4 the WebSite came only with the identity.
  *   - llms:      meta_tags.llms_enabled (+ llms_full_enabled for the -full file).
  *   - markdown:  meta_tags.markdown_enabled.
  *   - robots AI: Visibility's robots.txt-for-AI editor loads under the
@@ -67,6 +70,12 @@ class VigIA_Sibling_Visibility {
 	 */
 	const ROBOTS_MARK_BEGIN = '# BEGIN Visibility';
 	const ROBOTS_MARK_END   = '# END Visibility';
+
+	/**
+	 * First Visibility version whose WebSite node has a setting of its own
+	 * (`schema_website`) and is printed with Site Identity off too.
+	 */
+	const WEBSITE_SINCE = '3.2.4';
 
 	/**
 	 * Top-level modules that default to enabled in Visibility, for the raw-option
@@ -156,6 +165,38 @@ class VigIA_Sibling_Visibility {
 	}
 
 	/**
+	 * Is Visibility printing its own WebSite node (#website)?
+	 *
+	 * From Visibility 3.2.4 the WebSite has a setting of its own, on by default
+	 * (so a key that was never saved counts as on), and it is printed on the home
+	 * page with Site Identity off too, named with Visibility's "Site name". Older
+	 * versions have no such key and print a WebSite only along with their
+	 * identity, which emits_identity() already covers: reading the key there
+	 * would take its absence for "on" and leave the page without a WebSite.
+	 *
+	 * Visibility steps back from its WebSite when it finds one in VigIA's graph
+	 * (`Native_AEO_Pack_Conflicts::vigia_website_on_home()`, which builds that
+	 * graph). VigIA_JsonLD_Generator::build_jsonld() leaves the WebSite out when
+	 * this is true, so the two agree on a single printer, Visibility, and neither
+	 * waits for the other.
+	 *
+	 * @since 2.8.5
+	 *
+	 * @return bool
+	 */
+	public static function emits_website() {
+		if ( ! self::is_active() || ! self::module_enabled( 'meta_tags' ) ) {
+			return false;
+		}
+
+		if ( version_compare( (string) NATIVE_AEO_PACK_VERSION, self::WEBSITE_SINCE, '<' ) ) {
+			return false;
+		}
+
+		return (bool) self::setting( 'meta_tags', 'schema_website', true );
+	}
+
+	/**
 	 * Is Visibility serving llms.txt?
 	 *
 	 * @return bool
@@ -219,13 +260,16 @@ class VigIA_Sibling_Visibility {
 	 * hatch for sites that prefer to keep VigIA's own emission even with
 	 * Visibility active: returning false there forces VigIA to keep emitting.
 	 *
-	 * @param string $signal One of: identity, llms, llms_full, markdown, robots.
+	 * @param string $signal One of: identity, website, llms, llms_full, markdown, robots.
 	 * @return bool
 	 */
 	public static function should_defer( $signal ) {
 		switch ( $signal ) {
 			case 'identity':
 				$emits = self::emits_identity();
+				break;
+			case 'website':
+				$emits = self::emits_website();
 				break;
 			case 'llms':
 				$emits = self::emits_llms();
@@ -255,9 +299,10 @@ class VigIA_Sibling_Visibility {
 		 * to keep VigIA emitting it anyway (the "I prefer VigIA's emission" camp).
 		 *
 		 * @since 2.3.0
+		 * @since 2.8.5 The `website` signal.
 		 *
 		 * @param bool   $defer  Whether to defer to Visibility. Default true.
-		 * @param string $signal The signal: identity, llms, llms_full, markdown, robots.
+		 * @param string $signal The signal: identity, website, llms, llms_full, markdown, robots.
 		 */
 		return (bool) apply_filters( 'vigia_defer_emission_to_visibility', true, $signal );
 	}

@@ -1246,8 +1246,14 @@
         var siteUrl = vigiaJsonldData.siteUrl;
         var siteName = vigiaJsonldData.siteName;
         var aiFeatures = vigiaJsonldData.aiFeatures;
+        // Visibility prints the WebSite node (from Visibility 3.2.4): ours is left
+        // out, and the AI Discovery pointers go into Visibility's, so they are
+        // not part of what VigIA prints. Same rule as build_jsonld().
+        var websiteCeded = !!vigiaJsonldData.websiteCeded;
         var identityEnabled = $('#vigia-jsonld-identity-enabled').is(':checked');
         var aiEnabled = $('#vigia-jsonld-ai-enabled').is(':checked');
+
+        $('#vigia-jsonld-preview-ceded').hide();
 
         if (!identityEnabled && !aiEnabled) {
             $('#vigia-jsonld-preview').text('');
@@ -1290,7 +1296,9 @@
             }
 
             website.publisher = { '@id': siteUrl + '/#identity' };
-            graph.push(website);
+            if (!websiteCeded) {
+                graph.push(website);
+            }
 
             // Entity node (Organization/Person).
             var entity = {
@@ -1332,7 +1340,7 @@
         }
 
         // Build AI Discovery actions.
-        if (aiEnabled) {
+        if (aiEnabled && !websiteCeded) {
             var aiActions = [];
 
             if ($('#vigia-jsonld-ai-llms').is(':checked') && aiFeatures.llms_txt) {
@@ -1383,7 +1391,12 @@
 
         if (graph.length === 0) {
             $('#vigia-jsonld-preview').text('');
-            $('#vigia-jsonld-preview-empty').show();
+            if (websiteCeded && aiEnabled) {
+                $('#vigia-jsonld-preview-empty').hide();
+                $('#vigia-jsonld-preview-ceded').show();
+            } else {
+                $('#vigia-jsonld-preview-empty').show();
+            }
             return;
         }
 

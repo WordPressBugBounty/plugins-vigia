@@ -1457,6 +1457,37 @@ class VigIA_Extras_Page {
             );
             ?>
 
+            <?php
+            // The WebSite alone is Visibility's (from Visibility 3.2.4), and the
+            // tab stays in VigIA's hands: say what moved, once, and only what
+            // the sections switched on here make true.
+            $website_ceded = VigIA_JsonLD_Generator::website_ceded()
+                && ! ( class_exists( 'VigIA_Sibling_Visibility' ) && VigIA_Sibling_Visibility::should_defer( 'identity' ) );
+            if ( $website_ceded && ( $settings['site_identity_enabled'] || $settings['ai_discovery_enabled'] ) ) :
+                ?>
+            <div class="vigia-notice vigia-notice-info vigia-visibility-coexistence">
+                <p>
+                    <span class="dashicons dashicons-info-outline"></span>
+                    <?php
+                    echo wp_kses(
+                        sprintf(
+                            /* translators: %s: Visibility plugin name, in bold. */
+                            __( '%s prints the WebSite node, with its own site name, so VigIA no longer prints one.', 'vigia' ),
+                            '<strong>' . esc_html( VigIA_Sibling_Visibility::name() ) . '</strong>'
+                        ),
+                        array( 'strong' => array() )
+                    );
+                    if ( $settings['ai_discovery_enabled'] ) {
+                        echo ' ' . esc_html__( 'The AI Discovery pointers to what VigIA serves itself are added to that node, and Visibility announces what it serves.', 'vigia' );
+                    }
+                    if ( $settings['site_identity_enabled'] ) {
+                        echo ' ' . esc_html__( 'Site Identity prints only the Organization or Person.', 'vigia' );
+                    }
+                    ?>
+                </p>
+            </div>
+            <?php endif; ?>
+
             <?php if ( $conflicts && ! ( class_exists( 'VigIA_Sibling_Visibility' ) && VigIA_Sibling_Visibility::should_defer( 'identity' ) ) ) : ?>
             <div class="vigia-notice vigia-notice-warning vigia-jsonld-conflict">
                 <p>
@@ -1679,18 +1710,24 @@ class VigIA_Extras_Page {
                         <?php esc_html_e( 'This is a live preview of the JSON-LD that will be injected. Changes update in real time as you modify the settings above.', 'vigia' ); ?>
                     </p>
                     <pre id="vigia-jsonld-preview" class="vigia-jsonld-preview-code"><?php echo esc_html( $preview ); ?></pre>
-                    <p class="description" id="vigia-jsonld-preview-empty" style="<?php echo ! empty( $preview ) ? 'display:none;' : ''; ?>">
+                    <p class="description" id="vigia-jsonld-preview-empty" style="<?php echo ! empty( $preview ) || ( $website_ceded && $settings['ai_discovery_enabled'] ) ? 'display:none;' : ''; ?>">
                         <?php esc_html_e( 'Enable at least one section above to see the preview.', 'vigia' ); ?>
                     </p>
+                    <?php if ( $website_ceded ) : ?>
+                    <p class="description" id="vigia-jsonld-preview-ceded" style="<?php echo ! empty( $preview ) || ! $settings['ai_discovery_enabled'] ? 'display:none;' : ''; ?>">
+                        <?php esc_html_e( 'VigIA prints nothing here: Visibility prints the WebSite node, and the AI Discovery pointers to what VigIA serves itself are added to it.', 'vigia' ); ?>
+                    </p>
+                    <?php endif; ?>
                 </div>
             </div>
 
             <?php
             // Hidden data for JS preview builder.
             $preview_data = array(
-                'siteUrl'     => untrailingslashit( home_url() ),
-                'siteName'    => vigia_get_site_name(),
-                'aiFeatures'  => $ai_features,
+                'siteUrl'      => untrailingslashit( home_url() ),
+                'siteName'     => vigia_get_site_name(),
+                'aiFeatures'   => $ai_features,
+                'websiteCeded' => $website_ceded,
             );
             ?>
             <script type="text/javascript">

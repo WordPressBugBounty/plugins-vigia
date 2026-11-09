@@ -4,7 +4,7 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 2.8.4
+Stable tag: 2.8.5
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -442,6 +442,12 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
+= 2.8.5 =
+With Visibility 3.2.4 or later, the home page carries a single WebSite node, the one Visibility prints with its site name, and the AI Discovery pointers of VigIA go into it.
+
+* Improved: The AI Discovery pointers (llms.txt, llms-full.txt and Markdown for agents) now go into the WebSite node that Visibility prints, without repeating the ones Visibility already announces for what it serves itself. That includes a site where Visibility prints its own Site Identity: until now VigIA stepped back with all of its JSON-LD there, and the pointers were lost.
+* Fix: With Visibility 3.2.4 or later, which prints a WebSite node on the home page with a site name of its own, earlier versions of VigIA printed a second one with the same identifier and the site title as its name. On the home page Visibility then left its own out, so the site name set there never reached it, and with the JSON-LD output page set to another page the same node had two names. VigIA now leaves the WebSite to Visibility whenever Visibility prints it, and Site Identity prints only the Organization or Person, which that WebSite names as its publisher. The JSON-LD tab says so, and its preview leaves the WebSite out. Behaviour change: to keep the WebSite of VigIA, turn the WebSite off in Visibility, or return false from the `vigia_defer_emission_to_visibility` filter for the new `website` signal.
+
 = 2.8.4 =
 Keeps caches in front of the site that follow Cache-Control from showing people the Markdown version of a page when an AI agent asked for it first, or from passing on cookies set by other plugins. Purge that cache after updating.
 
@@ -492,8 +498,8 @@ For older changelog entries, please check the [changelog.txt](https://plugins.sv
 
 == Upgrade Notice ==
 
-= 2.8.4 =
-Keeps caches in front of the site that follow Cache-Control from showing people the Markdown version of a page when an AI agent asked for it first, or from passing on cookies set by other plugins. Purge that cache after updating.
+= 2.8.5 =
+With Visibility 3.2.4 or later, the home page carries a single WebSite node, the one Visibility prints with its site name, and the AI Discovery pointers of VigIA go into it.
 
 == Support ==
 

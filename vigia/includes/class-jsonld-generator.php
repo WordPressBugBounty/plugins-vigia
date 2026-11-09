@@ -91,6 +91,13 @@ class VigIA_JsonLD_Generator {
 		if ( $settings['site_identity_enabled'] || $settings['ai_discovery_enabled'] ) {
 			add_action( 'wp_head', array( __CLASS__, 'output_jsonld' ), 99 );
 		}
+
+		// When the Visibility sibling prints the WebSite node, the AI Discovery
+		// pointers go into that node instead of one of our own. Its graph filter
+		// runs in its wp_head (priority 20), after this hook on `wp`.
+		if ( $settings['ai_discovery_enabled'] ) {
+			add_filter( 'native_aeo_pack_schema_graph', array( __CLASS__, 'add_to_sibling_website' ), 10, 2 );
+		}
 	}
 
 	/**
@@ -155,18 +162,19 @@ class VigIA_JsonLD_Generator {
 	private static function should_output() {
 		// Cede the whole JSON-LD output to the Visibility sibling when it emits
 		// the Site Identity schema. Both build a #website / #identity node on the
-		// same page, so emitting ours too would duplicate the @id graph. This
-		// suppresses the AI Discovery ReadAction pointers as well (they hang off a
-		// #website node): an acceptable, documented loss, since when the user moves
-		// emission to Visibility it owns the identity graph. See
-		// VigIA_Sibling_Visibility for the emit/observe split.
+		// same page, so emitting ours too would duplicate the @id graph. The AI
+		// Discovery pointers are not lost with it: add_to_sibling_website() puts
+		// them into Visibility's WebSite. See VigIA_Sibling_Visibility for the
+		// emit/observe split.
 		if ( VigIA_Sibling_Visibility::should_defer( 'identity' ) ) {
 			return false;
 		}
 
 		$settings = self::get_settings();
 
-		if ( ! $settings['site_identity_enabled'] && ! $settings['ai_discovery_enabled'] ) {
+		// With the WebSite ceded (see build_jsonld()), AI Discovery alone leaves
+		// nothing of our own to print: its pointers travel in Visibility's node.
+		if ( ! $settings['site_identity_enabled'] && ( ! $settings['ai_discovery_enabled'] || self::website_ceded() ) ) {
 			return false;
 		}
 
@@ -199,8 +207,16 @@ class VigIA_JsonLD_Generator {
 		$site_url = untrailingslashit( home_url() );
 		$graph    = array();
 
+		// The WebSite node is the Visibility sibling's when it prints one (from
+		// Visibility 3.2.4, on its home page and with its own "Site name"). Ours
+		// had the same @id and the site title as its name, so two names for one
+		// node. Left out here, and not only when printing, because Visibility
+		// decides whether to step back from its own WebSite by building this graph
+		// (Native_AEO_Pack_Conflicts::vigia_website_on_home()).
+		$website_ceded = self::website_ceded();
+
 		// Site Identity: WebSite schema.
-		if ( $settings['site_identity_enabled'] ) {
+		if ( $settings['site_identity_enabled'] && ! $website_ceded ) {
 			$website = array(
 				'@type' => 'WebSite',
 				'@id'   => $site_url . '/#website',
@@ -232,8 +248,11 @@ class VigIA_JsonLD_Generator {
 			);
 
 			$graph[] = $website;
+		}
 
-			// Entity: Organization or Person.
+		// Site Identity: the entity, Organization or Person. Printed with the
+		// WebSite ceded too: Visibility's WebSite points at it as its publisher.
+		if ( $settings['site_identity_enabled'] ) {
 			$entity = array(
 				'@type' => $settings['entity_type'],
 				'@id'   => $site_url . '/#identity',
@@ -266,53 +285,11 @@ class VigIA_JsonLD_Generator {
 			$graph[] = $entity;
 		}
 
-		// AI Discovery: machine-readable content pointers.
-		if ( $settings['ai_discovery_enabled'] ) {
-			$ai_actions = array();
-
-			// LLMs.txt pointer.
-			if ( $settings['ai_discovery_llms'] && VigIA_LLMS_Generator::is_served( 'llms.txt' ) ) {
-				$ai_actions[] = array(
-					'@type'       => 'ReadAction',
-					'target'      => $site_url . '/llms.txt',
-					'name'        => 'LLMs.txt',
-					'description' => 'Machine-readable content index for LLMs',
-				);
-			}
-
-			// LLMs-full.txt pointer.
-			if ( $settings['ai_discovery_llms_full'] && VigIA_LLMS_Generator::is_served( 'llms-full.txt' ) ) {
-				$ai_actions[] = array(
-					'@type'       => 'ReadAction',
-					'target'      => $site_url . '/llms-full.txt',
-					'name'        => 'LLMs-full.txt',
-					'description' => 'Full content index for LLMs',
-				);
-			}
-
-			// Markdown endpoints pointer. The target is a URL pattern, not a real
-			// URL, so it must go inside an EntryPoint as an RFC 6570 urlTemplate
-			// (same shape as the SearchAction above). As a bare string target,
-			// consumers treat "/{slug}.md" as a literal crawlable URL and report
-			// it as a 404 (seen in Google Search Console).
-			if ( $settings['ai_discovery_markdown'] ) {
-				$md_settings = get_option( 'vigia_markdown_settings', array() );
-				if ( ! empty( $md_settings['enabled'] ) ) {
-					$ai_actions[] = array(
-						'@type'       => 'ReadAction',
-						'target'      => array(
-							'@type'       => 'EntryPoint',
-							'urlTemplate' => $site_url . '/{slug}.md',
-							'contentType' => 'text/markdown',
-						),
-						// Same wording as the Visibility sibling's own ReadAction
-						// (class-frontend-schema-identity.php), so an agent reading
-						// either plugin's JSON-LD sees one consistent claim.
-						'name'        => 'Markdown for agents',
-						'description' => 'Each page is also available as clean Markdown at its URL with a .md suffix.',
-					);
-				}
-			}
+		// AI Discovery: machine-readable content pointers, in our own WebSite.
+		// With the WebSite ceded they go into Visibility's instead, through
+		// add_to_sibling_website().
+		if ( $settings['ai_discovery_enabled'] && ! $website_ceded ) {
+			$ai_actions = self::ai_read_actions( $settings, $site_url, false );
 
 			if ( ! empty( $ai_actions ) ) {
 				// If site identity is enabled, add to WebSite node.
@@ -349,6 +326,212 @@ class VigIA_JsonLD_Generator {
 			'@context' => 'https://schema.org',
 			'@graph'   => $graph,
 		);
+	}
+
+	/**
+	 * Has the WebSite node been handed over to the Visibility sibling?
+	 *
+	 * @since 2.8.5
+	 *
+	 * @return bool
+	 */
+	public static function website_ceded() {
+		return VigIA_Sibling_Visibility::should_defer( 'website' );
+	}
+
+	/**
+	 * The AI Discovery ReadAction pointers.
+	 *
+	 * @since 2.8.5 Taken out of build_jsonld(), to be shared with
+	 *              add_to_sibling_website().
+	 *
+	 * @param array  $settings JSON-LD settings.
+	 * @param string $site_url Untrailingslashed home URL.
+	 * @param bool   $own_only Only what VigIA itself serves, leaving out what it
+	 *                         has ceded to Visibility: for Visibility's WebSite,
+	 *                         which already announces what Visibility serves.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function ai_read_actions( $settings, $site_url, $own_only ) {
+		$actions = array();
+
+		// VigIA cedes the two files together, under a single signal.
+		$llms_ours = ! $own_only || ! VigIA_Sibling_Visibility::should_defer( 'llms' );
+
+		// LLMs.txt pointer.
+		if ( $settings['ai_discovery_llms'] && $llms_ours && VigIA_LLMS_Generator::is_served( 'llms.txt' ) ) {
+			$actions[] = array(
+				'@type'       => 'ReadAction',
+				'target'      => $site_url . '/llms.txt',
+				'name'        => 'LLMs.txt',
+				'description' => 'Machine-readable content index for LLMs',
+			);
+		}
+
+		// LLMs-full.txt pointer.
+		if ( $settings['ai_discovery_llms_full'] && $llms_ours && VigIA_LLMS_Generator::is_served( 'llms-full.txt' ) ) {
+			$actions[] = array(
+				'@type'       => 'ReadAction',
+				'target'      => $site_url . '/llms-full.txt',
+				'name'        => 'LLMs-full.txt',
+				'description' => 'Full content index for LLMs',
+			);
+		}
+
+		// Markdown endpoints pointer. The target is a URL pattern, not a real
+		// URL, so it must go inside an EntryPoint as an RFC 6570 urlTemplate
+		// (same shape as the SearchAction above). As a bare string target,
+		// consumers treat "/{slug}.md" as a literal crawlable URL and report
+		// it as a 404 (seen in Google Search Console).
+		if ( $settings['ai_discovery_markdown'] ) {
+			if ( $own_only ) {
+				// Module on, its .md addresses on, and not ceded to Visibility.
+				$markdown = VigIA_Markdown_Endpoints::serves_markdown();
+			} else {
+				$md_settings = get_option( 'vigia_markdown_settings', array() );
+				$markdown    = ! empty( $md_settings['enabled'] );
+			}
+
+			if ( $markdown ) {
+				$actions[] = array(
+					'@type'       => 'ReadAction',
+					'target'      => array(
+						'@type'       => 'EntryPoint',
+						'urlTemplate' => $site_url . '/{slug}.md',
+						'contentType' => 'text/markdown',
+					),
+					// Same wording as the Visibility sibling's own ReadAction
+					// (class-frontend-schema-identity.php), so an agent reading
+					// either plugin's JSON-LD sees one consistent claim.
+					'name'        => 'Markdown for agents',
+					'description' => 'Each page is also available as clean Markdown at its URL with a .md suffix.',
+				);
+			}
+		}
+
+		return $actions;
+	}
+
+	/**
+	 * Add the AI Discovery pointers to the Visibility sibling's WebSite node,
+	 * when VigIA does not print a WebSite of its own because Visibility does.
+	 *
+	 * Hooked to `native_aeo_pack_schema_graph`, and only for the graphs where
+	 * Visibility prints its site-wide WebSite: 'website' (the home page, with
+	 * its identity off or printed on another page) and 'identity' (the page that
+	 * carries its identity). The entries and profiles carry a minimal WebSite of
+	 * their own when nobody prints the real one, which is not where these go.
+	 *
+	 * Only what VigIA itself serves goes in, and nothing whose target the node
+	 * already announces: Visibility lists what it serves, and running this twice
+	 * must not add them twice.
+	 *
+	 * @since 2.8.5
+	 *
+	 * @param mixed  $graph   The graph Visibility is about to print.
+	 * @param string $context Which graph: website, identity, article, person.
+	 * @return mixed The graph, with the pointers added to its WebSite node.
+	 */
+	public static function add_to_sibling_website( $graph, $context = '' ) {
+		if ( ! is_array( $graph ) || ! in_array( $context, array( 'website', 'identity' ), true ) ) {
+			return $graph;
+		}
+
+		// Our own WebSite carries them when we print one. With the identity
+		// ceded we print nothing (should_output()), and Visibility's WebSite
+		// comes with its identity.
+		if ( ! self::website_ceded() && ! VigIA_Sibling_Visibility::should_defer( 'identity' ) ) {
+			return $graph;
+		}
+
+		$settings = self::get_settings();
+		if ( empty( $settings['ai_discovery_enabled'] ) ) {
+			return $graph;
+		}
+
+		$actions = self::ai_read_actions( $settings, untrailingslashit( home_url() ), true );
+		if ( empty( $actions ) ) {
+			return $graph;
+		}
+
+		foreach ( $graph as $i => $node ) {
+			if ( ! self::is_website_node( $node ) ) {
+				continue;
+			}
+
+			// A single action may be written as an object rather than a list.
+			$existing = isset( $node['potentialAction'] ) ? $node['potentialAction'] : array();
+			if ( ! is_array( $existing ) ) {
+				$existing = empty( $existing ) ? array() : array( $existing );
+			} elseif ( isset( $existing['@type'] ) ) {
+				$existing = array( $existing );
+			}
+
+			$announced = array();
+			foreach ( $existing as $action ) {
+				$announced[ self::action_target( $action ) ] = true;
+			}
+
+			$added = false;
+			foreach ( $actions as $action ) {
+				$target = self::action_target( $action );
+				if ( isset( $announced[ $target ] ) ) {
+					continue;
+				}
+				$existing[]           = $action;
+				$announced[ $target ] = true;
+				$added                = true;
+			}
+
+			if ( $added ) {
+				$graph[ $i ]['potentialAction'] = array_values( $existing );
+			}
+
+			// One WebSite per graph.
+			break;
+		}
+
+		return $graph;
+	}
+
+	/**
+	 * Is a graph node a WebSite?
+	 *
+	 * @param mixed $node Graph node.
+	 * @return bool
+	 */
+	private static function is_website_node( $node ) {
+		if ( ! is_array( $node ) || ! isset( $node['@type'] ) ) {
+			return false;
+		}
+
+		$type = $node['@type'];
+
+		return 'WebSite' === $type || ( is_array( $type ) && in_array( 'WebSite', $type, true ) );
+	}
+
+	/**
+	 * The address an action points at, for comparing two of them: a plain
+	 * target, or the template or address inside an EntryPoint.
+	 *
+	 * @param mixed $action A potentialAction entry.
+	 * @return string Empty when it has none that can be compared.
+	 */
+	private static function action_target( $action ) {
+		if ( ! is_array( $action ) || ! isset( $action['target'] ) ) {
+			return '';
+		}
+
+		$target = $action['target'];
+		if ( is_array( $target ) ) {
+			if ( isset( $target['urlTemplate'] ) ) {
+				$target = $target['urlTemplate'];
+			} elseif ( isset( $target['url'] ) ) {
+				$target = $target['url'];
+			}
+		}
+
+		return is_string( $target ) ? trim( $target ) : '';
 	}
 
 	/**
