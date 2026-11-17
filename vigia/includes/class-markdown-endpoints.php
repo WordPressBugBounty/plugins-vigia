@@ -2375,7 +2375,9 @@ class VigIA_Markdown_Endpoints {
 		$line     = '';
 		$previous = '';
 
-		foreach ( preg_split( '/\R+/', $text ) as $block ) {
+		// ASCII line breaks only, as in class-llms-generator.php, blocks_to_line():
+		// without `u`, `\R` takes the byte 0x85 that ends ą, х, م, ✅ or 😅.
+		foreach ( preg_split( '/[\r\n\x0B\x0C]+/', $text ) as $block ) {
 			$block = self::one_line( $block );
 			if ( '' === $block ) {
 				continue;
@@ -2869,11 +2871,13 @@ class VigIA_Markdown_Endpoints {
 
 		// Inline code, on one line: a code span reads a line ending as a space
 		// anyway, and only a span that sits on a single line is taken for code
-		// further down.
+		// further down. ASCII breaks and spaces only: without `u`, `\R` and
+		// `\s` can take one byte of a multibyte character (0x85, and 0xA0 when
+		// another plugin sets a UTF-8 LC_CTYPE on a BSD or macOS libc).
 		$html = self::keep_replace_callback(
 			'/<code[^>]*>(.*?)<\/code>/is',
 			static function ( $matches ) {
-				return '`' . self::keep_replace( '#(?:<br\b[^>]*>|\R)\s*#i', ' ', $matches[1] ) . '`';
+				return '`' . self::keep_replace( '#(?:<br\b[^>]*>|[\r\n\x0B\x0C])[ \t\r\n\x0B\x0C]*#i', ' ', $matches[1] ) . '`';
 			},
 			$html
 		);

@@ -4,7 +4,7 @@ Tags: ai, analytics, gpt, claude, llms
 Requires at least: 6.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 2.8.5
+Stable tag: 2.8.6
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -442,6 +442,11 @@ JSON-LD (JavaScript Object Notation for Linked Data) is structured data that hel
 
 == Changelog ==
 
+= 2.8.6 =
+Polish, Cyrillic, Arabic, Japanese and emoji characters stay whole in the llms.txt descriptions and in the Markdown version of a page.
+
+* Fix: Characters whose UTF-8 encoding ends in the byte 0x85 (Polish ą, Cyrillic х, Arabic م, many Japanese characters, emoji such as ✅) were split in the llms.txt descriptions, in the description of the Markdown pages and in their inline code, which then were not valid UTF-8.
+
 = 2.8.5 =
 With Visibility 3.2.4 or later, the home page carries a single WebSite node, the one Visibility prints with its site name, and the AI Discovery pointers of VigIA go into it.
 
@@ -498,8 +503,8 @@ For older changelog entries, please check the [changelog.txt](https://plugins.sv
 
 == Upgrade Notice ==
 
-= 2.8.5 =
-With Visibility 3.2.4 or later, the home page carries a single WebSite node, the one Visibility prints with its site name, and the AI Discovery pointers of VigIA go into it.
+= 2.8.6 =
+Polish, Cyrillic, Arabic, Japanese and emoji characters stay whole in the llms.txt descriptions and in the Markdown version of a page.
 
 == Support ==
 

@@ -1900,7 +1900,13 @@ class VigIA_LLMS_Generator {
         $line     = '';
         $previous = '';
 
-        foreach ( preg_split( '/\R+/', $text ) as $block ) {
+        // ASCII line breaks only. Without the `u` modifier `\R` also takes the byte
+        // 0x85 (NEL) for a line break, and that byte ends ą, х, م, ✅ or 😅 in UTF-8:
+        // the character was cut in two and the summary was no longer valid UTF-8.
+        // With `u`, one invalid byte in an old post would make the whole split
+        // fail instead. This set is the one `\R` matches in 8-bit mode, without
+        // 0x85. Twin of Native_AEO_Pack_Text::split_blocks() in Visibility.
+        foreach ( preg_split( '/[\r\n\x0B\x0C]+/', $text ) as $block ) {
             $block = self::one_line( $block );
             if ( '' === $block ) {
                 continue;
